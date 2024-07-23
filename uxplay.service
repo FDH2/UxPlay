@@ -1,0 +1,13 @@
+[Unit]
+Description=AirPlay Unix mirroring server
+Requires=avahi-daemon
+After=avahi-daemon
+
+[Service]
+Type=simple
+ExecStart=uxplay
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+
