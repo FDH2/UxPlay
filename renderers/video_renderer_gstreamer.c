@@ -49,7 +49,7 @@ struct video_renderer_s {
     GstElement *appsrc, *pipeline;
     GstBus *bus;
 #ifdef  X_DISPLAY_FIX
-    const char * server_name;  
+    const char * server_name;
     X11_Window_t * gst_window;
 #endif
 };
@@ -88,7 +88,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         case LEFT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UR_LL ! ");
             break;
-        case RIGHT: 
+        case RIGHT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_UL_LR ! ");
             break;
         default:
@@ -101,7 +101,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         case LEFT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_90L ! ");
             break;
-        case RIGHT: 
+        case RIGHT:
             g_string_append(launch, "videoflip video-direction=GST_VIDEO_ORIENTATION_90R ! ");
             break;
         default:
@@ -109,7 +109,7 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
         }
         break;
     }
-}	
+}
 
 /* apple uses colorimetry=1:3:5:1                                *
  * (not recognized by v4l2 plugin in Gstreamer  < 1.20.4)        *
@@ -300,10 +300,10 @@ void video_renderer_flush() {
 }
 
 void video_renderer_stop() {
-  if (renderer) {
-            gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
-	    gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-  }   
+    if (renderer) {
+        gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
+    gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+    }
 }
 
 void video_renderer_destroy() {
@@ -322,7 +322,7 @@ void video_renderer_destroy() {
             free(renderer->gst_window);
             renderer->gst_window = NULL;
         }
-#endif    
+#endif
         free (renderer);
         renderer = NULL;
     }
@@ -424,4 +424,4 @@ gboolean gstreamer_pipeline_bus_callback(GstBus *bus, GstMessage *message, gpoin
 unsigned int video_renderer_listen(void *loop) {
     return (unsigned int) gst_bus_add_watch(renderer->bus, (GstBusFunc)
                                             gstreamer_pipeline_bus_callback, (gpointer) loop);    
-}  
+}
