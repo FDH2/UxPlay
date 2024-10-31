@@ -287,7 +287,11 @@ void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t res
         if (seqnum_cmp(seqnum, raop_buffer->first_seqnum) == 0) {
             return;
         }
-        count = seqnum_cmp(seqnum, raop_buffer->first_seqnum);
+        if (seqnum < raop_buffer->first_seqnum) {
+            count =  seqnum_cmp(seqnum + UINT16_MAX, raop_buffer->first_seqnum);
+        } else {
+            count = seqnum_cmp(seqnum, raop_buffer->first_seqnum);
+        }
         resend_cb(opaque, raop_buffer->first_seqnum, count);
     }
 }
