@@ -16,6 +16,9 @@
 #define SOCKETS_H
 
 #if defined(WIN32)
+
+char *wsa_strerror(int errnum);
+
 typedef int socklen_t;
 
 #ifndef SHUT_RD
@@ -31,6 +34,7 @@ typedef int socklen_t;
 #define SOCKET_GET_ERROR()      WSAGetLastError()
 #define SOCKET_SET_ERROR(value) WSASetLastError(value)
 #define SOCKET_ERRORNAME(name)  WSA##name
+#define SOCKET_ERROR_STRING(errnum) wsa_strerror(errnum)
 
 #define WSAEAGAIN WSAEWOULDBLOCK
 #define WSAENOMEM WSA_NOT_ENOUGH_MEMORY
@@ -43,7 +47,7 @@ typedef int socklen_t;
 #define SOCKET_GET_ERROR()      (errno)
 #define SOCKET_SET_ERROR(value) (errno = (value))
 #define SOCKET_ERRORNAME(name)  name
-
+#define SOCKET_ERROR_STRING(errnum) strerror(errnum)
 #endif
 
 #endif

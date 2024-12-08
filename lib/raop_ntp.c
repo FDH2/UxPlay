@@ -303,7 +303,7 @@ raop_ntp_thread(void *arg)
         if (send_len < 0) {
             int sock_err = SOCKET_GET_ERROR();
             logger_log(raop_ntp->logger, LOGGER_ERR, "raop_ntp error sending request. Error %d:%s",
-                     sock_err, strerror(sock_err));
+                     sock_err, SOCKET_ERROR_STRING(sock_err));
         } else {
             // Read response
             response_len = recvfrom(raop_ntp->tsock, (char *)response, sizeof(response), 0, NULL, NULL);
