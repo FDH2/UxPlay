@@ -15,8 +15,9 @@
 #ifndef HTTP_REQUEST_H
 #define HTTP_REQUEST_H
 
-typedef struct http_request_s http_request_t;
+#include <stdbool.h>
 
+typedef struct http_request_s http_request_t;
 
 http_request_t *http_request_init(void);
 
@@ -32,6 +33,8 @@ const char *http_request_get_protocol(http_request_t *request);
 const char *http_request_get_header(http_request_t *request, const char *name);
 const char *http_request_get_data(http_request_t *request, int *datalen);
 int http_request_get_header_string(http_request_t *request, char **header_str);
+bool http_request_is_reverse(http_request_t *request);
+void http_request_set_reverse(http_request_t *request);
 
 void http_request_destroy(http_request_t *request);
 

@@ -92,6 +92,21 @@ http_response_init(http_response_t *response, const char *protocol, int code, co
 }
 
 void
+http_response_reverse_request_init(http_response_t *request, const char *method, const char *url, const char *protocol)
+{
+    assert(request);
+    request->data_length = 0;  /* reinitialize a previously-initialized response as a reverse-HTTP (PTTH/1.0) request */
+
+    /* Add first line of response to the data array */
+    http_response_add_data(request, method, strlen(method));
+    http_response_add_data(request, " ", 1);
+    http_response_add_data(request, url, strlen(url));
+    http_response_add_data(request, " ", 1);
+    http_response_add_data(request, protocol, strlen(protocol));
+    http_response_add_data(request, "\r\n", 2);
+}
+
+void
 http_response_destroy(http_response_t *response)
 {
     if (response) {

@@ -20,12 +20,24 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <errno.h>
 
 #include "httpd.h"
 #include "netutils.h"
 #include "http_request.h"
 #include "compat.h"
 #include "logger.h"
+#include "utils.h"
+
+
+static const char *typename[] = {
+    [CONNECTION_TYPE_UNKNOWN] = "Unknown",
+    [CONNECTION_TYPE_RAOP]    = "RAOP",
+    [CONNECTION_TYPE_AIRPLAY] = "AirPlay",
+    [CONNECTION_TYPE_PTTH]    = "AirPlay (reversed)",
+    [CONNECTION_TYPE_HLS]     = "HLS"
+};
+
 
 struct http_connection_s {
     int connected;
@@ -58,6 +70,20 @@ struct httpd_s {
 };
 
 int
+httpd_get_connection_socket (httpd_t *httpd, void *user_data) {
+    for (int i = 0; i < httpd->max_connections; i++) {
+        http_connection_t *connection = &httpd->connections[i];
+	if (!connection->connected) {
+            continue;
+        }
+        if (connection->user_data == user_data) {
+            return connection->socket_fd;
+        }
+    }
+    return -1;
+}
+
+int
 httpd_set_connection_type (httpd_t *httpd, void *user_data, connection_type_t type) {
     for (int i = 0; i < httpd->max_connections; i++) {
         http_connection_t *connection = &httpd->connections[i];
@@ -87,6 +113,42 @@ httpd_count_connection_type (httpd_t *httpd, connection_type_t type) {
     return count;
 }
 
+int
+httpd_get_connection_socket_by_type (httpd_t *httpd, connection_type_t type, int instance){
+    int count = 0;
+    for (int i = 0; i < httpd->max_connections; i++) {
+        http_connection_t *connection = &httpd->connections[i];
+        if (!connection->connected) {
+            continue;
+        }
+        if (connection->type == type) {
+            count++;
+            if (count == instance) {
+                return connection->socket_fd;
+            }
+        }
+    }
+    return 0;
+}
+
+void *
+httpd_get_connection_by_type (httpd_t *httpd, connection_type_t type, int instance){
+    int count = 0;
+    for (int i = 0; i < httpd->max_connections; i++) {
+        http_connection_t *connection = &httpd->connections[i];
+        if (!connection->connected) {
+            continue;
+        }
+        if (connection->type == type) {
+            count++;
+            if (count == instance) {
+                return connection->user_data;
+            }
+        }
+    }
+    return NULL;
+}
+
 #define MAX_CONNECTIONS 12  /* value used in AppleTV 3*/
 httpd_t *
 httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
@@ -101,7 +163,6 @@ httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
         return NULL;
     }
 
-    
     httpd->nohold = (nohold ? 1 : 0);
     httpd->max_connections = MAX_CONNECTIONS;  
     httpd->connections = calloc(httpd->max_connections, sizeof(http_connection_t));
@@ -213,7 +274,7 @@ httpd_accept_connection(httpd_t *httpd, int server_fd, int is_ipv6)
     local = netutils_get_address(&local_saddr, &local_len, &local_zone_id);
     remote = netutils_get_address(&remote_saddr, &remote_len, &remote_zone_id);
     assert (local_zone_id == remote_zone_id);
-    
+
     ret = httpd_add_connection(httpd, fd, local, local_len, remote, remote_len, local_zone_id);
     if (ret == -1) {
         shutdown(fd, SHUT_RDWR);
@@ -235,7 +296,7 @@ httpd_remove_known_connections(httpd_t *httpd) {
         if (!connection->connected || connection->type == CONNECTION_TYPE_UNKNOWN) {
             continue;
         }
-	httpd_remove_connection(httpd, connection);
+        httpd_remove_connection(httpd, connection);
     }
 }
 
@@ -243,10 +304,11 @@ static THREAD_RETVAL
 httpd_thread(void *arg)
 {
     httpd_t *httpd = arg;
+    char http[] = "HTTP/1.1";
     char buffer[1024];
     int i;
+
     bool logger_debug = (logger_get_level(httpd->logger) >= LOGGER_DEBUG);
-    
     assert(httpd);
 
     while (1) {
@@ -254,6 +316,7 @@ httpd_thread(void *arg)
         struct timeval tv;
         int nfds=0;
         int ret;
+	int new_request;
 
         MUTEX_LOCK(httpd->run_mutex);
         if (!httpd->running) {
@@ -299,7 +362,7 @@ httpd_thread(void *arg)
             /* Timeout happened */
             continue;
         } else if (ret == -1) {
-            logger_log(httpd->logger, LOGGER_ERR, "httpd error in select");
+            logger_log(httpd->logger, LOGGER_ERR, "httpd error in select: %d %s", errno, strerror(errno));
             break;
         }
 
@@ -337,20 +400,93 @@ httpd_thread(void *arg)
             if (!connection->request) {
                 connection->request = http_request_init();
                 assert(connection->request);
-            }
+                new_request = 1;
+                if (connection->type == CONNECTION_TYPE_PTTH) {
+                    http_request_is_reverse(connection->request);
+                }
+		logger_log(httpd->logger, LOGGER_DEBUG, "new request, connection %d, socket %d type %s",
+                           i, connection->socket_fd, typename [connection->type]);
+            } else {
+                new_request = 0;
+	    }
 
-            logger_log(httpd->logger, LOGGER_DEBUG, "httpd receiving on socket %d, connection %d", connection->socket_fd, i);
-            ret = recv(connection->socket_fd, buffer, sizeof(buffer), 0);
-            if (ret == 0) {
-                logger_log(httpd->logger, LOGGER_INFO, "Connection closed for socket %d", connection->socket_fd);
-                httpd_remove_connection(httpd, connection);
+            logger_log(httpd->logger, LOGGER_DEBUG, "httpd receiving on socket %d, connection %d",
+                       connection->socket_fd, i);
+            if (logger_debug) {
+                printf("\nhttpd: current connections:\n");
+                for (int i = 0; i < httpd->max_connections; i++) {
+                    http_connection_t *connection = &httpd->connections[i];
+                    if(!connection->connected) {
+                        continue;
+                    }
+                    if (!FD_ISSET(connection->socket_fd, &rfds)) {
+                        printf("connection %d type %d socket %d  conn %p %s\n", i,
+                               connection->type, connection->socket_fd,
+                               connection->user_data, typename [connection->type]);
+		    } else {
+                        printf("connection %d type %d socket %d  conn %p %s ACTIVE CONNECTION\n", i, connection->type,
+                               connection->socket_fd, connection->user_data, typename [connection->type]);
+                    }
+                }
+		printf("\n");
+	    }
+            /* reverse-http responses from the client must not be sent to the llhttp parser:
+             * such messages start with "HTTP/1.1" */
+            if (new_request) {
+                int readstart = 0;
+                new_request = 0;
+                while (readstart < 8) {
+                    ret = recv(connection->socket_fd, buffer + readstart, sizeof(buffer) - 1 - readstart, 0);
+                    if (ret == 0) {
+                        logger_log(httpd->logger, LOGGER_INFO, "Connection closed for socket %d",
+                                   connection->socket_fd);
+                        break;
+                    } else if (ret == -1) {
+		      if (errno == EAGAIN) {
+			continue;
+		      } else {
+                        int sock_err = SOCKET_GET_ERROR();
+                        logger_log(httpd->logger, LOGGER_ERR, "httpd: recv socket error %d:%s",
+                                   sock_err, strerror(sock_err));
+                        break;
+		      }
+                    } else {
+                        readstart += ret;
+                        ret = readstart;
+                    }
+                }
+                if (!memcmp(buffer, http, 8)) {
+                    http_request_set_reverse(connection->request);  
+                }
+            } else {
+                ret = recv(connection->socket_fd, buffer, sizeof(buffer) - 1, 0);
+                if (ret == 0) {
+                    logger_log(httpd->logger, LOGGER_INFO, "Connection closed for socket %d",
+                               connection->socket_fd);
+                    httpd_remove_connection(httpd, connection);
+                    continue;
+                }
+            }
+            if (http_request_is_reverse(connection->request)) {
+                /* this is a response from the client to a
+                 * GET /event reverse HTTP request from the server */
+                if (ret && logger_debug) {
+                    buffer[ret] = '\0';
+                    logger_log(httpd->logger, LOGGER_INFO, "<<<< received response from client"
+                               " (reversed HTTP = \"PTTH/1.0\") connection"
+                               " on socket %d:\n%s\n", connection->socket_fd, buffer);
+                }
+                if (ret == 0) {
+                    httpd_remove_connection(httpd, connection);
+                }
                 continue;
             }
 
             /* Parse HTTP request from data read from connection */
             http_request_add_data(connection->request, buffer, ret);
             if (http_request_has_error(connection->request)) {
-                logger_log(httpd->logger, LOGGER_ERR, "httpd error in parsing: %s", http_request_get_error_name(connection->request));
+                logger_log(httpd->logger, LOGGER_ERR, "httpd error in parsing: %s",
+                           http_request_get_error_name(connection->request));
                 httpd_remove_connection(httpd, connection);
                 continue;
             }
@@ -359,12 +495,13 @@ httpd_thread(void *arg)
             if (http_request_is_complete(connection->request)) {
                 http_response_t *response = NULL;
                 // Callback the received data to raop
-		if (logger_debug) {
+                if (logger_debug) {
                     const char *method = http_request_get_method(connection->request);
                     const char *url = http_request_get_url(connection->request);
                     const char *protocol = http_request_get_protocol(connection->request);
-                    logger_log(httpd->logger, LOGGER_INFO, "httpd request received on socket %d, connection %d, "
-			       "method = %s, url = %s, protocol = %s", connection->socket_fd, i, method, url, protocol);
+                    logger_log(httpd->logger, LOGGER_INFO, "httpd request received on socket %d, "
+                               "connection %d, method = %s, url = %s, protocol = %s",
+                               connection->socket_fd, i, method, url, protocol);
                 }
                 httpd->callbacks.conn_request(connection->user_data, connection->request, &response);
                 http_request_destroy(connection->request);

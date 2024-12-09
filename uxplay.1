@@ -1,11 +1,11 @@
-.TH UXPLAY "1" "September 2024" "1.70" "User Commands"
+.TH UXPLAY "1" "November 2024" "1.71" "User Commands"
 .SH NAME
 uxplay \- start AirPlay server
 .SH SYNOPSIS
 .B uxplay
 [\fI\,-n name\/\fR] [\fI\,-s wxh\/\fR] [\fI\,-p \/\fR[\fI\,n\/\fR]] [more \fI OPTIONS \/\fR ...]
 .SH DESCRIPTION
-UxPlay 1.70: An open\-source AirPlay mirroring (+ audio streaming) server:
+UxPlay 1.71: An open\-source AirPlay mirroring (+ audio streaming) server:
 .SH OPTIONS
 .TP
 .B
@@ -14,6 +14,8 @@ UxPlay 1.70: An open\-source AirPlay mirroring (+ audio streaming) server:
 \fB\-nh\fR       Do \fBNOT\fR append "@\fIhostname\fR" at end of AirPlay server name
 .TP
 \fB\-h265\fR     Support h265 (4K) video (with h265 versions of h264 plugins)
+.TP
+\fB\-hls\fR      Support HTTP Live Streaming (currently YouTube video only)
 .TP
 \fB\-pin\fI[xxxx]\fRUse a 4-digit pin code to control client access (default: no)
 .IP

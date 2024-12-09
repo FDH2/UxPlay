@@ -23,7 +23,10 @@ typedef struct httpd_s httpd_t;
 
 typedef enum connectype_type_e {
     CONNECTION_TYPE_UNKNOWN,
-    CONNECTION_TYPE_RAOP
+    CONNECTION_TYPE_RAOP,
+    CONNECTION_TYPE_AIRPLAY,
+    CONNECTION_TYPE_PTTH,
+    CONNECTION_TYPE_HLS
 } connection_type_t;
 
 struct httpd_callbacks_s {
@@ -39,7 +42,9 @@ void httpd_remove_known_connections(httpd_t *httpd);
 
 int httpd_set_connection_type (httpd_t *http, void *user_data, connection_type_t type);
 int httpd_count_connection_type (httpd_t *http, connection_type_t type);
-
+int httpd_get_connection_socket (httpd_t *httpd, void *user_data);
+int httpd_get_connection_socket_by_type (httpd_t *httpd, connection_type_t type, int instance);
+void *httpd_get_connection_by_type (httpd_t *httpd, connection_type_t type, int instance);
 httpd_t *httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int  nohold);
 
 int httpd_is_running(httpd_t *httpd);

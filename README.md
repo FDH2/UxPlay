@@ -1,19 +1,16 @@
-# UxPlay 1.70:  AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix (now also runs on Windows).
+# UxPlay 1.71beta:  AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix (now also runs on Windows).
 
 ### **Now developed at the GitHub site [https://github.com/FDH2/UxPlay](https://github.com/FDH2/UxPlay) (where ALL user issues should be posted, and latest versions can be found).**
 
-   * _**NEW in v1.70**: Support for 4k (h265) video with the new "-h265" option._  (Recent Apple devices will send HEVC (h265) video in AirPlay mirror mode
-   if larger resolutions (_h_ > 1080) are requested with UxPlay's "-s wxh" option;  wired ethernet connection is prefered to
-   wireless in this mode, and may also be required by the client;
-   the "-h265" option changes the  default resolution from 1920x1080 to 3840x2160, but leaves default maximum framerate ("-fps" option) at 30fps.)
- 
+   * _**NEW in v1.71beta**: Support for (YouTube) HLS (HTTP Live Streaming) video with the new "-hls" option._   Click on the airplay icon in the YouTube app to stream video.
+    
 ## Highlights:
 
    * GPLv3, open source.
    * Originally supported only AirPlay Mirror protocol, now has added support
      for AirPlay Audio-only (Apple Lossless ALAC) streaming 
-     from current iOS/iPadOS clients. **There is no current support for Airplay HLS
-     video-streaming (e.g., YouTube video) but this is in development.**
+     from current iOS/iPadOS clients. **Now with support for Airplay HLS
+     video-streaming (currently only  YouTube video).**
    * macOS computers (2011 or later, both Intel and "Apple Silicon" M1/M2
      systems) can act either as AirPlay clients, or
      as the server running UxPlay. Using AirPlay, UxPlay can
@@ -124,15 +121,14 @@ switch back by initiating a_ **Mirror** _mode connection; cover-art display stop
 
 * **Note that Apple video-DRM
 (as found in "Apple TV app" content on the client) cannot be decrypted by UxPlay, and
-the Apple TV app cannot be watched using UxPlay's AirPlay Mirror mode (only the unprotected audio will be streamed, in AAC format),
-but both video and audio content from  DRM-free apps like "YouTube app" will be streamed  by UxPlay in Mirror mode.**
+the Apple TV app cannot be watched using UxPlay's AirPlay Mirror mode (only the unprotected audio will be streamed, in AAC format).**
 
-* **As UxPlay does not currently support non-Mirror AirPlay video streaming (where the
+* **With the new "-hls" option, UxPlay now also supports non-Mirror AirPlay video streaming (where the
 client controls a web server on the AirPlay server that directly receives
-HLS content to avoid it being decoded and re-encoded by the client),
-using the icon for AirPlay video in apps such as the YouTube app
+HLS content to avoid it being decoded and re-encoded by the client).   This currently only supports streaming of YouTube videos.
+Without the -hls option, using the icon for AirPlay video in apps such as the YouTube app
 will only send audio (in lossless ALAC format) without the accompanying
-video (there are plans to support HLS video in future releases of UxPlay)**
+video.**
 
 ### Possibility for using hardware-accelerated h264/h265 video-decoding, if available.
 
@@ -512,7 +508,7 @@ See [Usage](#usage) for more run-time options.
 
 * **H265 (4K)** video is potentially supported by hardware decoding on Raspberry Pi 5 models, as well as
   on Raspberry Pi 4 model B, using a dedicated HEVC decoding block, but the  "rpivid" kernel driver for this
-  it not yet supported by GStreamer (this driver decodes video into a non-standard format that cannot be supported
+  is not yet supported by GStreamer (this driver decodes video into a non-standard format that cannot be supported
   by GStreamer until the driver is in the mainline Linux kernel).  Raspberry Pi provides a version of ffmpeg that
   can use that format, but at present UxPlay cannot use this.   The best solution would be for the driver to be
   "upstreamed" to the kernel, allowing GStreamer support.   (Software HEVC decoding works, but does not seem to
@@ -591,18 +587,20 @@ their location (Homebrew does not supply a complete GStreamer, but seems to have
 the environment variable `$HOMEBREW_PREFIX`.**
 
 
-**Using GStreamer installed from MacPorts** : (MacPorts is now again supplying current or recent Gstreamer).
-Before  building UxPlay, install the MacPorts GStreamer with "`sudo port install gstreamer1 gstreamer1-gst-plugins-base`".    Plugins are
-installed by "`sudo port install gstreamer1-gst-plugins-*`" where "`*`" is "good", "bad", (and optionally "ugly"). For the libav plugin, 
-"`sudo port install ffmpeg6 [+nonfree] gstreamer1-gst-libav`" (where "+nonfree" is optional, and makes linked GPL binaries non-distributable).
-Unfortunately, the current MacPorts GStreamer build (bug or feature?) does not provide the opengl plugin, so the only working videosink it provides is 
-osxvideosink. (Hopefully this will be corrected).   _It is also possible to install an X11-based GStreamer with MacPorts, (add " +x11" after "base", "good"
-"bad" and "ugly" in the plugin names):
-for X11 support on macOS, compile UxPlay using a special cmake option `-DUSE_X11=ON`, and run it from an XQuartz terminal with -vs ximagesink; 
-older non-retina macs require a lower resolution when using X11: `uxplay -s 800x600`._       
+**Using GStreamer installed from MacPorts**: this is **not** recommended, as currently the MacPorts GStreamer
+is old (v1.16.2), unmaintained, and built to use X11:
 
  * Instead [build gstreamer yourself](https://github.com/FDH2/UxPlay/wiki/Building-GStreamer-from-Source-on-macOS-with-MacPorts)
-if you use MacPorts and do not want to use the "Official" Gstreamer binaries or Macports packages.
+if you use MacPorts and do not want to use the "Official" Gstreamer binaries.
+
+_(If you really wish to use the MacPorts GStreamer-1.16.2,
+install pkgconf ("sudo port install pkgconf"), then
+"sudo port install gstreamer1-gst-plugins-base gstreamer1-gst-plugins-good gstreamer1-gst-plugins-bad gstreamer1-gst-libav".
+For X11 support on macOS, compile UxPlay using a special cmake option `-DUSE_X11=ON`, and run
+it from an XQuartz terminal with -vs ximagesink; older non-retina macs require a lower resolution
+when using X11: `uxplay -s 800x600`.)_
+
+
 
 After installing GStreamer, build and install uxplay: open a terminal and change into the UxPlay source directory
 ("UxPlay-master" for zipfile downloads, "UxPlay" for "git clone" downloads) and build/install with
@@ -747,6 +745,10 @@ with "`#`" are treated as comments, and ignored.  Command line options supersede
    (M1/M2 Macs or iPads, and some iPhones) can send h265 video if a resolution "-s wxh" with h > 1080 is requested.
    The "-h265" option changes the  default resolution ("-s" option) from 1920x1080 to 3840x2160, and leaves default maximum 
    framerate  ("-fps" option) at 30fps.
+
+**-hls**  Activate HTTP Live Streaming support.     With this option YouTube videos can be streamed directly from
+   YouTube servers to UxPlay (without passing through the client)
+   by clicking on the AirPlay icon in the YouTube app. 
 
 **-pin [nnnn]**: (since v1.67) use Apple-style (one-time) "pin" authentication when a new client connects for the first time: a four-digit pin code is
    displayed on the terminal, and the client screen shows a login prompt for this to be entered.    When "-pin" is used by itself, a new random
@@ -1236,6 +1238,8 @@ tvOS 12.2.1), so it does not seem to matter what version UxPlay claims to be.
 
 
 # Changelog
+1.71 2024-11-11   Add support for HTTP Live Streaming (HLS), initially only for YouTube movies
+
 1.70 2024-10-04   Add support for 4K (h265) video (resolution 3840 x 2160).   Fix issue 
                   with GStreamer >= 1.24 when client sleeps, then wakes.
 

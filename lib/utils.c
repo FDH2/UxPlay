@@ -282,3 +282,14 @@ int utils_ipaddress_to_string(int addresslen, const unsigned char *address, unsi
     }
     return ret;
 }
+
+const char *gmt_time_string() {
+  static char date_buf[64];
+  memset(date_buf, 0, 64);
+
+  time_t now = time(0);
+  if (strftime(date_buf, 63, "%c GMT", gmtime(&now)))
+    return date_buf;
+  else
+    return "";
+}
