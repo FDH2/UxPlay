@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.5)
 
 if (APPLE )
   set( ENV{PKG_CONFIG_PATH} "/Library/FrameWorks/GStreamer.framework/Libraries/pkgconfig" ) # GStreamer.framework, preferred

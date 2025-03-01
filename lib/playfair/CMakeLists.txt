@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.5)
 aux_source_directory(. playfair_src)
 set(DIR_SRCS ${playfair_src})
 include_directories(.)

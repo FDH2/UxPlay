@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.5)
 include_directories( playfair llhttp )
 
 message( STATUS "*** CFLAGS \"" ${CMAKE_C_FLAGS} "\" from build environment will be postpended to CMAKE_CFLAGS" )

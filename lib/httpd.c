@@ -207,11 +207,19 @@ httpd_remove_connection(httpd_t *httpd, http_connection_t *connection)
     }
     logger_log(httpd->logger, LOGGER_DEBUG, "removing connection type %s socket %d conn %p", typename[connection->type],
                connection->socket_fd, connection->user_data);
-    httpd->callbacks.conn_destroy(connection->user_data);
+    if (connection->user_data) {
+        httpd->callbacks.conn_destroy(connection->user_data);
+        connection->user_data = NULL;
+    }
     shutdown(connection->socket_fd, SHUT_WR);
-    closesocket(connection->socket_fd);
+    if (connection->socket_fd) {
+        int ret = closesocket(connection->socket_fd);
+        if (ret == -1) {
+            logger_log(httpd->logger, LOGGER_ERR, "httpd error in closesocket (close): %d %s", errno, strerror(errno));
+        }
+        connection->socket_fd = 0;
+    }
     connection->connected = 0;
-    connection->user_data = NULL;
     connection->type = CONNECTION_TYPE_UNKNOWN;
     httpd->open_connections--;
 }
