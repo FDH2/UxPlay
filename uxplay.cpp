@@ -62,7 +62,7 @@
 #include "renderers/video_renderer.h"
 #include "renderers/audio_renderer.h"
 
-#define VERSION "1.71"
+#define VERSION "1.712beta"
 
 #define SECOND_IN_USECS 1000000
 #define SECOND_IN_NSECS 1000000000UL
@@ -71,6 +71,7 @@
 #define LOWEST_ALLOWED_PORT 1024
 #define HIGHEST_PORT 65535
 #define MISSED_FEEDBACK_LIMIT 15
+#define MIN_PASSWORD_LENGTH 4
 #define DEFAULT_PLAYBIN_VERSION 3
 #define BT709_FIX "capssetter caps=\"video/x-h264, colorimetry=bt709\""
 #define SRGB_FIX  " ! video/x-raw,colorimetry=sRGB,format=RGB  ! "
@@ -139,7 +140,9 @@ static std::vector<std::string> allowed_clients;
 static std::vector<std::string> blocked_clients;
 static bool restrict_clients;
 static bool setup_legacy_pairing = false;
-static bool require_password = false;
+static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients) */
+static std::string password = "";
+static guint min_password_length = MIN_PASSWORD_LENGTH;
 static unsigned short pin = 0;
 static std::string keyfile = "";
 static std::string mac_address = "";
@@ -653,6 +656,8 @@ static void print_info (char *name) {
     printf("          default pin is random: optionally use fixed pin xxxx\n");
     printf("-reg [fn] Keep a register in $HOME/.uxplay.register to verify returning\n");
     printf("          client pin-registration; (option: use file \"fn\" for this)\n");
+    printf("-pw pwd   Require use of password \"pwd\" to control client access\n");
+    printf("          (option \"-pw\" after \"-pin\" overrides it, and vice versa)\n");
     printf("-vsync [x]Mirror mode: sync audio to video using timestamps (default)\n");
     printf("          x is optional audio delay: millisecs, decimal, can be neg.\n");
     printf("-vsync no Switch off audio/(server)video timestamp synchronization \n");
@@ -1162,7 +1167,7 @@ static void parse_arguments (int argc, char *argv[]) {
             exit(1);
         } else if (arg == "-pin") {
             setup_legacy_pairing = true;
-            require_password = true;
+            pin_pw = 1;
 	    if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 9999;
                 if (!get_value(argv[++i], &n)) {
@@ -1197,7 +1202,21 @@ static void parse_arguments (int argc, char *argv[]) {
 	      keyfile.erase();
 	      keyfile.append("0");
             }
-       } else if (arg == "-dacp") {
+        } else if (arg == "-pw") {
+	    if (i < argc - 1 && *argv[i+1] != '-') {
+	        password.erase();
+	        password.append(argv[++i]);
+                setup_legacy_pairing = false;
+                pin_pw = 2;
+	        if (password.size() < min_password_length) {
+		    fprintf(stderr, "invalid client-access password \"%s\": length must be at least %u characters\n", password.c_str(), min_password_length);
+	            exit(1);
+                }
+            } else {
+	        fprintf(stderr, "option \"-pw\" must be followed by a character string setting a client-access password\n"); 
+                exit(1);
+            }
+        } else if (arg == "-dacp") {
             dacpfile.erase();
             if (i < argc - 1 && *argv[i+1] != '-') {
                 dacpfile.append(argv[++i]);
@@ -1447,12 +1466,16 @@ static void stop_dnssd() {
 
 static int start_dnssd(std::vector<char> hw_addr, std::string name) {
     int dnssd_error;
-    int require_pw = (require_password ? 1 : 0);
     if (dnssd) {
         LOGE("start_dnssd error: dnssd != NULL");
         return 2;
     }
-    dnssd = dnssd_init(name.c_str(), strlen(name.c_str()), hw_addr.data(), hw_addr.size(), &dnssd_error, require_pw);
+    /* pin_pw controls client access
+      pin_pw = 1: client must enter pin displayed onscreen (first access only)
+              = 2: client must enter password (same password for all clients)
+              = 0:  no access control
+    */
+    dnssd = dnssd_init(name.c_str(), strlen(name.c_str()), hw_addr.data(), hw_addr.size(), &dnssd_error, pin_pw);
     if (dnssd_error) {
         LOGE("Could not initialize dnssd library!: error %d", dnssd_error);
         return 1;
@@ -1606,6 +1629,11 @@ extern "C" void display_pin(void *cls, char *pin) {
         LOGI("%s\n",image);     
         free (image);
     }
+}
+
+extern "C" const char *passwd(void *cls, int *len){
+    *len = password.size();
+    return password.c_str();
 }
 
 extern "C" void export_dacp(void *cls, const char *active_remote, const char *dacp_id) {
@@ -2018,6 +2046,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.display_pin = display_pin;
     raop_cbs.register_client = register_client;
     raop_cbs.check_register = check_register;
+    raop_cbs.passwd = passwd;
     raop_cbs.export_dacp = export_dacp;
     raop_cbs.video_reset = video_reset;
     raop_cbs.video_set_codec = video_set_codec;
@@ -2052,7 +2081,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
 
     if (show_client_FPS_data) raop_set_plist(raop, "clientFPSdata", 1);
     if (audiodelay >= 0) raop_set_plist(raop, "audio_delay_micros", audiodelay);
-    if (require_password) raop_set_plist(raop, "pin", (int) pin);
+    if (pin_pw == 1) raop_set_plist(raop, "pin", (int) pin);
     if (hls_support) raop_set_plist(raop, "hls", 1);
 
     /* network port selection (ports listed as "0" will be dynamically assigned) */
@@ -2270,7 +2299,7 @@ int main (int argc, char *argv[]) {
         video_converter.append(option);
     }
     
-    if (require_password && registration_list) {
+    if (pin_pw == 1 && registration_list) {
         if (pairing_register == "") {
             const char * homedir = get_homedir();
             if (homedir) {
@@ -2281,7 +2310,7 @@ int main (int argc, char *argv[]) {
     }
 
     /* read in public keys that were previously registered with pair-setup-pin */
-    if (require_password && registration_list && strlen(pairing_register.c_str())) {
+    if (pin_pw == 1 && registration_list && strlen(pairing_register.c_str())) {
         size_t len = 0;
         std::string  key;
         int clients = 0;
@@ -2302,7 +2331,7 @@ int main (int argc, char *argv[]) {
         }
     }
 
-    if (require_password && keyfile == "0") {
+    if (pin_pw == 1 && keyfile == "0") {
         const char * homedir = get_homedir();
         if (homedir) {
             keyfile.erase();

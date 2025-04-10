@@ -44,7 +44,7 @@
 #define RAOP_VN "65537"
 
 #define AIRPLAY_SRCVERS GLOBAL_VERSION /*defined in global.h */
-#define AIRPLAY_FLAGS "0x4"
+#define AIRPLAY_FLAGS "0x84"
 #define AIRPLAY_VV "2"
 #define AIRPLAY_PI "2e388006-13ba-4041-9a67-25dd4a43d536"
 

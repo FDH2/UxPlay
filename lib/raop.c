@@ -66,17 +66,21 @@ struct raop_s {
     int audio_delay_micros;
 
      /* for temporary storage of pin during pair-pin start */
-     unsigned short pin;
-     bool use_pin;
+    unsigned short pin;
+    bool use_pin;
   
      /* public key as string */
-     char pk_str[2*ED25519_KEY_SIZE + 1];
+    char pk_str[2*ED25519_KEY_SIZE + 1];
 
     /* place to store media_data_store */
-     airplay_video_t *airplay_video;
+    airplay_video_t *airplay_video;
 
     /* activate support for HLS live streaming */
-     bool hls_support;
+    bool hls_support;
+
+    /* used in digest authentication */
+    char *nonce;
+
 };
 
 struct raop_conn_s {
@@ -99,7 +103,7 @@ struct raop_conn_s {
     connection_type_t connection_type; 
 
     char *client_session_id;
-
+    bool authenticated;
     bool have_active_remote;
 };
 typedef struct raop_conn_s raop_conn_t;
@@ -159,6 +163,7 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->client_session_id = NULL;
     conn->airplay_video = NULL;
 
+    conn->authenticated = false;
 
     conn->have_active_remote = false;
     
@@ -579,6 +584,7 @@ raop_init(raop_callbacks_t *callbacks) {
 
     raop->hls_support = false;
 
+    raop->nonce = NULL;
     return raop;
 }
 
@@ -602,7 +608,7 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
 #else
     unsigned char public_key[ED25519_KEY_SIZE];
     pairing_get_public_key(pairing, public_key);
-    char *pk_str = utils_pk_to_string(public_key, ED25519_KEY_SIZE);
+    char *pk_str = utils_hex_to_string(public_key, ED25519_KEY_SIZE);
     strncpy(raop->pk_str, (const char *) pk_str, 2*ED25519_KEY_SIZE);
     free(pk_str);
 #endif
@@ -638,6 +644,10 @@ raop_destroy(raop_t *raop) {
         pairing_destroy(raop->pairing);
         httpd_destroy(raop->httpd);
         logger_destroy(raop->logger);
+	if (raop->nonce) {
+            free(raop->nonce);
+        }
+
         free(raop);
 
         /* Cleanup the network */

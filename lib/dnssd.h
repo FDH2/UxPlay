@@ -35,7 +35,7 @@ extern "C" {
 
 typedef struct dnssd_s dnssd_t;
 
-  DNSSD_API dnssd_t *dnssd_init(const char *name, int name_len, const char *hw_addr, int hw_addr_len, int *error, int require_pw);
+DNSSD_API dnssd_t *dnssd_init(const char *name, int name_len, const char *hw_addr, int hw_addr_len, int *error, unsigned char pin_pw);
 
 DNSSD_API int dnssd_register_raop(dnssd_t *dnssd, unsigned short port);
 DNSSD_API int dnssd_register_airplay(dnssd_t *dnssd, unsigned short port);

@@ -25,7 +25,7 @@ int utils_read_file(char **dst, const char *pemstr);
 int utils_hwaddr_raop(char *str, int strlen, const char *hwaddr, int hwaddrlen);
 int utils_hwaddr_airplay(char *str, int strlen, const char *hwaddr, int hwaddrlen);
 char *utils_parse_hex(const char *str, int str_len, int *data_len);
-char *utils_pk_to_string(const unsigned char *pk, int pk_len);
+char *utils_hex_to_string(const unsigned char *hex, int hex_len);
 char *utils_data_to_string(const unsigned char *data, int datalen, int chars_per_line);
 char *utils_data_to_text(const char *data, int datalen);
 void ntp_timestamp_to_time(uint64_t ntp_timestamp, char *timestamp, size_t maxsize);

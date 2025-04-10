@@ -507,6 +507,8 @@ void ed25519_key_destroy(ed25519_key_t *key) {
     }
 }
 
+
+
 // SHA 512
 
 struct sha_ctx_s {
@@ -540,7 +542,6 @@ void sha_final(sha_ctx_t *ctx, uint8_t *out, unsigned int *len) {
 void sha_reset(sha_ctx_t *ctx) {
     if (!EVP_MD_CTX_reset(ctx->digest_ctx) ||
         !EVP_DigestInit_ex(ctx->digest_ctx, EVP_sha512(), NULL)) {
-
         handle_error(__func__);
     }
 }
@@ -550,6 +551,63 @@ void sha_destroy(sha_ctx_t *ctx) {
         EVP_MD_CTX_free(ctx->digest_ctx);
         free(ctx);
     }
+}
+
+//MD5
+struct md5_ctx_s {
+    EVP_MD_CTX *digest_ctx;
+};
+
+md5_ctx_t *md5_init() {
+    md5_ctx_t *ctx = malloc(sizeof(md5_ctx_t));
+    assert(ctx != NULL);
+    ctx->digest_ctx = EVP_MD_CTX_new();
+    assert(ctx->digest_ctx != NULL);
+
+    if (!EVP_DigestInit_ex(ctx->digest_ctx, EVP_md5(), NULL)) {
+        handle_error(__func__);
+    }
+    return ctx;
+}
+
+void md5_update(md5_ctx_t *ctx, const uint8_t *in, int len) {
+    if (!EVP_DigestUpdate(ctx->digest_ctx, in, len)) {
+        handle_error(__func__);
+    }
+}
+
+void md5_final(md5_ctx_t *ctx, uint8_t *out, unsigned int *len) {
+    if (!EVP_DigestFinal_ex(ctx->digest_ctx, out, len)) {
+        handle_error(__func__);
+    }
+}
+
+void md5_reset(md5_ctx_t *ctx) {
+    if (!EVP_MD_CTX_reset(ctx->digest_ctx) ||
+        !EVP_DigestInit_ex(ctx->digest_ctx, EVP_md5(), NULL)) {
+
+        handle_error(__func__);
+    }
+}
+
+void md5_destroy(md5_ctx_t *ctx) {
+    if (ctx) {
+        EVP_MD_CTX_free(ctx->digest_ctx);
+        free(ctx);
+    }
+}
+
+#define MD5_DIGEST_LENGTH 16
+char *get_md5(char *string) {
+    unsigned char hash[MD5_DIGEST_LENGTH];  
+    md5_ctx_t *ctx = NULL;
+    ctx = md5_init();
+    md5_update(ctx, (const unsigned char *) string, strlen(string));
+    md5_final(ctx, hash, NULL);
+    md5_destroy(ctx);
+    ctx = NULL;
+    char *result_str = utils_hex_to_string(hash, MD5_DIGEST_LENGTH);
+    return result_str;   //must free result_str after use
 }
 
 int get_random_bytes(unsigned char *buf, int num) {

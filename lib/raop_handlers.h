@@ -25,6 +25,7 @@
 #include <plist/plist.h>
 #define AUDIO_SAMPLE_RATE 44100   /* all supported AirPlay audio format use this sample rate */
 #define SECOND_IN_USECS 1000000
+#define SECOND_IN_NSECS 1000000000
 
 typedef void (*raop_handler_t)(raop_conn_t *, http_request_t *,
                                http_response_t *, char **, int *);
@@ -36,6 +37,33 @@ raop_handler_info(raop_conn_t *conn,
 {
     assert(conn->raop->dnssd);
 
+#if 0
+    /* initial GET/info request sends plist with string "txtAirPlay" */
+    bool txtAirPlay = false;
+    const char* content_type =  NULL;
+    content_type = http_request_get_header(request, "Content-Type");
+    if (content_type && strstr(content_type, "application/x-apple-binary-plist")) {
+        char *qualifier_string = NULL;
+        const char *data = NULL;
+        int data_len = 0;
+        data = http_request_get_data(request, &data_len);
+        //parsing bplist
+        plist_t req_root_node = NULL;
+        plist_from_bin(data, data_len, &req_root_node);
+        plist_t req_qualifier_node = plist_dict_get_item(req_root_node, "qualifier");
+        if (PLIST_IS_ARRAY(req_qualifier_node)) {
+            plist_t req_string_node = plist_array_get_item(req_qualifier_node, 0);
+            plist_get_string_val(req_string_node, &qualifier_string);
+        }
+        if (qualifier_string && !strcmp(qualifier_string, "txtAirPlay")) {
+	    printf("qualifier: %s\n", qualifier_string);
+	    txtAirPlay = true;
+        }
+	if (qualifier_string) {
+            free(qualifier_string);
+	}
+    }
+#endif
     plist_t res_node = plist_new_dict();
 
     /* deviceID is the physical hardware address, and will not change */
@@ -548,13 +576,62 @@ raop_handler_setup(raop_conn_t *conn,
     if (PLIST_IS_DATA(req_eiv_node) && PLIST_IS_DATA(req_ekey_node)) {
         // The first SETUP call that initializes keys and timing
 
-      unsigned char aesiv[16] = { 0 };
-      unsigned char aeskey[16] = { 0 };
-      unsigned char eaeskey[72] = { 0 };
+        unsigned char aesiv[16] = { 0 };
+        unsigned char aeskey[16] = { 0 };
+        unsigned char eaeskey[72] = { 0 };
 
         logger_log(conn->raop->logger, LOGGER_DEBUG, "SETUP 1");
 
         // First setup
+
+        /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
+        if (conn->raop->callbacks.passwd) {
+            int len;
+            const char *password = conn->raop->callbacks.passwd(conn->raop->callbacks.cls, &len);
+            if (len && !conn->authenticated) {
+                char nonce_string[33] = { '\0' };
+                //bool stale = false;  //not implemented
+                const char *authorization = NULL;
+                authorization = http_request_get_header(request, "Authorization");
+                if (authorization) {
+                    char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
+                    strncpy(nonce_string, ptr, 32);
+                    const char *method = http_request_get_method(request);
+                    conn->authenticated = pairing_digest_verify(method, authorization, password);
+                    if (conn->authenticated) {
+                        conn->authenticated = conn->authenticated && !strcmp(nonce_string, conn->raop->nonce);
+                        if (!conn->authenticated) {
+                            logger_log(conn->raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
+                                       nonce_string, conn->raop->nonce);
+                        }
+                    }
+                    if (conn->raop->nonce) {
+                        free(conn->raop->nonce);
+                        conn->raop->nonce = NULL;
+                    }
+                    logger_log(conn->raop->logger, LOGGER_INFO, "Client authentication %s", (conn->authenticated ? "success" : "failure"));
+                }
+                if (!conn->authenticated) {
+                    /* create a nonce */
+                    const char *url = http_request_get_url(request);
+                    unsigned char nonce[16] = { '\0' };
+                    int len = 16;
+                    uint64_t now = raop_ntp_get_local_time();
+                    assert (!pairing_session_make_nonce(conn->session, &now, url, nonce, len));
+                    if (conn->raop->nonce) {
+                        free(conn->raop->nonce);
+                    }
+                    conn->raop->nonce = utils_hex_to_string(nonce, len);
+                    char response_text[80] = "Digest realm=\"raop\", nonce=\"";
+                    strncat(response_text, conn->raop->nonce, strlen(conn->raop->nonce));
+                    strncat(response_text, "\"", 1);
+                    http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
+                    http_response_add_header(response, "WWW-Authenticate", response_text);
+                    return;
+                }
+            }
+        }
+	
         char* eiv = NULL;
         uint64_t eiv_len = 0;
 
@@ -1045,7 +1122,7 @@ raop_handler_teardown(raop_conn_t *conn,
         uint64_t val;
         int count = plist_array_get_size(req_streams_node);
         for (int i = 0; i < count; i++) {
-            plist_t req_stream_node = plist_array_get_item(req_streams_node,0);
+            plist_t req_stream_node = plist_array_get_item(req_streams_node,i);
             plist_t req_stream_type_node = plist_dict_get_item(req_stream_node, "type");
             plist_get_uint_val(req_stream_type_node, &val);
             if (val == 96) {

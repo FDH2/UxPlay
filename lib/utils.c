@@ -186,14 +186,14 @@ char *utils_parse_hex(const char *str, int str_len, int *data_len) {
     return data;
 }
 
-char *utils_pk_to_string(const unsigned char *pk, int pk_len) {
-    char *pk_str = (char *) malloc(2*pk_len + 1);
-    char* pos = pk_str;
-    for (int i = 0; i < pk_len; i++) {
-        snprintf(pos, 3, "%2.2x", *(pk + i));
+char *utils_hex_to_string(const unsigned char *hex, int hex_len) {
+    char *hex_str = (char *) malloc(2*hex_len + 1);
+    char* pos = hex_str;
+    for (int i = 0; i < hex_len; i++) {
+        snprintf(pos, 3, "%2.2x", *(hex + i));
         pos +=2;
     }
-    return pk_str;
+    return hex_str;
 }
 
 char *utils_data_to_string(const unsigned char *data, int datalen, int chars_per_line) {
