@@ -1016,8 +1016,8 @@ the startup file if you wish to use this feature.)*
 can be controlled with a password set when uxplay starts (set it in
 the .uxplay startup file, where it is stored as cleartext.)  All users must
 then know this password.    This uses HTTP md5 Digest authentication,
-which is now regarded as providing week security, but only the single
-uxplay password is used, and no user credentials are exposed.   _Note:
+which is now regarded as providing weak security, but it is only used to
+validate the uxplay password, and no user credentials are exposed.   _Note:
 -pin and -pw are alternatives: if both are specified at startup, the
 earlier of these two options is discarded._
 
