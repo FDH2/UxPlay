@@ -1019,7 +1019,7 @@ then know this password.    This uses HTTP md5 Digest authentication,
 which is now regarded as providing week security, but only the single
 uxplay password is used, and no user credentials are exposed.   _Note:
 -pin and -pw are alternatives: if both are specified at startup, the
-earlier of these two options is discarded.
+earlier of these two options is discarded._
 
 **-vsync \[x\]** (In Mirror mode:) this option (**now the default**)
 uses timestamps to synchronize audio with video on the server, with an
