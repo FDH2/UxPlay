@@ -52,6 +52,9 @@
 # include <netpacket/packet.h>
 # else
 # include <net/if_dl.h>
+#  ifdef __OpenBSD__
+#  include <err.h>
+#  endif
 # endif
 #endif
 
@@ -2179,6 +2182,12 @@ int main (int argc, char *argv[]) {
     std::vector<char> server_hw_addr;
     std::string config_file = "";
 
+#ifdef __OpenBSD__
+    if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
+        err(1, "unveil");
+    }
+#endif
+
 #ifdef SUPPRESS_AVAHI_COMPAT_WARNING
     // suppress avahi_compat nag message.  avahi emits a "nag" warning (once)
     // if  getenv("AVAHI_COMPAT_NOWARN") returns null.
@@ -2340,6 +2349,12 @@ int main (int argc, char *argv[]) {
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support, playbin_version, NULL);
         video_renderer_start();
+#ifdef __OpenBSD__
+    } else {
+        if (pledge("stdio rpath wpath cpath inet unix prot_exec", NULL) == -1) {
+            err(1, "pledge");
+        }
+#endif
     }
 
     if (udp[0]) {
