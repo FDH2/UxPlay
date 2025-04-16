@@ -125,6 +125,7 @@ static unsigned char audio_type = 0x00;
 static unsigned char previous_audio_type = 0x00;
 static bool fullscreen = false;
 static std::string coverart_filename = "";
+static std::string metadata_filename = "";
 static bool do_append_hostname = true;
 static bool use_random_hw_addr = false;
 static unsigned short display[5] = {0}, tcp[3] = {0}, udp[3] = {0};
@@ -228,6 +229,13 @@ static const unsigned char empty_image[] = {
 static size_t write_coverart(const char *filename, const void *image, size_t len) {
     FILE *fp = fopen(filename, "wb");
     size_t count = fwrite(image, 1, len, fp);
+    fclose(fp);
+    return count;
+}
+
+static size_t write_metadata(const char *filename, const char *text) {
+    FILE *fp = fopen(filename, "wb");
+    size_t count = fwrite(text, sizeof(char), strlen(text) + 1, fp);
     fclose(fp);
     return count;
 }
@@ -695,6 +703,7 @@ static void print_info (char *name) {
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
     printf("-al x     Audio latency in seconds (default 0.25) reported to client.\n");
     printf("-ca <fn>  In Airplay Audio (ALAC) mode, write cover-art to file <fn>\n");
+    printf("-md <fn>  In Airplay Audio (ALAC) mode, write metadata text to file <fn>\n");
     printf("-reset n  Reset after n seconds of client silence (default n=%d, 0=never)\n", MISSED_FEEDBACK_LIMIT);
     printf("-nofreeze Do NOT leave frozen screen in place after reset\n");
     printf("-nc       Do NOT Close video window when client stops mirroring\n");
@@ -1137,6 +1146,19 @@ static void parse_arguments (int argc, char *argv[]) {
                 fprintf(stderr,"option -ca must be followed by a filename for cover-art output\n");
                 exit(1);
             }
+        } else if (arg  == "-md" ) {
+            if (option_has_value(i, argc, arg, argv[i+1])) {
+                metadata_filename.erase();
+                metadata_filename.append(argv[++i]);
+                const char *fn = metadata_filename.c_str();
+                if (!file_has_write_access(fn)) {
+                    fprintf(stderr, "%s cannot be written to:\noption \"-ca <fn>\" must be to a file with write access\n", fn);
+                    exit(1);
+                }   
+            } else {
+                fprintf(stderr,"option -md must be followed by a filename for metadata text output\n");
+                exit(1);
+            }
         } else if (arg == "-bt709") {
             bt709_fix = true;
         } else if (arg == "-srgb") {
@@ -1262,7 +1284,7 @@ static void parse_arguments (int argc, char *argv[]) {
     }
 }
 
-static void process_metadata(int count, const char *dmap_tag, const unsigned char* metadata, int datalen) {
+static void process_metadata(int count, const char *dmap_tag, const unsigned char* metadata, int datalen, std::string *metadata_text) {
     int dmap_type = 0;
     /* DMAP metadata items can be strings (dmap_type = 9); other types are byte, short, int, long, date, and list.  *
      * The DMAP item begins with a 4-character (4-letter) "dmap_tag" string that identifies the type.               */
@@ -1284,13 +1306,13 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 'a':
             switch (dmap_tag[3]) {
             case 'a':
-                printf("Album artist: ");  /*asaa*/
+                metadata_text->append("Album artist: ");  /*asaa*/
                 break;
             case 'l':
-                printf("Album: ");  /*asal*/
+                metadata_text->append("Album: ");  /*asal*/
                 break;
             case 'r':
-                printf("Artist: ");  /*asar*/
+                metadata_text->append("Artist: ");  /*asar*/
                 break;
             default:
                 dmap_type = 0;
@@ -1300,16 +1322,16 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 'c':
             switch (dmap_tag[3]) {
             case 'm':
-                printf("Comment: ");  /*ascm*/
+                metadata_text->append("Comment: ");  /*ascm*/
                 break;
             case 'n':
-                printf("Content description: ");  /*ascn*/
+                metadata_text->append("Content description: ");  /*ascn*/
                 break;
             case 'p':
-                printf("Composer: ");  /*ascp*/
+                metadata_text->append("Composer: ");  /*ascp*/
                 break;
             case 't':
-                printf("Category: ");  /*asct*/
+                metadata_text->append("Category: ");  /*asct*/
                 break;
             default:
                 dmap_type = 0;
@@ -1319,22 +1341,22 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 's':
             switch (dmap_tag[3]) {
             case 'a':
-                printf("Sort Artist: "); /*assa*/
+                metadata_text->append("Sort Artist: "); /*assa*/
                 break;
             case 'c':
-                printf("Sort Composer: ");  /*assc*/
+                metadata_text->append("Sort Composer: ");  /*assc*/
                 break;
             case 'l':
-                printf("Sort Album artist: ");  /*assl*/
+                metadata_text->append("Sort Album artist: ");  /*assl*/
                 break;
             case 'n':
-                printf("Sort Name: ");  /*assn*/
+                metadata_text->append("Sort Name: ");  /*assn*/
                 break;
             case 's':
-                printf("Sort Series: ");  /*asss*/
+                metadata_text->append("Sort Series: ");  /*asss*/
                 break;
             case 'u':
-                printf("Sort Album: ");  /*assu*/
+                metadata_text->append("Sort Album: ");  /*assu*/
                 break;
             default:
                 dmap_type = 0;
@@ -1343,15 +1365,15 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
             break;
         default:
 	    if (strcmp(dmap_tag, "asdt") == 0) {
-                printf("Description: ");
+                metadata_text->append("Description: ");
             } else if (strcmp (dmap_tag, "asfm") == 0) {
-                printf("Format: ");
+                metadata_text->append("Format: ");
             } else if (strcmp (dmap_tag, "asgn") == 0) {
-                printf("Genre: ");
+                metadata_text->append("Genre: ");
             } else if (strcmp (dmap_tag, "asky") == 0) {
-                printf("Keywords: ");
+                metadata_text->append("Keywords: ");
             } else if (strcmp (dmap_tag, "aslc") == 0) {
-                printf("Long Content Description: ");
+                metadata_text->append("Long Content Description: ");
             } else {
                 dmap_type = 0;
             }
@@ -1359,21 +1381,27 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         }
     } else if (strcmp (dmap_tag, "minm") == 0) {
         dmap_type = 9;
-        printf("Title: ");
+        metadata_text->append("Title: ");
     }
 
     if (dmap_type == 9) {
-        char *str = (char *) calloc(1, datalen + 1);
+        char *str = (char *) calloc(datalen + 1, sizeof(char));
         memcpy(str, metadata, datalen);
-        printf("%s", str);
+        metadata_text->append(str);
+	metadata_text->append("\n");
         free(str);
     } else if (debug_log) {
+        std::string md = "";
+        char hex[4];
         for (int i = 0; i < datalen; i++) {
-            if (i > 0 && i % 16 == 0) printf("\n");
-            printf("%2.2x ", (int) metadata[i]);
+            if (i > 0 && i % 16 == 0) {
+                md.append("\n");
+            }
+            snprintf(hex, 4, "%2.2x ", (int) metadata[i]);
+            md.append(hex);
         }
+        LOGI("%s", md.c_str());
     }
-    printf("\n");
 }
 
 static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len) {
@@ -1833,6 +1861,9 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
     if (coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
     }
+    if (metadata_filename.length()) {
+        write_metadata(metadata_filename.c_str(), "no data\n");
+    }
 }
 
 extern "C" void video_report_size(void *cls, float *width_source, float *height_source, float *width, float *height) {
@@ -1879,6 +1910,7 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
              dmap_tag, datalen, buflen);
         return;
     }
+    std::string metadata_text = "";
     while (buflen >= 8) {
         count++;
         if (parse_dmap_header(metadata, dmap_tag, &datalen)) {
@@ -1887,12 +1919,16 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         }
         metadata += 8;
         buflen -= 8;
-        process_metadata(count, (const char *) dmap_tag, metadata, datalen);
+        process_metadata(count, (const char *) dmap_tag, metadata, datalen, &metadata_text);
         metadata += datalen;
         buflen -= datalen;
     }
+    LOGI("%s", metadata_text.c_str());
+    if (metadata_filename.length()) {
+        write_metadata(metadata_filename.c_str(), metadata_text.c_str());
+    }
     if (buflen != 0) {
-      LOGE("%d bytes of metadata were not processed", buflen);
+        LOGE("%d bytes of metadata were not processed", buflen);
     }
 }
 
@@ -2381,6 +2417,11 @@ int main (int argc, char *argv[]) {
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
     }
 
+    if (metadata_filename.length()) {
+        LOGI("any AirPlay audio metadata text will be written to file  %s",metadata_filename.c_str());
+        write_metadata(metadata_filename.c_str(), "no data\n");
+    }
+
     /* set default resolutions for h264 or h265*/
     if (!display[0] && !display[1]) {
         if (h265_support) {
@@ -2458,5 +2499,8 @@ int main (int argc, char *argv[]) {
     }
     if (coverart_filename.length()) {
 	remove (coverart_filename.c_str());
+    }
+    if (metadata_filename.length()) {
+	remove (metadata_filename.c_str());
     }
 }

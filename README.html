@@ -57,9 +57,9 @@ alt="Current Packaging status" /></a>.</p>
 <li><p>Install uxplay on Debian-based Linux systems with
 “<code>sudo apt install uxplay</code>”; on FreeBSD with
 “<code>sudo pkg install uxplay</code>”; on OpenBSD with
-“<code>doas pkg_add uxplay</code>”. Also available on Arch-based
-systems through AUR. Since v. 1.66, uxplay is now also packaged in RPM
-format by Fedora 38 (“<code>sudo dnf install uxplay</code>”).</p></li>
+“<code>doas pkg_add uxplay</code>”. Also available on Arch-based systems
+through AUR. Since v. 1.66, uxplay is now also packaged in RPM format by
+Fedora 38 (“<code>sudo dnf install uxplay</code>”).</p></li>
 <li><p>For other RPM-based distributions which have not yet packaged
 UxPlay, a RPM “specfile” <strong>uxplay.spec</strong> is now provided
 with recent <a
@@ -467,8 +467,8 @@ gstreamer1-plugins, gstreamer1-plugins-* (* = core, good, bad, x, gtk,
 gl, vulkan, pulse, v4l2, …), (+ gstreamer1-vaapi for Intel/AMD
 graphics).</p></li>
 <li><p><strong>OpenBSD:</strong> Install gstreamer1-libav,
-gstreamer1-plugins-* (* = core, bad, base, good). avahi-main must also
-be installed for the avahi_daemon rc startup script.</p></li>
+gstreamer-plugins-* (* = core, bad, base, good). avahi-main must also be
+installed for the avahi_daemon rc startup script.</p></li>
 </ul>
 <h3 id="starting-and-running-uxplay">Starting and running UxPlay</h3>
 <p>Since UxPlay-1.64, UxPlay can be started with options read from a
@@ -1174,6 +1174,11 @@ then run the the image viewer in the foreground. Example, using
 in which uxplay was put into the background). To quit, use
 <code>ctrl-C fg ctrl-C</code> to terminate the image viewer, bring
 <code>uxplay</code> into the foreground, and terminate it too.</p>
+<p><strong>-md <em>filename</em></strong> Like the -ca option, but
+exports audio metadata text (Artist, Title, Genre, etc.) to file for
+possible display by a process that watches the file for changes.
+Previous text is overwritten as new metadata is received, and the file
+is deleted when uxplay terminates.</p>
 <p><strong>-reset n</strong> sets a limit of <em>n</em> consecutive
 failures of the client to send feedback requests (these “heartbeat
 signals” are sent by the client once per second to ask for a response
@@ -1620,7 +1625,9 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
 <p>1.71 2024-12-13 Add support for HTTP Live Streaming (HLS), initially
-only for YouTube movies. Fix issue with NTP timeout on Windows.</p>
+only for YouTube movies. Fix issue with NTP timeout on Windows. Add
+requested option -md &lt;filename&gt; to output audio metadata text to a
+file for possible display (complements -ca option).</p>
 <p>1.70 2024-10-04 Add support for 4K (h265) video (resolution 3840 x
 2160). Fix issue with GStreamer &gt;= 1.24 when client sleeps, then
 wakes.</p>
