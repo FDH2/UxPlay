@@ -1262,7 +1262,7 @@ static void parse_arguments (int argc, char *argv[]) {
     }
 }
 
-static void process_metadata(int count, const char *dmap_tag, const unsigned char* metadata, int datalen) {
+static void process_metadata(int count, const char *dmap_tag, const unsigned char* metadata, int datalen, std::string *metadata_text) {
     int dmap_type = 0;
     /* DMAP metadata items can be strings (dmap_type = 9); other types are byte, short, int, long, date, and list.  *
      * The DMAP item begins with a 4-character (4-letter) "dmap_tag" string that identifies the type.               */
@@ -1284,13 +1284,13 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 'a':
             switch (dmap_tag[3]) {
             case 'a':
-                printf("Album artist: ");  /*asaa*/
+                metadata_text->append("Album artist: ");  /*asaa*/
                 break;
             case 'l':
-                printf("Album: ");  /*asal*/
+                metadata_text->append("Album: ");  /*asal*/
                 break;
             case 'r':
-                printf("Artist: ");  /*asar*/
+                metadata_text->append("Artist: ");  /*asar*/
                 break;
             default:
                 dmap_type = 0;
@@ -1300,16 +1300,16 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 'c':
             switch (dmap_tag[3]) {
             case 'm':
-                printf("Comment: ");  /*ascm*/
+                metadata_text->append("Comment: ");  /*ascm*/
                 break;
             case 'n':
-                printf("Content description: ");  /*ascn*/
+                metadata_text->append("Content description: ");  /*ascn*/
                 break;
             case 'p':
-                printf("Composer: ");  /*ascp*/
+                metadata_text->append("Composer: ");  /*ascp*/
                 break;
             case 't':
-                printf("Category: ");  /*asct*/
+                metadata_text->append("Category: ");  /*asct*/
                 break;
             default:
                 dmap_type = 0;
@@ -1319,22 +1319,22 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         case 's':
             switch (dmap_tag[3]) {
             case 'a':
-                printf("Sort Artist: "); /*assa*/
+                metadata_text->append("Sort Artist: "); /*assa*/
                 break;
             case 'c':
-                printf("Sort Composer: ");  /*assc*/
+                metadata_text->append("Sort Composer: ");  /*assc*/
                 break;
             case 'l':
-                printf("Sort Album artist: ");  /*assl*/
+                metadata_text->append("Sort Album artist: ");  /*assl*/
                 break;
             case 'n':
-                printf("Sort Name: ");  /*assn*/
+                metadata_text->append("Sort Name: ");  /*assn*/
                 break;
             case 's':
-                printf("Sort Series: ");  /*asss*/
+                metadata_text->append("Sort Series: ");  /*asss*/
                 break;
             case 'u':
-                printf("Sort Album: ");  /*assu*/
+                metadata_text->append("Sort Album: ");  /*assu*/
                 break;
             default:
                 dmap_type = 0;
@@ -1343,15 +1343,15 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
             break;
         default:
 	    if (strcmp(dmap_tag, "asdt") == 0) {
-                printf("Description: ");
+                metadata_text->append("Description: ");
             } else if (strcmp (dmap_tag, "asfm") == 0) {
-                printf("Format: ");
+                metadata_text->append("Format: ");
             } else if (strcmp (dmap_tag, "asgn") == 0) {
-                printf("Genre: ");
+                metadata_text->append("Genre: ");
             } else if (strcmp (dmap_tag, "asky") == 0) {
-                printf("Keywords: ");
+                metadata_text->append("Keywords: ");
             } else if (strcmp (dmap_tag, "aslc") == 0) {
-                printf("Long Content Description: ");
+                metadata_text->append("Long Content Description: ");
             } else {
                 dmap_type = 0;
             }
@@ -1359,21 +1359,27 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
         }
     } else if (strcmp (dmap_tag, "minm") == 0) {
         dmap_type = 9;
-        printf("Title: ");
+        metadata_text->append("Title: ");
     }
 
     if (dmap_type == 9) {
-        char *str = (char *) calloc(1, datalen + 1);
+        char *str = (char *) calloc(datalen + 1, sizeof(char));
         memcpy(str, metadata, datalen);
-        printf("%s", str);
+        metadata_text->append(str);
+	metadata_text->append("\n");
         free(str);
     } else if (debug_log) {
+        std::string md = "";
+        char hex[4];
         for (int i = 0; i < datalen; i++) {
-            if (i > 0 && i % 16 == 0) printf("\n");
-            printf("%2.2x ", (int) metadata[i]);
+            if (i > 0 && i % 16 == 0) {
+                md.append("\n");
+            }
+            snprintf(hex, 4, "%2.2x ", (int) metadata[i]);
+            md.append(hex);
         }
+        LOGI("%s", md.c_str());
     }
-    printf("\n");
 }
 
 static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len) {
@@ -1879,6 +1885,7 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
              dmap_tag, datalen, buflen);
         return;
     }
+    std::string metadata_text = "";
     while (buflen >= 8) {
         count++;
         if (parse_dmap_header(metadata, dmap_tag, &datalen)) {
@@ -1887,12 +1894,13 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         }
         metadata += 8;
         buflen -= 8;
-        process_metadata(count, (const char *) dmap_tag, metadata, datalen);
+        process_metadata(count, (const char *) dmap_tag, metadata, datalen, &metadata_text);
         metadata += datalen;
         buflen -= datalen;
     }
+    LOGI("%s", metadata_text.c_str());
     if (buflen != 0) {
-      LOGE("%d bytes of metadata were not processed", buflen);
+        LOGE("%d bytes of metadata were not processed", buflen);
     }
 }
 
