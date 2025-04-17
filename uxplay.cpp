@@ -125,6 +125,7 @@ static unsigned char audio_type = 0x00;
 static unsigned char previous_audio_type = 0x00;
 static bool fullscreen = false;
 static std::string coverart_filename = "";
+static std::string metadata_filename = "";
 static bool do_append_hostname = true;
 static bool use_random_hw_addr = false;
 static unsigned short display[5] = {0}, tcp[3] = {0}, udp[3] = {0};
@@ -228,6 +229,13 @@ static const unsigned char empty_image[] = {
 static size_t write_coverart(const char *filename, const void *image, size_t len) {
     FILE *fp = fopen(filename, "wb");
     size_t count = fwrite(image, 1, len, fp);
+    fclose(fp);
+    return count;
+}
+
+static size_t write_metadata(const char *filename, const char *text) {
+    FILE *fp = fopen(filename, "wb");
+    size_t count = fwrite(text, sizeof(char), strlen(text) + 1, fp);
     fclose(fp);
     return count;
 }
@@ -695,6 +703,7 @@ static void print_info (char *name) {
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
     printf("-al x     Audio latency in seconds (default 0.25) reported to client.\n");
     printf("-ca <fn>  In Airplay Audio (ALAC) mode, write cover-art to file <fn>\n");
+    printf("-md <fn>  In Airplay Audio (ALAC) mode, write metadata text to file <fn>\n");
     printf("-reset n  Reset after n seconds of client silence (default n=%d, 0=never)\n", MISSED_FEEDBACK_LIMIT);
     printf("-nofreeze Do NOT leave frozen screen in place after reset\n");
     printf("-nc       Do NOT Close video window when client stops mirroring\n");
@@ -1135,6 +1144,19 @@ static void parse_arguments (int argc, char *argv[]) {
                 }   
             } else {
                 fprintf(stderr,"option -ca must be followed by a filename for cover-art output\n");
+                exit(1);
+            }
+        } else if (arg  == "-md" ) {
+            if (option_has_value(i, argc, arg, argv[i+1])) {
+                metadata_filename.erase();
+                metadata_filename.append(argv[++i]);
+                const char *fn = metadata_filename.c_str();
+                if (!file_has_write_access(fn)) {
+                    fprintf(stderr, "%s cannot be written to:\noption \"-ca <fn>\" must be to a file with write access\n", fn);
+                    exit(1);
+                }   
+            } else {
+                fprintf(stderr,"option -md must be followed by a filename for metadata text output\n");
                 exit(1);
             }
         } else if (arg == "-bt709") {
@@ -1839,6 +1861,9 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
     if (coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
     }
+    if (metadata_filename.length()) {
+        write_metadata(metadata_filename.c_str(), "no data\n");
+    }
 }
 
 extern "C" void video_report_size(void *cls, float *width_source, float *height_source, float *width, float *height) {
@@ -1899,6 +1924,7 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         buflen -= datalen;
     }
     LOGI("%s", metadata_text.c_str());
+    write_metadata(metadata_filename.c_str(), metadata_text.c_str());
     if (buflen != 0) {
         LOGE("%d bytes of metadata were not processed", buflen);
     }
@@ -2389,6 +2415,11 @@ int main (int argc, char *argv[]) {
         write_coverart(coverart_filename.c_str(), (const void *) empty_image, sizeof(empty_image));
     }
 
+    if (metadata_filename.length()) {
+        LOGI("any AirPlay audio metadata text will be written to file  %s",metadata_filename.c_str());
+        write_metadata(metadata_filename.c_str(), "no data\n");
+    }
+
     /* set default resolutions for h264 or h265*/
     if (!display[0] && !display[1]) {
         if (h265_support) {
@@ -2466,5 +2497,8 @@ int main (int argc, char *argv[]) {
     }
     if (coverart_filename.length()) {
 	remove (coverart_filename.c_str());
+    }
+    if (metadata_filename.length()) {
+	remove (metadata_filename.c_str());
     }
 }

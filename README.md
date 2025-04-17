@@ -1195,6 +1195,11 @@ uxplay was put into the background). To quit, use `ctrl-C fg ctrl-C` to
 terminate the image viewer, bring `uxplay` into the foreground, and
 terminate it too.
 
+**-md *filename*** Like the -ca option, but exports audio metadata text
+(Artist, Title, Genre, etc.) to file for possible display by a process that watches
+the file for changes. Previous text is overwritten as new metadata is received,
+and the file is deleted when uxplay terminates.
+
 **-reset n** sets a limit of *n* consecutive failures of the
 client to send feedback requests (these "heartbeat signals" are sent by the client
 once per second to ask for a response showing that the server is still online).
@@ -1666,6 +1671,8 @@ what version UxPlay claims to be.
 
 1.71 2024-12-13 Add support for HTTP Live Streaming (HLS), initially
 only for YouTube movies. Fix issue with NTP timeout on Windows.
+Add requested option -md \<filename\> to output audio metadata text to a file
+for possible display (complements -ca option).
 
 1.70 2024-10-04 Add support for 4K (h265) video (resolution 3840 x
 2160). Fix issue with GStreamer \>= 1.24 when client sleeps, then wakes.
