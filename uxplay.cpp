@@ -1785,8 +1785,16 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
             uint64_t local_time = (data->ntp_time_local ? data->ntp_time_local : get_local_time());
             remote_clock_offset = local_time - data->ntp_time_remote;
         }
-        data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
-        video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
+        int count = 0;
+	uint64_t pts_mismatch = 0;
+	do {
+            data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
+            pts_mismatch = video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
+            if (pts_mismatch) {
+                remote_clock_offset += pts_mismatch;
+            }
+            count++;
+        } while (pts_mismatch && count < 10);
     }
 }
 

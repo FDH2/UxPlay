@@ -57,7 +57,7 @@ void video_renderer_seek(float position);
 void video_renderer_set_start(float position);
 void video_renderer_resume ();
 bool video_renderer_is_paused();
-void video_renderer_render_buffer (unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time);
+uint64_t  video_renderer_render_buffer (unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time);
 void video_renderer_flush ();
 unsigned int video_renderer_listen(void *loop, int id);
 void video_renderer_destroy ();
