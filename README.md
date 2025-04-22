@@ -1072,6 +1072,9 @@ where 16 steps = full volume) is reduced by 50%, the perceived volume is
 halved (a 10dB attenuation). (This is modified at low volumes, to use
 the "untapered" volume if it is louder.)
 
+**-vol *v*** Sets initial audio-streaming volume (on client): range is [0:1],
+with 0.0 = mute, 1.0 = full volume (*v* is a decimal number).
+
 **-s wxh** e.g. -s 1920x1080 (= "1080p"), the default width and height
 resolutions in pixels for h264 video. (The default becomes 3840x2160 (=
 "4K") when the -h265 option is used.) This is just a request made to the
@@ -1212,6 +1215,11 @@ image viewer in the foreground. Example, using `feh` as the viewer: run
 uxplay was put into the background). To quit, use `ctrl-C fg ctrl-C` to
 terminate the image viewer, bring `uxplay` into the foreground, and
 terminate it too.
+
+**-md *filename*** Like the -ca option, but exports audio metadata text
+(Artist, Title, Genre, etc.) to file for possible display by a process that watches
+the file for changes. Previous text is overwritten as new metadata is received,
+and the file is deleted when uxplay terminates.
 
 **-reset n** sets a limit of *n* consecutive failures of the
 client to send feedback requests (these "heartbeat signals" are sent by the client
@@ -1684,6 +1692,10 @@ what version UxPlay claims to be.
 1.72 2025-05-15. Improved HLS Live Streaming (YouTube) support.
 Add support for password (HTTP Digest Authentication, -pw option) as
 alternative to on-screen pin codes.
+
+1.72 2024-04-22 Add requested options -md \<filename\> to output audio
+metadata text to a file for possible display (complements -ca option),
+and -vol <v> option to set initial audio-streaming volume.
 
 1.71 2024-12-13 Add support for HTTP Live Streaming (HLS), initially
 only for YouTube movies. Fix issue with NTP timeout on Windows.

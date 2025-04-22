@@ -51,6 +51,8 @@ UxPlay 1.71: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-taper\fR    Use a "tapered" AirPlay volume-control profile.
 .TP
+\fB\-vol\fI v \fR   Set initial audio-streaming volume: range [mute=0.0:1.0=full].
+.TP
 \fB\-s\fR wxh[@r]Request to client for video display resolution [refresh_rate]
 .IP
    default 1920x1080[@60] (or 3840x2160[@60] with -h265 option).
@@ -114,6 +116,8 @@ UxPlay 1.71: An open\-source AirPlay mirroring (+ audio streaming) server:
 \fB\-al\fR x     Audio latency in seconds (default 0.25) reported to client.
 .TP
 \fB\-ca\fI fn \fR   In Airplay Audio (ALAC) mode, write cover-art to file fn.
+.TP
+\fB\-md\fI fn \fR   In Airplay Audio (ALAC) mode, write metadata text to file fn.
 .TP
 \fB\-reset\fR n  Reset after n seconds client silence (default n=15, 0=never).
 .TP
