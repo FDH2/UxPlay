@@ -46,7 +46,12 @@ static bool use_x11 = false;
 #endif
 static bool logger_debug = false;
 static bool video_terminate = false;
-static gint64 start_position = 0;
+static gint64 hls_requested_start_position = 0;
+static gint64 hls_seek_start = 0;
+static gint64 hls_seek_end = 0;
+static gint64 hls_duration;
+static gboolean hls_seek_enabled;
+static gboolean hls_playing;
 
 #define NCODECS  2   /* renderers for h264 and h265 */
 
@@ -205,6 +210,11 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
     logger = render_logger;
     logger_debug = (logger_get_level(logger) >= LOGGER_DEBUG);
     video_terminate = false;
+    hls_seek_enabled = FALSE;
+    hls_playing = FALSE;
+    hls_seek_start = -1;
+    hls_seek_end = -1;
+    hls_duration = -1;
 
     /* this call to g_set_application_name makes server_name appear in the  X11 display window title bar, */
     /* (instead of the program name uxplay taken from (argv[0]). It is only set one time. */
@@ -229,8 +239,8 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
         renderer_type[i] = (video_renderer_t *) calloc(1, sizeof(video_renderer_t));
         g_assert(renderer_type[i]);
         renderer_type[i]->autovideo = auto_videosink;
-	renderer_type[i]->id = i;
-	renderer_type[i]->bus = NULL;
+        renderer_type[i]->id = i;
+        renderer_type[i]->bus = NULL;
         if (hls_video) {
             /* use playbin3 to play HLS video: replace "playbin3" by "playbin" to use playbin2 */
             switch (playbin_version)  {
@@ -248,10 +258,9 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_assert(renderer_type[i]->pipeline);
             renderer_type[i]->appsrc = NULL;
 	    renderer_type[i]->codec = hls;
-            /* if we are not using autovideosink, build a videossink based on the stricng "videosink" */
+            /* if we are not using autovideosink, build a videossink based on the string "videosink" */
             if(strcmp(videosink, "autovideosink")) {
-	      GstElement *playbin_videosink = make_video_sink(videosink, videosink_options);
-	      
+                GstElement *playbin_videosink = make_video_sink(videosink, videosink_options);  
                 if (!playbin_videosink) {
                     logger_log(logger, LOGGER_ERR, "video_renderer_init: failed to create playbin_videosink");
                 } else {
@@ -597,9 +606,33 @@ gboolean gstreamer_pipeline_bus_callback(GstBus *bus, GstMessage *message, void 
         }
     }
 
+    /* monitor hls video position until seek to hls_start_position is achieved */
+    if (hls_video && hls_requested_start_position) {
+        if (strstr(GST_MESSAGE_SRC_NAME(message), "sink")) {	  
+            gint64 pos;
+            if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
+                gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration);
+            }
+	    gst_element_query_position (renderer_type[type]->pipeline, GST_FORMAT_TIME, &pos);
+            //g_print("HLS position %" GST_TIME_FORMAT " requested_start_position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s\n",
+            //    GST_TIME_ARGS(pos), GST_TIME_ARGS(hls_requested_start_position), GST_TIME_ARGS(hls_duration),
+            //    (hls_seek_enabled ? "seek enabled" : "seek not enabled"));
+            if (pos > hls_requested_start_position) {
+                hls_requested_start_position = 0;
+            }
+	    if ( hls_requested_start_position && pos < hls_requested_start_position  && hls_seek_enabled) {
+                g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
+                if (gst_element_seek_simple (renderer_type[type]->pipeline, GST_FORMAT_TIME,
+                                            GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
+                    hls_requested_start_position = 0;
+                }
+	    }
+	}
+    }
+
     switch (GST_MESSAGE_TYPE (message)) {
     case GST_MESSAGE_DURATION:
-        renderer_type[type]->duration = GST_CLOCK_TIME_NONE;
+        hls_duration = GST_CLOCK_TIME_NONE;
         break;
     case GST_MESSAGE_BUFFERING:
         if (hls_video) {
@@ -654,12 +687,31 @@ gboolean gstreamer_pipeline_bus_callback(GstBus *bus, GstMessage *message, void 
         }
         break;
     case GST_MESSAGE_STATE_CHANGED:
-        if (logger_debug && strstr(GST_MESSAGE_SRC_NAME(message), "hls-playbin")) {
+        if (hls_video && logger_debug && strstr(GST_MESSAGE_SRC_NAME(message), "hls-playbin")) {
             GstState old_state, new_state;
             gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
-            g_print ("hls_playbin: Element %s changed state from %s to %s.\n", GST_OBJECT_NAME (message->src),
+            g_print ("****** hls_playbin: Element %s changed state from %s to %s.\n", GST_OBJECT_NAME (message->src),
                      gst_element_state_get_name (old_state),
                      gst_element_state_get_name (new_state));
+            if (new_state != GST_STATE_PLAYING) {
+                break;
+                hls_playing = FALSE;
+            }
+            hls_playing = TRUE;
+            GstQuery *query;
+            query = gst_query_new_seeking(GST_FORMAT_TIME);
+                if (gst_element_query(renderer->pipeline, query)) {
+	        gst_query_parse_seeking (query, NULL, &hls_seek_enabled, &hls_seek_start, &hls_seek_end);
+                if (hls_seek_enabled) {
+                    g_print ("Seeking is ENABLED from %" GST_TIME_FORMAT " to %" GST_TIME_FORMAT "\n",
+			     GST_TIME_ARGS (hls_seek_start), GST_TIME_ARGS (hls_seek_end));
+                } else {
+                    g_print ("Seeking is DISABLED for this stream.\n");
+                }
+            } else {
+                g_printerr ("Seeking query failed.");
+            }
+            gst_query_unref (query);
         }
         if (renderer_type[type]->autovideo) {
             char *sink = strstr(GST_MESSAGE_SRC_NAME(message), "-actual-sink-");
@@ -797,12 +849,12 @@ bool video_get_playback_info(double *duration, double *position, float *rate) {
         break;
     }
 
-    if (!GST_CLOCK_TIME_IS_VALID(renderer->duration)) {
-        if (!gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &renderer->duration)) {
+    if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
+        if (!gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration)) {
             return true;
         }
     }
-    *duration = ((double) renderer->duration) / GST_SECOND;
+    *duration = ((double) hls_duration) / GST_SECOND;
     if (*duration) {
         if (gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos) &&
                                         GST_CLOCK_TIME_IS_VALID(pos)) {
@@ -811,26 +863,27 @@ bool video_get_playback_info(double *duration, double *position, float *rate) {
     }
 
     logger_log(logger, LOGGER_DEBUG, "********* video_get_playback_info: position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s *********",
-               GST_TIME_ARGS (pos), GST_TIME_ARGS (renderer->duration), gst_element_state_get_name(state));
+               GST_TIME_ARGS (pos), GST_TIME_ARGS (hls_duration), gst_element_state_get_name(state));
 
     return true;
 }
 
 void video_renderer_set_start(float position) {
     int pos_in_micros = (int) (position * SECOND_IN_MICROSECS);
-    start_position = (gint64) (pos_in_micros * GST_USECOND);
-    logger_log(logger, LOGGER_DEBUG, "register HLS video start position %f %lld", position, start_position);    
+    hls_requested_start_position = (gint64) (pos_in_micros * GST_USECOND);
+    logger_log(logger, LOGGER_DEBUG, "register HLS video start position %f %lld", position,
+               hls_requested_start_position);    
 }
 
 void video_renderer_seek(float position) {
     int pos_in_micros = (int) (position * SECOND_IN_MICROSECS);
     gint64 seek_position = (gint64) (pos_in_micros * GST_USECOND);
     /* don't seek to within 1  microsecond  of beginning or end of video */
-    if (renderer->duration < 2000) return;
+    if (hls_duration < 2000) return;
     seek_position =  seek_position < 1000 ? 1000 : seek_position;
-    seek_position =  seek_position > renderer->duration  - 1000 ? renderer->duration - 1000 : seek_position;
+    seek_position =  seek_position > hls_duration  - 1000 ? hls_duration - 1000 : seek_position;
     g_print("SCRUB: seek to %f secs =  %" GST_TIME_FORMAT ", duration = %" GST_TIME_FORMAT "\n", position,
-            GST_TIME_ARGS(seek_position),  GST_TIME_ARGS(renderer->duration));
+            GST_TIME_ARGS(seek_position),  GST_TIME_ARGS(hls_duration));
     gboolean result = gst_element_seek_simple(renderer->pipeline, GST_FORMAT_TIME,
                                               (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
                                               seek_position);
