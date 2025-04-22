@@ -154,6 +154,7 @@ static std::vector <std::string> registered_keys;
 static double db_low = -30.0;
 static double db_high = 0.0;
 static bool taper_volume = false;
+static double initial_volume = 0.0;
 static bool h265_support = false;
 static int n_renderers = 0;
 static bool hls_support = false;
@@ -672,6 +673,7 @@ static void print_info (char *name) {
     printf("-db l[:h] Set minimum volume attenuation to l dB (decibels, negative);\n");
     printf("          optional: set maximum to h dB (+ or -) default: -30.0:0.0 dB\n");
     printf("-taper    Use a \"tapered\" AirPlay volume-control profile\n");
+    printf("-vol <v>  Set initial audio-streaming volume: range [mute=0.0:1.0=full]\n"); 
     printf("-s wxh[@r]Request to client for video display resolution [refresh_rate]\n"); 
     printf("          default 1920x1080[@60] (or 3840x2160[@60] with -h265 option)\n");
     printf("-o        Set display \"overscanned\" mode on (not usually needed)\n");
@@ -1240,29 +1242,53 @@ static void parse_arguments (int argc, char *argv[]) {
         } else if (arg == "-db") {
             bool db_bad = true;
  	    double db1, db2;
-	    char *start = NULL;
             if ( i < argc -1) {
                 char *end1, *end2;
-                start = argv[i+1];
-                db1 = strtod(start, &end1);
-                if (end1 > start && *end1 == ':') {
+                db1 = strtod(argv[i+1], &end1);
+                if (*end1 == ':') {
                     db2 = strtod(++end1, &end2);
                     if ( *end2 == '\0' && end2 > end1  && db1 < 0 && db1 < db2) {
                         db_bad = false;
                     }
-                } else  if (*end1 =='\0' && end1 > start && db1 < 0 ) {
+                } else  if (*end1 =='\0' && db1 < 0 ) {
                     db_bad = false;
                     db2 = 0.0;
                 }
             }
             if (db_bad) {
-	      fprintf(stderr, "invalid %s %s: db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i], start); 
+                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i+1]); 
                 exit(1);
             }
 	    i++;
             db_low = db1;
             db_high = db2;
-	    printf("db range %f:%f\n", db_low, db_high);
+            printf("db range %f:%f\n", db_low, db_high);
+        } else if (arg ==  "-vol") {
+            bool vol_bad = true;
+            if (i < argc - 1) {
+                char *end;
+                double frac = strtod(argv[i+1], &end);
+                if (*end == '\0' && frac >= 0.0 && frac <= 1.0) {
+                    if (frac == 0.0) {
+                        initial_volume = -144.0;
+                    } else if (frac == 1.0) {
+                        initial_volume = 0.0;
+                    } else {
+                        double db_flat = -30.0  + 30.0*frac;
+                        //double db = 10.0 * (log10(frac) / log10(2.0));  //tapered 
+                        //printf("db %f db_flat %f \n", db, db_flat);
+                        //db = (db > db_flat) ? db : db_flat;
+                        initial_volume = db_flat;
+                    }
+                }
+                printf("initial_volume attenuation %f db\n", initial_volume);
+                vol_bad = false;
+            }
+            if (vol_bad) {
+                fprintf(stderr, "invalid \"-vol %s\", value must be between 0.0 (mute) and 1.0 (full volume)\n", argv[i+1]);
+                exit(1);
+            }
+           i++;
         } else if (arg == "-hls") {
             hls_support = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
@@ -1789,6 +1815,10 @@ extern "C" void video_flush (void *cls) {
     }
 }
 
+extern "C" double audio_set_client_volume(void *cls) {
+    return initial_volume;
+}
+
 extern "C" void audio_set_volume (void *cls, float volume) {
     double db, db_flat, frac, gst_volume;
     if (!use_audio) {
@@ -2047,6 +2077,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.video_flush = video_flush;
     raop_cbs.video_pause = video_pause;
     raop_cbs.video_resume = video_resume;
+    raop_cbs.audio_set_client_volume = audio_set_client_volume;
     raop_cbs.audio_set_volume = audio_set_volume;
     raop_cbs.audio_get_format = audio_get_format;
     raop_cbs.video_report_size = video_report_size;

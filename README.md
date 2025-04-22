@@ -1054,6 +1054,9 @@ where 16 steps = full volume) is reduced by 50%, the perceived volume is
 halved (a 10dB attenuation). (This is modified at low volumes, to use
 the "untapered" volume if it is louder.)
 
+**-vol *v*** Sets initial audio-streaming volume (on client): range is [0:1],
+with 0.0 = mute, 1.0 = full volume (*v* is a decimal number).
+
 **-s wxh** e.g. -s 1920x1080 (= "1080p"), the default width and height
 resolutions in pixels for h264 video. (The default becomes 3840x2160 (=
 "4K") when the -h265 option is used.) This is just a request made to the
@@ -1669,10 +1672,12 @@ what version UxPlay claims to be.
 
 # Changelog
 
+1.72 2024-04-22 Add requested options -md \<filename\> to output audio
+metadata text to a file for possible display (complements -ca option),
+and -vol <v> option to set initial audio-streaming volume.
+
 1.71 2024-12-13 Add support for HTTP Live Streaming (HLS), initially
 only for YouTube movies. Fix issue with NTP timeout on Windows.
-Add requested option -md \<filename\> to output audio metadata text to a file
-for possible display (complements -ca option).
 
 1.70 2024-10-04 Add support for 4K (h265) video (resolution 3840 x
 2160). Fix issue with GStreamer \>= 1.24 when client sleeps, then wakes.
