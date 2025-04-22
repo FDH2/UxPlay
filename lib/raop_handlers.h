@@ -903,8 +903,10 @@ raop_handler_get_parameter(raop_conn_t *conn,
 
             /* This is a bit ugly, but seems to be how airport works too */
             if ((datalen - (current - data) >= 8) && !strncmp(current, "volume\r\n", 8)) {
-                const char volume[] = "volume: 0.0\r\n";
-
+                char volume[25] = "volume: 0.0\r\n";
+                if (conn->raop->callbacks.audio_set_client_volume) {
+                    snprintf(volume, 25, "volume: %9.6f\r\n", conn->raop->callbacks.audio_set_client_volume(conn->raop->callbacks.cls));
+		}
                 http_response_add_header(response, "Content-Type", "text/parameters");
                 *response_data = strdup(volume);
                 if (*response_data) {

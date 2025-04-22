@@ -1046,6 +1046,9 @@ each time the length of the volume slider (or the number of steps above
 mute, where 16 steps = full volume) is reduced by 50%, the perceived
 volume is halved (a 10dB attenuation). (This is modified at low volumes,
 to use the “untapered” volume if it is louder.)</p>
+<p><strong>-vol <em>v</em></strong> Sets initial audio-streaming volume
+(on client): range is [0:1], with 0.0 = mute, 1.0 = full volume
+(<em>v</em> is a decimal number).</p>
 <p><strong>-s wxh</strong> e.g. -s 1920x1080 (= “1080p”), the default
 width and height resolutions in pixels for h264 video. (The default
 becomes 3840x2160 (= “4K”) when the -h265 option is used.) This is just
@@ -1624,10 +1627,11 @@ an AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
+<p>1.72 2024-04-22 Add requested options -md &lt;filename&gt; to output
+audio metadata text to a file for possible display (complements -ca
+option), and -vol <v> option to set initial audio-streaming volume.</p>
 <p>1.71 2024-12-13 Add support for HTTP Live Streaming (HLS), initially
-only for YouTube movies. Fix issue with NTP timeout on Windows. Add
-requested option -md &lt;filename&gt; to output audio metadata text to a
-file for possible display (complements -ca option).</p>
+only for YouTube movies. Fix issue with NTP timeout on Windows.</p>
 <p>1.70 2024-10-04 Add support for 4K (h265) video (resolution 3840 x
 2160). Fix issue with GStreamer &gt;= 1.24 when client sleeps, then
 wakes.</p>
