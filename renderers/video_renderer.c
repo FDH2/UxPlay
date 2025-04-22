@@ -452,7 +452,7 @@ bool waiting_for_x11_window() {
     return false;
 }
 
-void video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time) {
+uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time) {
     GstBuffer *buffer;
     GstClockTime pts = (GstClockTime) *ntp_time; /*now in nsecs */
     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
@@ -462,7 +462,7 @@ void video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_c
         } else {
             logger_log(logger, LOGGER_ERR, "*** invalid ntp_time < gst_video_pipeline_base_time\n%8.6f ntp_time\n%8.6f base_time",
                        ((double) *ntp_time) / SECOND_IN_NSECS, ((double) gst_video_pipeline_base_time) / SECOND_IN_NSECS);
-            return;
+            return  (uint64_t)  gst_video_pipeline_base_time - pts;
         }
     }
     g_assert(data_len != 0);
@@ -499,6 +499,7 @@ void video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_c
         }
 #endif
     }
+    return 0;
 }
 
 void video_renderer_flush() {

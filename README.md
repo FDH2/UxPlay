@@ -505,7 +505,8 @@ below for help with this or other problems.
     this even when running without the pin option.*  Password authentication
     (-pw _pwd_)is also offered as an alternative solution to pin codes: 
     users need to know the password _pwd_ and enter it on their iOS/macOS device
-    to access UxPlay, when prompted.
+    to access UxPlay, when prompted (if _pwd_ is not set, a displayed random
+    pin code must be entered at **each** new connection.)
 
 -   By default, UxPlay is locked to its current client until that client
     drops the connection; since UxPlay-1.58, the option `-nohold`
@@ -1012,14 +1013,16 @@ deregisters the corresponding client (see options -restrict, -block,
 -allow for more ways to control client access). *(Add a line "reg" in
 the startup file if you wish to use this feature.)*
 
-**-pw** _pwd_.  (since 1.72). As an alternative to -pin, client access
+**-pw** [*pwd*].  (since 1.72). As an alternative to -pin, client access
 can be controlled with a password set when uxplay starts (set it in
 the .uxplay startup file, where it is stored as cleartext.)  All users must
 then know this password.    This uses HTTP md5 Digest authentication,
 which is now regarded as providing weak security, but it is only used to
 validate the uxplay password, and no user credentials are exposed.   _Note:
 -pin and -pw are alternatives: if both are specified at startup, the
-earlier of these two options is discarded._
+earlier of these two options is discarded.  If *pwd* is not specified,
+a random 4-digit pin code is displayed, and must be entered on the client
+at **each** new conenction.
 
 **-vsync \[x\]** (In Mirror mode:) this option (**now the default**)
 uses timestamps to synchronize audio with video on the server, with an

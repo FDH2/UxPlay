@@ -80,7 +80,7 @@ struct raop_s {
 
     /* used in digest authentication */
     char *nonce;
-
+    char * random_pw;
 };
 
 struct raop_conn_s {
@@ -646,6 +646,9 @@ raop_destroy(raop_t *raop) {
         logger_destroy(raop->logger);
 	if (raop->nonce) {
             free(raop->nonce);
+        }
+	if (raop->random_pw) {
+            free(raop->random_pw);
         }
 
         free(raop);

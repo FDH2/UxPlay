@@ -140,7 +140,7 @@ static std::vector<std::string> allowed_clients;
 static std::vector<std::string> blocked_clients;
 static bool restrict_clients;
 static bool setup_legacy_pairing = false;
-static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients) */
+static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients)  3: random pw*/
 static std::string password = "";
 static guint min_password_length = MIN_PASSWORD_LENGTH;
 static unsigned short pin = 0;
@@ -656,7 +656,8 @@ static void print_info (char *name) {
     printf("          default pin is random: optionally use fixed pin xxxx\n");
     printf("-reg [fn] Keep a register in $HOME/.uxplay.register to verify returning\n");
     printf("          client pin-registration; (option: use file \"fn\" for this)\n");
-    printf("-pw pwd   Require use of password \"pwd\" to control client access\n");
+    printf("-pw [pwd] Require use of password to control client access;\n");
+    printf("          (with no pwd, pin entry is required at *each* connection.)\n");  
     printf("          (option \"-pw\" after \"-pin\" overrides it, and vice versa)\n");
     printf("-vsync [x]Mirror mode: sync audio to video using timestamps (default)\n");
     printf("          x is optional audio delay: millisecs, decimal, can be neg.\n");
@@ -1203,18 +1204,18 @@ static void parse_arguments (int argc, char *argv[]) {
 	      keyfile.append("0");
             }
         } else if (arg == "-pw") {
-	    if (i < argc - 1 && *argv[i+1] != '-') {
-	        password.erase();
-	        password.append(argv[++i]);
+            if (!option_has_value(i, argc, arg, argv[i+1])) {
+                pin_pw = 3;
+                setup_legacy_pairing = false;
+            } else if (i < argc - 1 && *argv[i+1] != '-') {
+                password.erase();
+                password.append(argv[++i]);
                 setup_legacy_pairing = false;
                 pin_pw = 2;
-	        if (password.size() < min_password_length) {
-		    fprintf(stderr, "invalid client-access password \"%s\": length must be at least %u characters\n", password.c_str(), min_password_length);
-	            exit(1);
+                if (password.size() < min_password_length) {
+                    fprintf(stderr, "invalid client-access password \"%s\": length must be at least %u characters\n", password.c_str(), min_password_length);
+                    exit(1);
                 }
-            } else {
-	        fprintf(stderr, "option \"-pw\" must be followed by a character string setting a client-access password\n"); 
-                exit(1);
             }
         } else if (arg == "-dacp") {
             dacpfile.erase();
@@ -1632,6 +1633,10 @@ extern "C" void display_pin(void *cls, char *pin) {
 }
 
 extern "C" const char *passwd(void *cls, int *len){
+    if (pin_pw == 3) {
+        *len = -1;
+        return NULL;
+    }
     *len = password.size();
     return password.c_str();
 }
@@ -1756,8 +1761,17 @@ extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *
             uint64_t local_time = (data->ntp_time_local ? data->ntp_time_local : get_local_time());
             remote_clock_offset = local_time - data->ntp_time_remote;
         }
-        data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
-        video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
+        int count = 0;
+	uint64_t pts_mismatch = 0;
+	do {
+            data->ntp_time_remote = data->ntp_time_remote + remote_clock_offset;
+            pts_mismatch = video_renderer_render_buffer(data->data, &(data->data_len), &(data->nal_count), &(data->ntp_time_remote));
+            if (pts_mismatch) {
+                LOGI("adjust timestamps by %8.6f secs", (double) (pts_mismatch / SECOND_IN_NSECS));
+                remote_clock_offset += pts_mismatch;
+            }
+            count++;
+        } while (pts_mismatch && count < 10);
     }
 }
 

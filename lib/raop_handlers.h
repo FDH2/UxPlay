@@ -585,10 +585,30 @@ raop_handler_setup(raop_conn_t *conn,
         // First setup
 
         /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
-        if (conn->raop->callbacks.passwd) {
+        if (!conn->authenticated && conn->raop->callbacks.passwd) {
             int len;
             const char *password = conn->raop->callbacks.passwd(conn->raop->callbacks.cls, &len);
-            if (len && !conn->authenticated) {
+            // len = -1 means use a random password for this connection 
+            if (len == -1 && !conn->raop->random_pw) {
+                // get and store 4 random digits
+                int pin_4  = random_pin();
+                if (pin_4 < 0) {
+                    logger_log(conn->raop->logger, LOGGER_ERR, "Failed to generate random pin");
+                }
+                char pin[6] = {'\0'};
+                snprintf(pin, 5, "%04u", pin_4 % 10000);
+		printf("*** set new pin = [%s]\n", pin);
+                conn->raop->random_pw = strndup((const char *) pin, 6);
+		printf("*** stored new pin = [%s]\n", conn->raop->random_pw);
+            }
+            if (len == -1 && conn->raop->callbacks.display_pin) {
+                char *pin = conn->raop->random_pw;
+                assert(pin);
+                conn->raop->callbacks.display_pin(conn->raop->callbacks.cls, pin);
+                logger_log(conn->raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
+                password = (const char *) pin;
+            }
+	    if (len && !conn->authenticated) {
                 char nonce_string[33] = { '\0' };
                 //bool stale = false;  //not implemented
                 const char *authorization = NULL;
@@ -599,12 +619,18 @@ raop_handler_setup(raop_conn_t *conn,
                     const char *method = http_request_get_method(request);
                     conn->authenticated = pairing_digest_verify(method, authorization, password);
                     if (conn->authenticated) {
+		      printf("initial authenticatication OK\n");
                         conn->authenticated = conn->authenticated && !strcmp(nonce_string, conn->raop->nonce);
                         if (!conn->authenticated) {
                             logger_log(conn->raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
                                        nonce_string, conn->raop->nonce);
-                        }
+                        }			
                     }
+                    if (conn->authenticated && conn->raop->random_pw) {
+                        printf("*********free random_pw\n");
+                        free (conn->raop->random_pw);
+                        conn->raop->random_pw = NULL;
+		    }
                     if (conn->raop->nonce) {
                         free(conn->raop->nonce);
                         conn->raop->nonce = NULL;
