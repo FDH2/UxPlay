@@ -32,10 +32,6 @@
 ## Highlights:
 
 -   GPLv3, open source.
-
-## Highlights:
-
--   GPLv3, open source.
 -   Originally supported only AirPlay Mirror protocol, now has added
     support for AirPlay Audio-only (Apple Lossless ALAC) streaming from
     current iOS/iPadOS clients. **Now with support for Airplay HLS
