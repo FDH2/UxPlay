@@ -23,10 +23,7 @@
     * in HLS video streaming from the YouTube app  (-hls option), rendered using GStreamer's media player "playbin3" (or playbin2, with option -hls 2),
       we don't understand how to correctly deal with "interstitials" (= 15 sec commercials) when "skip" is pressed on the client.
       (HLS is handled by handlers in lib/http_handlers.h)
-     
-## Highlights:
 
--   GPLv3, open source.
 
 ## Highlights:
 
