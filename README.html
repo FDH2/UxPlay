@@ -1,28 +1,45 @@
 <h1
-id="uxplay-1.72-beta-airplay-mirror-and-airplay-audio-server-for-linux-macos-and-unix-now-also-runs-on-windows.">UxPlay
-1.72 (beta): AirPlay-Mirror and AirPlay-Audio server for Linux, macOS,
-and Unix (now also runs on Windows).</h1>
+id="uxplay-1.72-airplay-mirror-and-airplay-audio-server-for-linux-macos-and-unix-also-runs-on-windows.">UxPlay
+1.72: AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix
+(also runs on Windows).</h1>
 <h3
 id="now-developed-at-the-github-site-httpsgithub.comfdh2uxplay-where-all-user-issues-should-be-posted-and-latest-versions-can-be-found."><strong>Now
 developed at the GitHub site <a href="https://github.com/FDH2/UxPlay"
 class="uri">https://github.com/FDH2/UxPlay</a> (where ALL user issues
 should be posted, and latest versions can be found).</strong></h3>
 <ul>
-<li><p><em><strong>NEW in v1.72</strong>: Improved Support for (YouTube)
-HLS (HTTP Live Streaming) video with the new “-hls” option.</em>
-<strong>Only streaming from the YouTube iOS app (in "m3u8" protocol) is
-currently supported</strong>: (streaming using the AirPlay icon in a
-browser window is <strong>not</strong> yet supported).Click on the
-airplay icon in the YouTube app to stream video. <strong>Please report
-any issues with this new feature of UxPlay</strong>.</p>
+<li><p><strong>NEW in v1.72</strong>: Improved Support for (YouTube) HLS
+(HTTP Live Streaming) video with the new “-hls” option (introduced in
+1.71).* <strong>Only streaming from the YouTube iOS app (in "m3u8"
+protocol) is currently supported</strong>: (streaming using the AirPlay
+icon in a browser window is <strong>not</strong> yet supported).Click on
+the airplay icon in the YouTube app to stream video. <strong>Please
+report any issues with this new feature of UxPlay</strong>.</p>
 <p><em>The default video player for HLS is GStreamer playbin v3: use
 “-hls 2” to revert to playbin v2 if some videos fail to play</em>.</p>
 <ul>
-<li>added support for setting a password (as an alternative to on-screen
-pin codes) to control client access (-pw option)</li>
+<li>user-requested features: added support for setting a password (as an
+alternative to on-screen pin codes) to control client access (-pw
+option, see “man pw” or this README for details); added support for
+setting initial client audio-streaming volume (-vol option), and output
+of audio-mode metadata to file (for display by some external process,
+-md option).</li>
+</ul>
+<p><strong>ISSUES</strong> <strong><em>(Please help to solve if you have
+expertise)</em></strong></p>
+<ul>
+<li>in HLS video streaming from the YouTube app (-hls option), rendered
+using GStreamer’s media player “playbin3” (or playbin2, with option -hls
+2), we don’t understand how to correctly deal with “interstitials” (= 15
+sec commercials) when “skip” is pressed on the client. (HLS is handled
+by handlers in lib/http_handlers.h)</li>
 </ul></li>
 </ul>
 <h2 id="highlights">Highlights:</h2>
+<ul>
+<li>GPLv3, open source.</li>
+</ul>
+<h2 id="highlights-1">Highlights:</h2>
 <ul>
 <li>GPLv3, open source.</li>
 <li>Originally supported only AirPlay Mirror protocol, now has added
@@ -771,23 +788,15 @@ not supply a complete GStreamer, but seems to have everything needed for
 UxPlay). <strong>New: the UxPlay build script will now also detect
 Homebrew installations in non-standard locations indicated by the
 environment variable <code>$HOMEBREW_PREFIX</code>.</strong></p>
-<p><strong>Using GStreamer installed from MacPorts</strong>: this is
-<strong>not</strong> recommended, as currently the MacPorts GStreamer is
-old (v1.16.2), unmaintained, and built to use X11:</p>
-<ul>
-<li>Instead <a
-href="https://github.com/FDH2/UxPlay/wiki/Building-GStreamer-from-Source-on-macOS-with-MacPorts">build
-gstreamer yourself</a> if you use MacPorts and do not want to use the
-“Official” Gstreamer binaries.</li>
-</ul>
-<p><em>(If you really wish to use the MacPorts GStreamer-1.16.2, install
-pkgconf (“sudo port install pkgconf”), then “sudo port install
+<p><strong>Using GStreamer installed from MacPorts</strong>: MacPorts is
+now providing recent GStreamer releases: install pkgconf (“sudo port
+install pkgconf”), then “sudo port install gstreamer1
 gstreamer1-gst-plugins-base gstreamer1-gst-plugins-good
-gstreamer1-gst-plugins-bad gstreamer1-gst-libav”. For X11 support on
-macOS, compile UxPlay using a special cmake option
-<code>-DUSE_X11=ON</code>, and run it from an XQuartz terminal with -vs
-ximagesink; older non-retina macs require a lower resolution when using
-X11: <code>uxplay -s 800x600</code>.)</em></p>
+gstreamer1-gst-plugins-bad gstreamer1-gst-libav”. (This may no longer be
+relevant: <em>For X11 support on macOS, compile UxPlay using a special
+cmake option <code>-DUSE_X11=ON</code>, and run it from an XQuartz
+terminal with -vs ximagesink; older non-retina macs require a lower
+resolution when using X11: <code>uxplay -s 800x600</code>.)</em></p>
 <p>After installing GStreamer, build and install uxplay: open a terminal
 and change into the UxPlay source directory (“UxPlay-master” for zipfile
 downloads, “UxPlay” for “git clone” downloads) and build/install with

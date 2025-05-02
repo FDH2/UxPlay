@@ -1,5 +1,5 @@
 Name:           uxplay
-Version:        1.71.1
+Version:        1.72
 Release:        1%{?dist}
 
 %global gittag  v%{version}
@@ -135,6 +135,8 @@ cd build
 %{_docdir}/%{name}/llhttp/LICENSE-MIT
 
 %changelog
+* Thu May 1 2025 UxPlay maintainer <https://github.com/FDH2/UxPlay>
+  Update for 1.72 release
 * Fri Nov 15 2024 UxPlay maintainer <https://github.com/FDH2/UxPlay>
   Initial uxplay.spec: tested on Fedora 38, Rocky Linux 9.2, OpenSUSE
   Leap 15.5, Mageia 9, OpenMandriva ROME, PCLinuxOS

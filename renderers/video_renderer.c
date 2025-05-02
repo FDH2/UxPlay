@@ -835,6 +835,9 @@ int video_renderer_choose_codec (bool video_is_h265) {
     logger_log(logger, LOGGER_DEBUG, "video_pipeline state change from %s to %s\n",
                gst_element_state_get_name (old_state),gst_element_state_get_name (new_state));
     gst_video_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
+    if (renderer == renderer_type[1]) {
+        logger_log(logger, LOGGER_INFO, "*** video format is h265 high definition (HD) video %dx%d", width, height);
+    }
     if (renderer_unused) {
         for (int i = 0; i < n_renderers; i++) {
             if (renderer_type[i] != renderer_unused) {
