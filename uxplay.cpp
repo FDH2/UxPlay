@@ -2356,6 +2356,20 @@ int main (int argc, char *argv[]) {
     new_window_closing_behavior = false;
 #endif
 
+#ifdef _WIN32
+    /* because of issues in videosink dvd312videosink (segfault when resolution changes
+     with certain Nvdia graphics cards) make the default videosink d3d11videosink, and
+     use its decoder */
+    if (videosink == "autovideosink") {
+        videosink.erase();
+        videosink.append("d3d11videosink");
+    }
+    if (videosink == "d3d11videosink") {
+        video_decoder.erase();
+        video_decoder.append("d3d11h264dec");
+    }
+#endif
+
     if (videosink == "0") {
         use_video = false;
 	videosink.erase();
@@ -2373,15 +2387,23 @@ int main (int argc, char *argv[]) {
 	}
     }
 
-    if (videosink == "d3d11videosink" && videosink_options.empty() && use_video) {
+    if (videosink == "d3d11videosink"  && videosink_options.empty() && use_video) {
         if (fullscreen) {
-            videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_PROPERTY fullscreen=true ");
+            videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_PROPERTY fullscreen=TRUE");
         } else {
             videosink_options.append(" fullscreen-toggle-mode=GST_D3D11_WINDOW_FULLSCREEN_TOGGLE_MODE_ALT_ENTER ");
+            LOGI("Use Alt-Enter key combination to toggle into/out of full-screen mode");
         }
-        LOGI("d3d11videosink is being used with option fullscreen-toggle-mode=alt-enter\n"
-               "Use Alt-Enter key combination to toggle into/out of full-screen mode");
     }
+
+    if (videosink == "d3d12videosink"  && videosink_options.empty() && use_video) {
+        if (fullscreen) {
+            videosink_options.append("fullscreen=TRUE");
+        } else {
+            videosink_options.append(" fullscreen-on-alt-enter=TRUE ");
+            LOGI("Use Alt-Enter key combination to toggle into/out of full-screen mode");
+        }
+    } 
 
     if (bt709_fix && use_video) {
         video_parser.append(" ! ");

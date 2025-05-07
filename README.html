@@ -852,22 +852,36 @@ href="https://www.msys2.org">https://www.msys2.org/</a>. Accept the
 default installation location <code>C:\mysys64</code>.</p></li>
 <li><p><a href="https://packages.msys2.org/package/">MSYS2 packages</a>
 are installed with a variant of the “pacman” package manager used by
-Arch Linux. Open a “MSYS2 MINGW64” terminal from the MSYS2 tab in the
+Arch Linux. Open a “MSYS2 UCRT64” terminal from the MSYS2 tab in the
 Windows Start menu, and update the new MSYS2 installation with “pacman
 -Syu”. Then install the <strong>MinGW-64</strong> compiler and
 <strong>cmake</strong></p>
-<pre><code>pacman -S mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc</code></pre>
-<p>The compiler with all required dependencies will be installed in the
-msys64 directory, with default path <code>C:/msys64/mingw64</code>. Here
-we will simply build UxPlay from the command line in the MSYS2
-environment (this uses “<code>ninja</code>” in place of
-“<code>make</code>” for the build system).</p></li>
+<ul>
+<li>_NEW: MSYS2 now recommends using the newer UCRT64 terminal
+environment (which uses the newer Microsoft UCRT “Universal C RunTime
+Library”, included as part of the Windows OS since Windows 10) rather
+than the MINGW64 terminal environment (which uses the older Microsoft
+MSVCRT C library, which has “legacy” status, but is available on all
+Windows systems): the older version of this README gave instructions for
+the MINGW64 environment: if you still wish to use the legacy MSVCRT
+library, to support older Windows versions, use a “MSYS2 MINGW64”
+terminal, modify mingw-w64-ucrt-x86_64-* package names to
+mingw-w64-x86_64-*, (just omit “-ucrt”) and install UxPlay using
+“–prefix mingw64”._</li>
+</ul>
+<p>Install the gcc compiler and cmake:</p>
+<p><code>pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc</code></p>
+<p>The compiler with all required dependencies will be installed in
+<code>C:\msys64\ucrt64</code>, (or <code>C:\msys64\mingw64</code> if you
+opted to not use UCRT). We will simply build UxPlay from the command
+line in the MSYS2 environment (this uses “<code>ninja</code>” in place
+of “<code>make</code>” for the build system).</p></li>
 <li><p>Download the latest UxPlay from github <strong>(to use
 <code>git</code>, install it with <code>pacman -S git</code>, then
 “<code>git clone https://github.com/FDH2/UxPlay</code>”)</strong>, then
 install UxPlay dependencies (openssl is already installed with
 MSYS2):</p>
-<p><code>pacman -S mingw-w64-x86_64-libplist mingw-w64-x86_64-gstreamer mingw-w64-x86_64-gst-plugins-base</code></p>
+<pre><code>`pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base`</code></pre>
 <p>If you are trying a different Windows build system, MSVC versions of
 GStreamer for Windows are available from the <a
 href="https://gstreamer.freedesktop.org/download/">official GStreamer
@@ -885,18 +899,24 @@ build UxPlay with</p>
 uxplay executable <strong>uxplay.exe</strong> in the current (“build”)
 directory. The “sudo make install” and “sudo make uninstall” features
 offered in the other builds are not available on Windows; instead, the
-MSYS2 environment has <code>/mingw64/...</code> available, and you can
-install the uxplay.exe executable in <code>C:/msys64/mingw64/bin</code>
+MSYS2 environment has <code>/ucrt64</code> available, and you can
+install the uxplay.exe executable in <code>C:/msys64/ucrt64/bin</code>
 (plus manpage and documentation in
-<code>C:/msys64/mingw64/share/...</code>) with</p>
-<p><code>cmake --install . --prefix /mingw64</code></p>
+<code>C:/msys64/ucrt64/share/...</code>) with</p>
+<p><code>cmake --install . --prefix $HOME/../../ucrt64</code>, (replace
+“ucrt64” by “mingw64” if you chose not to use UCRT)</p>
+<p>You can later uninstall uxplay by returning to the build directory
+and running</p>
+<p><code>ninja uninstall</code></p>
+<p>(This assumes that certain files in the build directory have not been
+deleted).</p>
 <p>To be able to view the manpage, you need to install the manpage
 viewer with “<code>pacman -S man</code>”.</p></li>
 </ol>
 <p>To run <strong>uxplay.exe</strong> you need to install some gstreamer
 plugin packages with
-<code>pacman -S mingw-w64-x86_64-gst-&lt;plugin&gt;</code>, where the
-required ones have <code>&lt;plugin&gt;</code> given by</p>
+<code>pacman -S mingw-w64-ucrt-x86_64-gst-&lt;plugin&gt;</code>, where
+the required ones have <code>&lt;plugin&gt;</code> given by</p>
 <ol type="1">
 <li><strong>libav</strong></li>
 <li><strong>plugins-good</strong></li>
@@ -931,25 +951,26 @@ If “<code>device</code>” is not specified, the default audio device is
 used.</p>
 <p>If you wish to specify the videosink using the
 <code>-vs &lt;videosink&gt;</code> option, some choices for
-<code>&lt;videosink&gt;</code> are <code>d3d11videosink</code>,
-<code>d3dvideosink</code>, <code>glimagesink</code>,
-<code>gtksink</code>.</p>
+<code>&lt;videosink&gt;</code> are <code>d3d12videosink</code>,
+<code>d3d11videosink</code>, <code>d3dvideosink</code>,
+<code>glimagesink</code>, <code>gtksink</code>. If you do not specify
+the videosink, the d3d11videosink will be used (users have reported
+segfaults of the newer d3d12 videodecoder on certain older Nvidia cards
+when the image resolution changes: d3d11 will used by default until this
+is fixed).</p>
 <ul>
-<li>With Direct3D 11.0 or greater, you can either always be in
-fullscreen mode using option
-<code>-vs "d3d11videosink fullscreen-toggle-mode=property fullscreen=true"</code>,
-or get the ability to toggle into and out of fullscreen mode using the
-Alt-Enter key combination with option
-<code>-vs "d3d11videosink fullscreen-toggle-mode=alt-enter"</code>. For
-convenience, these options will be added if just
-<code>-vs d3d11videosink</code> with or without the fullscreen option
-“-fs” is used. <em>(Windows users may wish to add
-“<code>vs d3d11videosink</code>” (no initial “<code>-</code>”) to the
-UxPlay startup options file; see “man uxplay” or “uxplay -h”.)</em></li>
+<li>With Direct3D 11.0 or greater, various options can be set using
+e.g. <code>-vs "d3d11videosink &lt;options&gt;"</code> (see the
+gstreamer videosink documentation for these videosinks). For
+convenience, if no <code>&lt;options&gt;</code> are set, the option to
+toggle in and out of fullscreen mode with the Alt-Enter key combination
+is added.</li>
 </ul>
 <p>The executable uxplay.exe can also be run without the MSYS2
 environment, in the Windows Terminal, with
-<code>C:\msys64\mingw64\bin\uxplay</code>.</p>
+<code>C:\msys64\ucrt64\bin\uxplay</code>. (replace <code>ucrt64</code>
+by <code>mingw64</code> if you built UxPlay in the MINGW64
+environment).</p>
 <h1 id="usage">Usage</h1>
 <p>Options:</p>
 <ul>
