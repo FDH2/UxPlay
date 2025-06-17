@@ -151,17 +151,21 @@ struct dnssd_s {
     uint32_t features1;
     uint32_t features2;
 
-    unsigned char require_pw;
+    unsigned char pin_pw;
 };
 
 
 
 dnssd_t *
-dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, int require_pw)
+dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, unsigned char pin_pw)
 {
     dnssd_t *dnssd;
     char *end;
     unsigned long features;
+    /* pin_pw = 0: no pin or password
+                1: use onscreen pin for client access control
+                2: require password for client accress control. 
+     */
     
     if (error) *error = DNSSD_ERROR_NOERROR;
 
@@ -171,7 +175,7 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
         return NULL;
     }
 
-    dnssd->require_pw = (unsigned char) require_pw;
+    dnssd->pin_pw = pin_pw;
     
     features  = strtoul(FEATURES_1, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
@@ -302,10 +306,19 @@ dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "am", strlen(GLOBAL_MODEL), GLOBAL_MODEL);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "md", strlen(RAOP_MD), RAOP_MD);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "rhd", strlen(RAOP_RHD), RAOP_RHD);
-    if (dnssd->require_pw) {
+    switch (dnssd->pin_pw) {
+    case 2:
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
-    } else {
-        dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("false"), "false");
+	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 4, "0x84");
+	break;
+    case 1:
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
+	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 3, "0x8c");
+	break;
+    default:
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "false");
+	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen(RAOP_SF), RAOP_SF);
+	break;
     }
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "sr", strlen(RAOP_SR), RAOP_SR);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "ss", strlen(RAOP_SS), RAOP_SS);
@@ -361,18 +374,26 @@ dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
         return -1;
     }
 
-
+    // flags is a string representing a 20-bit flag (up to 3 hex digits)
     dnssd->TXTRecordCreate(&dnssd->airplay_record, 0, NULL);
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "deviceid", strlen(device_id), device_id);
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "features", strlen(features), features);
-    dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", strlen(AIRPLAY_FLAGS), AIRPLAY_FLAGS);
+    switch (dnssd->pin_pw) {
+    case 1:   // display onscreen pin
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("true"), "true");
+	dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", 3, "0x4");
+	break;  
+    case 2:  // require password
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("true"), "true");
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", 3, "0x4");
+        break;
+    default:
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("false"), "false");
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", 3, "0x4");
+        break;
+    }
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "model", strlen(GLOBAL_MODEL), GLOBAL_MODEL);
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pk", strlen(dnssd->pk), dnssd->pk);
-    if (dnssd->require_pw) {
-        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("true"), "true");
-    } else {
-        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("false"), "false");
-    }	  
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pi", strlen(AIRPLAY_PI), AIRPLAY_PI);
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "srcvers", strlen(AIRPLAY_SRCVERS), AIRPLAY_SRCVERS);
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "vv", strlen(AIRPLAY_VV), AIRPLAY_VV);

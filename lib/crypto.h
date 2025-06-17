@@ -109,6 +109,15 @@ void sha_final(sha_ctx_t *ctx, uint8_t *out, unsigned int *len);
 void sha_reset(sha_ctx_t *ctx);
 void sha_destroy(sha_ctx_t *ctx);
 
+//MD5
+typedef struct md5_ctx_s md5_ctx_t;
+md5_ctx_t *md5_init();
+void md5_update(md5_ctx_t *ctx, const uint8_t *in, int len);
+void md5_final(md5_ctx_t *ctx, uint8_t *out, unsigned int *len);
+void md5_reset(md5_ctx_t *ctx);
+void md5_destroy(md5_ctx_t *ctx);
+char *get_md5(char *string);
+  
 #ifdef __cplusplus
 }
 #endif

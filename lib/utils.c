@@ -186,14 +186,14 @@ char *utils_parse_hex(const char *str, int str_len, int *data_len) {
     return data;
 }
 
-char *utils_pk_to_string(const unsigned char *pk, int pk_len) {
-    char *pk_str = (char *) malloc(2*pk_len + 1);
-    char* pos = pk_str;
-    for (int i = 0; i < pk_len; i++) {
-        snprintf(pos, 3, "%2.2x", *(pk + i));
+char *utils_hex_to_string(const unsigned char *hex, int hex_len) {
+    char *hex_str = (char *) malloc(2*hex_len + 1);
+    char* pos = hex_str;
+    for (int i = 0; i < hex_len; i++) {
+        snprintf(pos, 3, "%2.2x", *(hex + i));
         pos +=2;
     }
-    return pk_str;
+    return hex_str;
 }
 
 char *utils_data_to_string(const unsigned char *data, int datalen, int chars_per_line) {
@@ -281,4 +281,76 @@ int utils_ipaddress_to_string(int addresslen, const unsigned char *address, unsi
                        address[8], address[9], address[10], address[11], address[12], address[13], address[14], address[15]);
     }
     return ret;
+}
+
+char *utils_strip_data_from_plist_xml(char *plist_xml) {
+    /* returns NULL   if no data needs to be stripped out.
+     * returns pointer to newly-allocated stripped text char *xml 
+     * WHICH (like plist_xml) MUST BE FREED AFTER USE*/
+    assert(plist_xml);
+    int len = (int) strlen(plist_xml);
+    char *last =  plist_xml + len * sizeof(char); // position of null termination of plist_xml
+ 
+    char *eol;
+    char *eol_data;
+    char *xml = NULL;
+    int nchars;
+    char line[81];
+    int count;
+    char *begin = strstr(plist_xml, "<data>");
+    char *end;
+    if (!begin) {
+        /* there are no data lines, nothing to do */
+        return NULL;
+    } else {
+        xml = (char *) calloc((len + 1), sizeof(char));
+    }
+    char *ptr1 = plist_xml;
+    char *ptr2 = xml;
+    do {
+        eol = strchr(begin,'\n');
+        nchars = eol + 1 - ptr1;
+        memcpy(ptr2, ptr1, nchars);
+        ptr2 += nchars;
+	ptr1 += nchars;
+        end = strstr(ptr1, "</data>");
+	assert(end);
+        count = 0;
+        do {
+            eol_data = eol;
+            eol = strchr(eol + 1, '\n');
+            count++;
+        } while (eol < end);
+	count--;   // last '\n' counted ends the first non-data line (contains "</data>")
+	if (count > 1) {
+             snprintf(line, sizeof(line), "        (%d lines data omitted, 64 chars/line)\n", count);
+             nchars = strlen(line);
+	     memcpy(ptr2, line, nchars);
+             ptr2 += nchars;
+             ptr1 = eol_data + 1;
+        } else {
+             nchars = eol_data + 1 - ptr1;
+             memcpy(ptr2, ptr1, nchars);
+             ptr2 += nchars;
+             ptr1 += nchars; 
+	}
+	begin = strstr(ptr1, "<data>");
+	if (begin == NULL) {
+            nchars = (int) (last + 1 - ptr1);
+            memcpy(ptr2, ptr1, nchars);   //includes the  null terminator
+            break;
+        }
+    } while (ptr1 <= last);
+    return xml;
+}
+
+const char *gmt_time_string() {
+  static char date_buf[64];
+  memset(date_buf, 0, 64);
+
+  time_t now = time(0);
+  if (strftime(date_buf, 63, "%c GMT", gmtime(&now)))
+    return date_buf;
+  else
+    return "";
 }

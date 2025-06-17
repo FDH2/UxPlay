@@ -39,10 +39,11 @@ typedef struct {
     /* Data available */
     int filled;
 
+    uint64_t packet_arrival_time;
+
     /* RTP header */
     unsigned short seqnum;
-    uint64_t rtp_timestamp;
-    uint64_t ntp_timestamp;
+    uint32_t rtp_timestamp;
 
     /* Payload data */
     unsigned int payload_size;
@@ -165,7 +166,7 @@ raop_buffer_decrypt(raop_buffer_t *raop_buffer, unsigned char *data, unsigned ch
 }
 
 int
-raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned short datalen, uint64_t *ntp_timestamp, uint64_t *rtp_timestamp, int use_seqnum) {
+raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned short datalen, int use_seqnum) {
     unsigned char empty_packet_marker[] = { 0x00, 0x68, 0x34, 0x00 };
     assert(raop_buffer);
 
@@ -206,8 +207,7 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
 
     /* Update the raop_buffer entry header */
     entry->seqnum = seqnum;
-    entry->rtp_timestamp = *rtp_timestamp;
-    entry->ntp_timestamp = *ntp_timestamp;
+    entry->rtp_timestamp = byteutils_get_int_be(data, 4);
     entry->filled = 1;
 
     entry->payload_data = malloc(payload_size);
@@ -228,7 +228,7 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
 }
 
 void *
-raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint64_t *ntp_timestamp, uint64_t *rtp_timestamp, unsigned short *seqnum, int no_resend) {
+raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *rtp_timestamp, unsigned short *seqnum, int no_resend) {
     assert(raop_buffer);
 
     /* Calculate number of entries in the current buffer */
@@ -261,7 +261,6 @@ raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint64_t *
 
     /* Return entry payload buffer */
     *rtp_timestamp = entry->rtp_timestamp;
-    *ntp_timestamp = entry->ntp_timestamp;
     *seqnum = entry->seqnum;
     *length = entry->payload_size;
     entry->payload_size = 0;
@@ -275,7 +274,7 @@ void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t res
     assert(resend_cb);
 
     if (seqnum_cmp(raop_buffer->first_seqnum, raop_buffer->last_seqnum) < 0) {
-        int seqnum, count;
+        unsigned short seqnum, count = 0;
         logger_log(raop_buffer->logger, LOGGER_DEBUG, "raop_buffer_handle_resends first_seqnum=%u last seqnum=%u",
                    raop_buffer->first_seqnum, raop_buffer->last_seqnum);
         for (seqnum = raop_buffer->first_seqnum; seqnum_cmp(seqnum, raop_buffer->last_seqnum) < 0; seqnum++) {
@@ -283,12 +282,11 @@ void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t res
             if (entry->filled) {
                 break;
             }
+	    count++;
         }
-        if (seqnum_cmp(seqnum, raop_buffer->first_seqnum) == 0) {
-            return;
+        if (count){
+            resend_cb(opaque, raop_buffer->first_seqnum, count);
         }
-        count = seqnum_cmp(seqnum, raop_buffer->first_seqnum);
-        resend_cb(opaque, raop_buffer->first_seqnum, count);
     }
 }
 

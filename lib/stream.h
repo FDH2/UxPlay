@@ -22,12 +22,13 @@
 #include <stdbool.h>
 
 typedef struct {
+    bool is_h265;
     int nal_count;
     unsigned char *data;
     int data_len;
     uint64_t ntp_time_local;
     uint64_t ntp_time_remote;
-} h264_decode_struct;
+} video_decode_struct;
 
 typedef struct {
     unsigned char *data;

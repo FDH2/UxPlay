@@ -31,6 +31,7 @@ extern "C" {
 #define LOGGER_NOTICE      5       /* normal but significant condition */
 #define LOGGER_INFO        6       /* informational */
 #define LOGGER_DEBUG       7       /* debug-level messages */
+#define LOGGER_DEBUG_DATA  8       /* debug-level messages including audio/video packet data */
 
 typedef void (*logger_callback_t)(void *cls, int level, const char *msg);
 

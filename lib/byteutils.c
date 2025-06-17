@@ -31,6 +31,9 @@
 # ifndef ntonll
 #  define ntohll(x) ((1==ntohl(1)) ? (x) : (((uint64_t)ntohl((x) & 0xFFFFFFFFUL)) << 32) | ntohl((uint32_t)((x) >> 32)))
 # endif
+#ifndef htonll
+#  define htonll(x) ((1==htonl(1)) ? (x) : (((uint64_t)htonl((x) & 0xFFFFFFFFUL)) << 32) | htonl((uint32_t)((x) >> 32)))
+#endif
 #else
 #  ifndef htonll
 #   ifdef SYS_ENDIAN_H
@@ -85,6 +88,12 @@ uint32_t byteutils_get_int_be(unsigned char* b, int offset) {
  */
 uint64_t byteutils_get_long_be(unsigned char* b, int offset) {
     return ntohll(byteutils_get_long(b, offset));
+}
+/**
+ * Writes a big endian unsigned 64 bit integer to the buffer at position offset
+ */
+void byteutils_put_long_be(unsigned char* b, int offset, uint64_t value) {
+    *((uint64_t*)(b + offset)) = htonll(value);
 }
 
 /**

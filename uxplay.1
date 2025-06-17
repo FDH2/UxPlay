@@ -1,17 +1,23 @@
-.TH UXPLAY "1" "August 2024" "1.69" "User Commands"
+.TH UXPLAY "1" "May 2025" "1.72" "User Commands"
 .SH NAME
 uxplay \- start AirPlay server
 .SH SYNOPSIS
 .B uxplay
 [\fI\,-n name\/\fR] [\fI\,-s wxh\/\fR] [\fI\,-p \/\fR[\fI\,n\/\fR]] [more \fI OPTIONS \/\fR ...]
 .SH DESCRIPTION
-UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
+UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .SH OPTIONS
 .TP
 .B
 \fB\-n\fR name   Specify the network name of the AirPlay server
 .TP
 \fB\-nh\fR       Do \fBNOT\fR append "@\fIhostname\fR" at end of AirPlay server name
+.TP
+\fB\-h265\fR     Support h265 (4K) video (with h265 versions of h264 plugins)
+.TP
+\fB\-hls\fR      Support HTTP Live Streaming (currently YouTube video only)
+.IP
+   v = 2 or 3 (default 3) optionally selects video player version
 .TP
 \fB\-pin\fI[xxxx]\fRUse a 4-digit pin code to control client access (default: no)
 .IP
@@ -20,6 +26,13 @@ UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
 \fB\-reg\fI [fn]\fR Keep a register in $HOME/.uxplay.register to verify returning
 .IP
    client pin-registration; (option: use file "fn" for this)
+.TP
+\fB\-pw\fI [pwd]\fR Require use of password "pwd" to control client access.
+.IP
+   (with no \fIpwd\fR, pin entry is required at \fIeach\fR connection.)
+
+.IP
+   (option "-pw" after "-pin" overrides it, and vice versa.)
 .TP
 \fB\-vsync\fI[x]\fR Mirror mode: sync audio to video using timestamps (default)
 .IP
@@ -38,11 +51,16 @@ UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-taper\fR    Use a "tapered" AirPlay volume-control profile.
 .TP
-\fB\-s\fR wxh[@r]Set display resolution [refresh_rate] default 1920x1080[@60]
+\fB\-vol\fI v \fR   Set initial audio-streaming volume: range [mute=0.0:1.0=full].
+.TP
+\fB\-s\fR wxh[@r]Request to client for video display resolution [refresh_rate]
+.IP
+   default 1920x1080[@60] (or 3840x2160[@60] with -h265 option).
+.PP
 .TP
 \fB\-o\fR        Set display "overscanned" mode on (not usually needed)
 .TP
-\fB-fs\fR       Full-screen (only works with X11, Wayland, VAAPI, D3D11)
+\fB-fs\fR       Full-screen (only with X11, Wayland, VAAPI, D3D11, kms)
 .TP
 \fB\-p\fR        Use legacy ports UDP 6000:6001:7011 TCP 7000:7001:7100
 .TP
@@ -78,7 +96,13 @@ UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-v4l2\fR     Use Video4Linux2 for GPU hardware h264 video decoding.
 .TP
-\fB\-bt709\fR    Sometimes needed for Raspberry Pi with GStreamer < 1.22
+\fB\-bt709\fR    Sometimes needed for Raspberry Pi models using Video4Linux2.
+.TP
+\fB\-srgb\fR     Display "Full range" [0-255] color, not "Limited Range"[16-235]
+.IP
+   This is a workaround for a GStreamer problem, until it is fixed.
+.PP
+\fB\-srgb\fR no  Disable srgb option (use when enabled by default: Linux, *BSD)
 .TP
 \fB\-as\fI sink\fR  Choose the GStreamer audiosink; default "autoaudiosink"
 .IP
@@ -93,11 +117,15 @@ UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-ca\fI fn \fR   In Airplay Audio (ALAC) mode, write cover-art to file fn.
 .TP
-\fB\-reset\fR n  Reset after 3n seconds client silence (default 5, 0=never).
+\fB\-md\fI fn \fR   In Airplay Audio (ALAC) mode, write metadata text to file fn.
+.TP
+\fB\-reset\fR n  Reset after n seconds client silence (default n=15, 0=never).
 .TP
 \fB\-nofreeze\fR Do NOT leave frozen screen in place after reset.
 .TP
-\fB\-nc\fR       Do NOT close video window when client stops mirroring
+\fB\-nc\fR       Do NOT close video window when client stops mirroring.
+.TP
+\fB\-nc\fR  no   Cancel the -nc option (DO close video window).
 .TP
 \fB\-nohold\fR   Drop current connection when new client connects.
 .TP
@@ -150,11 +178,13 @@ UxPlay 1.69: An open\-source AirPlay mirroring (+ audio streaming) server:
    audio packets are dumped. "aud"= unknown format.
 .PP
 .TP
-\fB\-d\fR        Enable debug logging
+\fB\-d [n]\fR    Enable debug logging; optional: n=1 to skip normal packet data.
 .TP
 \fB\-v\fR        Displays version information
 .TP
 \fB\-h\fR        Displays help information
+.TP
+\fB\-rc\fI fn\fR    Read startup options from file "fn" instead of ~/.uxplayrc, etc
 .SH
 FILES
 Options in one of $UXPLAYRC, or ~/.uxplayrc, or  ~/.config/uxplayrc

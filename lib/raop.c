@@ -64,14 +64,24 @@ struct raop_s {
     uint8_t clientFPSdata;
 
     int audio_delay_micros;
-    int max_ntp_timeouts;
 
      /* for temporary storage of pin during pair-pin start */
-     unsigned short pin;
-     bool use_pin;
+    unsigned short pin;
+    bool use_pin;
   
      /* public key as string */
-     char pk_str[2*ED25519_KEY_SIZE + 1];
+    char pk_str[2*ED25519_KEY_SIZE + 1];
+
+    /* place to store media_data_store */
+    airplay_video_t *airplay_video;
+
+    /* activate support for HLS live streaming */
+    bool hls_support;
+
+    /* used in digest authentication */
+    char *nonce;
+    char *random_pw;
+    unsigned char auth_fail_count;
 };
 
 struct raop_conn_s {
@@ -81,7 +91,8 @@ struct raop_conn_s {
     raop_rtp_mirror_t *raop_rtp_mirror;
     fairplay_t *fairplay;
     pairing_session_t *session;
-
+    airplay_video_t *airplay_video;
+  
     unsigned char *local;
     int locallen;
 
@@ -92,11 +103,14 @@ struct raop_conn_s {
 
     connection_type_t connection_type; 
 
+    char *client_session_id;
+    bool authenticated;
     bool have_active_remote;
 };
 typedef struct raop_conn_s raop_conn_t;
 
 #include "raop_handlers.h"
+#include "http_handlers.h"
 
 static void *
 conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remote, int remotelen, unsigned int zone_id) {
@@ -147,6 +161,10 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->remotelen = remotelen;
 
     conn->connection_type = CONNECTION_TYPE_UNKNOWN;
+    conn->client_session_id = NULL;
+    conn->airplay_video = NULL;
+
+    conn->authenticated = false;
 
     conn->have_active_remote = false;
     
@@ -162,35 +180,110 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     char *response_data = NULL;
     int response_datalen = 0;
     raop_conn_t *conn = ptr;
-
+    bool hls_request = false;
+    logger_log(conn->raop->logger, LOGGER_DEBUG, "conn_request");
     bool logger_debug = (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG);
+
+    /* 
+    All requests arriving here have been parsed by llhttp to obtain 
+    method | url | protocol (RTSP/1.0 or HTTP/1.1)
+
+    There are three types of connections supplying these requests:
+    Connections from the AirPlay client:
+    (1) type RAOP connections with CSeq seqence  header, and no X-Apple-Session-ID header
+    (2) type AIRPLAY connection with an X-Apple-Sequence-ID header and no Cseq header
+    Connections from localhost:
+    (3) type HLS internal connections from the local HLS server (gstreamer) at localhost with neither 
+        of these headers,  but a Host: localhost:[port] header.   method = GET.
+     */
 
     const char *method = http_request_get_method(request);
     const char *url = http_request_get_url(request);
-    const char *protocol = http_request_get_protocol(request);
+
+    if (!method  || !url) {
+        return;
+    }
+
+/* this rejects messages from _airplay._tcp for video streaming protocol unless bool raop->hls_support is true*/
     const char *cseq = http_request_get_header(request, "CSeq");
+    const char *protocol = http_request_get_protocol(request);
+    if (!cseq && !conn->raop->hls_support) {
+        logger_log(conn->raop->logger, LOGGER_INFO, "ignoring AirPlay video streaming request (use option -hls to activate HLS support)");
+        return;
+    }
+
+    const char *client_session_id = http_request_get_header(request, "X-Apple-Session-ID");
+    const char *host = http_request_get_header(request, "Host");
+    hls_request =  (host && !cseq && !client_session_id);
 
     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
-        if (httpd_count_connection_type(conn->raop->httpd, CONNECTION_TYPE_RAOP)) {
-            char ipaddr[40];
-            utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
-            if (httpd_nohold(conn->raop->httpd)) {
-                logger_log(conn->raop->logger, LOGGER_INFO, "\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
-                if (conn->raop->callbacks.video_reset) {
-		  printf("**************************video_reset*************************\n");
-                    conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);
-		}
-		httpd_remove_known_connections(conn->raop->httpd);
+        if (cseq) {
+            if (httpd_count_connection_type(conn->raop->httpd, CONNECTION_TYPE_RAOP)) {
+                char ipaddr[40];
+                utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
+                if (httpd_nohold(conn->raop->httpd)) {
+                    logger_log(conn->raop->logger, LOGGER_INFO, "\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
+                    if (conn->raop->callbacks.video_reset) {
+                        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);
+		    }
+		    httpd_remove_known_connections(conn->raop->httpd);
+                } else {
+                    logger_log(conn->raop->logger, LOGGER_WARNING, "rejecting new connection request from %s", ipaddr);
+                    *response = http_response_create();
+                    http_response_init(*response, protocol, 409, "Conflict: Server is connected to another client");
+                    goto finish;
+                }
+            }
+            logger_log(conn->raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type RAOP", ptr);
+            httpd_set_connection_type(conn->raop->httpd, ptr, CONNECTION_TYPE_RAOP);
+            conn->connection_type = CONNECTION_TYPE_RAOP;
+        } else if (client_session_id) {
+            logger_log(conn->raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type AirPlay", ptr);            
+            httpd_set_connection_type(conn->raop->httpd, ptr, CONNECTION_TYPE_AIRPLAY);
+            conn->connection_type = CONNECTION_TYPE_AIRPLAY;
+            size_t len = strlen(client_session_id) + 1;
+            conn->client_session_id = (char *) malloc(len);
+            strncpy(conn->client_session_id, client_session_id, len);
+            /* airplay video has been requested: shut down any running RAOP udp services */
+	    raop_conn_t *raop_conn = (raop_conn_t *) httpd_get_connection_by_type(conn->raop->httpd, CONNECTION_TYPE_RAOP, 1);
+            if (raop_conn) {
+                raop_rtp_mirror_t *raop_rtp_mirror = raop_conn->raop_rtp_mirror;
+                if (raop_rtp_mirror) {
+                    logger_log(conn->raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping RAOP mirror"
+                               " service on RAOP connection %p", raop_conn);
+                    raop_rtp_mirror_stop(raop_rtp_mirror);
+                }
 
-            } else {
-                logger_log(conn->raop->logger, LOGGER_WARNING, "rejecting new connection request from %s", ipaddr);
-                *response = http_response_create();
-                http_response_init(*response, protocol, 409, "Conflict: Server is connected to another client");
-                goto finish;
-	    }
-        }      
-        httpd_set_connection_type(conn->raop->httpd, ptr, CONNECTION_TYPE_RAOP);
-        conn->connection_type = CONNECTION_TYPE_RAOP;
+                raop_rtp_t *raop_rtp = raop_conn->raop_rtp;
+                if (raop_rtp) {
+                    logger_log(conn->raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping RAOP audio"
+                               " service on RAOP connection %p", raop_conn);
+                    raop_rtp_stop(raop_rtp);
+                }
+
+                raop_ntp_t *raop_ntp = raop_conn->raop_ntp;
+                if (raop_rtp) {
+                    logger_log(conn->raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping NTP time"
+                               " service on RAOP connection %p", raop_conn);
+                    raop_ntp_stop(raop_ntp);
+                }
+            }
+        } else if (host) {
+            logger_log(conn->raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type HLS", ptr);            
+            httpd_set_connection_type(conn->raop->httpd, ptr, CONNECTION_TYPE_HLS);
+            conn->connection_type = CONNECTION_TYPE_HLS;
+        } else {
+	  logger_log(conn->raop->logger, LOGGER_WARNING, "connection from unknown connection type");
+        }	  
+    }
+
+    /* this response code and message  will be modified by the handler if necessary */
+    *response = http_response_create();
+    http_response_init(*response, protocol, 200, "OK");
+
+    /* is this really necessary? or is it obsolete? (added for all RTSP requests EXCEPT "RECORD") */
+    if (cseq && strcmp(method, "RECORD")) {
+	    http_response_add_header(*response, "Audio-Jack-Status", "connected; type=digital");
     }
 
     if (!conn->have_active_remote) {
@@ -204,15 +297,6 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         }
     }
 
-    if (!method) {
-        return;
-    }
-
-    /* this rejects unsupported messages from _airplay._tcp for video streaming protocol*/
-    if (!cseq) {
-        return;
-    }
-    
     logger_log(conn->raop->logger, LOGGER_DEBUG, "\n%s %s %s", method, url, protocol);
     char *header_str= NULL; 
     http_request_get_header_string(request, &header_str);
@@ -225,14 +309,26 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         const char *request_data = http_request_get_data(request, &request_datalen);
         if (request_data && logger_debug) {
             if (request_datalen > 0) {
+                /* logger has a buffer limit of 4096 */
 	        if (data_is_plist) {
-		    plist_t req_root_node = NULL;
+ 		    plist_t req_root_node = NULL;
 		    plist_from_bin(request_data, request_datalen, &req_root_node);
-                    char * plist_xml;
+                    char * plist_xml = NULL;
+                    char * stripped_xml = NULL;
                     uint32_t plist_len;
                     plist_to_xml(req_root_node, &plist_xml, &plist_len);
-                    logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", plist_xml);
-                    free(plist_xml);
+                    stripped_xml = utils_strip_data_from_plist_xml(plist_xml);
+                    logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", (stripped_xml ? stripped_xml : plist_xml));
+                    if (stripped_xml) {
+                        free(stripped_xml);
+                    }
+                    if (plist_xml) {
+#ifdef PLIST_230
+                        plist_mem_free(plist_xml);
+#else
+                        plist_to_xml_free(plist_xml);
+#endif
+                    }
                     plist_free(req_root_node);
                 } else if (data_is_text) {
                     char *data_str = utils_data_to_text((char *) request_data, request_datalen);
@@ -247,52 +343,100 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         }
     }
 
-    *response = http_response_create();
-    http_response_init(*response, protocol, 200, "OK");
-
-    //http_response_add_header(*response, "Apple-Jack-Status", "connected; type=analog");
-
+    if (client_session_id) {
+        assert(!strcmp(client_session_id, conn->client_session_id));
+    }
 
     logger_log(conn->raop->logger, LOGGER_DEBUG, "Handling request %s with URL %s", method, url);
     raop_handler_t handler = NULL;
-    if (!strcmp(method, "GET") && !strcmp(url, "/info")) {
-        handler = &raop_handler_info;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/pair-pin-start")) {
-        handler = &raop_handler_pairpinstart;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/pair-setup-pin")) {
-        handler = &raop_handler_pairsetup_pin;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/pair-setup")) {
-        handler = &raop_handler_pairsetup;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/pair-verify")) {
-        handler = &raop_handler_pairverify;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/fp-setup")) {
-        handler = &raop_handler_fpsetup;
-    } else if (!strcmp(method, "OPTIONS")) {
-        handler = &raop_handler_options;
-    } else if (!strcmp(method, "SETUP")) {
-        handler = &raop_handler_setup;
-    } else if (!strcmp(method, "GET_PARAMETER")) {
-        handler = &raop_handler_get_parameter;
-    } else if (!strcmp(method, "SET_PARAMETER")) {
-        handler = &raop_handler_set_parameter;
-    } else if (!strcmp(method, "POST") && !strcmp(url, "/feedback")) {
-        handler = &raop_handler_feedback;
-    } else if (!strcmp(method, "RECORD")) {
-        handler = &raop_handler_record;
-    } else if (!strcmp(method, "FLUSH")) {
-        handler = &raop_handler_flush;
-    } else if (!strcmp(method, "TEARDOWN")) {
-        handler = &raop_handler_teardown;
-    } else {
-        logger_log(conn->raop->logger, LOGGER_INFO, "Unhandled Client Request: %s %s", method, url);
+    if (!hls_request && !strcmp(protocol, "RTSP/1.0")) {
+        if (!strcmp(method, "POST")) {
+            if (!strcmp(url, "/feedback")) {
+                handler = &raop_handler_feedback;
+	    } else if (!strcmp(url, "/pair-pin-start")) {
+                handler = &raop_handler_pairpinstart;
+            } else if (!strcmp(url, "/pair-setup-pin")) {
+                handler = &raop_handler_pairsetup_pin;
+            } else if (!strcmp(url, "/pair-setup")) {
+                handler = &raop_handler_pairsetup;
+            } else if (!strcmp(url, "/pair-verify")) {
+                handler = &raop_handler_pairverify;
+            } else if (!strcmp(url, "/fp-setup")) {
+                handler = &raop_handler_fpsetup;
+            } else if (!strcmp(url, "/getProperty")) {
+                handler = &http_handler_get_property;
+            } else if (!strcmp(url, "/audioMode")) {
+                //handler = &http_handler_audioMode;
+            }
+        } else if (!strcmp(method, "GET")) {
+            if (!strcmp(url, "/info")) {
+                handler = &raop_handler_info;
+            }
+        } else if (!strcmp(method, "OPTIONS")) {
+            handler = &raop_handler_options;
+        } else if (!strcmp(method, "SETUP")) {
+            handler = &raop_handler_setup;
+        } else if (!strcmp(method, "GET_PARAMETER")) {
+            handler = &raop_handler_get_parameter;
+        } else if (!strcmp(method, "SET_PARAMETER")) {
+            handler = &raop_handler_set_parameter;
+        } else if (!strcmp(method, "RECORD")) {
+            handler = &raop_handler_record;
+        } else if (!strcmp(method, "FLUSH")) {
+            handler = &raop_handler_flush;
+        } else if (!strcmp(method, "TEARDOWN")) {
+            handler = &raop_handler_teardown;
+        } else {
+            http_response_init(*response, protocol, 501, "Not Implemented");
+	}
+    } else if (!hls_request && !strcmp(protocol, "HTTP/1.1")) {
+        if (!strcmp(method, "POST")) {
+            if (!strcmp(url, "/reverse")) {
+                handler = &http_handler_reverse;
+            } else if (!strcmp(url, "/play")) {
+                handler = &http_handler_play;
+            } else if (!strncmp (url, "/getProperty?", strlen("/getProperty?"))) {
+                handler = &http_handler_get_property;
+            } else if (!strncmp(url, "/scrub?", strlen("/scrub?"))) {
+                handler = &http_handler_scrub;
+            } else if (!strncmp(url, "/rate?", strlen("/rate?"))) {
+                handler = &http_handler_rate;
+            } else if (!strcmp(url, "/stop")) {
+                handler = &http_handler_stop;
+            } else if (!strcmp(url, "/action")) {
+                handler = &http_handler_action;
+            } else if (!strcmp(url, "/fp-setup2")) {
+                handler = &http_handler_fpsetup2;
+            }
+        } else if (!strcmp(method, "GET")) {
+            if (!strcmp(url, "/server-info")) {
+                handler = &http_handler_server_info;
+            } else if (!strcmp(url, "/playback-info")) {
+                handler = &http_handler_playback_info;
+            }
+        } else if (!strcmp(method, "PUT")) {
+	  if (!strncmp (url, "/setProperty?", strlen("/setProperty?"))) {
+                handler = &http_handler_set_property;
+	  }
+        }
+    } else if (hls_request) {
+        handler = &http_handler_hls;
     }
 
     if (handler != NULL) {
         handler(conn, request, *response, &response_data, &response_datalen);
+    } else {
+      logger_log(conn->raop->logger, LOGGER_INFO,
+		 "Unhandled Client Request: %s %s %s", method, url, protocol);
     }
+
     finish:;
-    http_response_add_header(*response, "Server", "AirTunes/"GLOBAL_VERSION);
-    http_response_add_header(*response, "CSeq", cseq);    
+    if (!hls_request) {
+        http_response_add_header(*response, "Server", "AirTunes/"GLOBAL_VERSION);
+        if (cseq) {
+            http_response_add_header(*response, "CSeq", cseq);
+	}
+    }
     http_response_finish(*response, response_data, response_datalen);
 
     int len;
@@ -304,20 +448,34 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     }
     header_str =  utils_data_to_text(data, len);
     logger_log(conn->raop->logger, LOGGER_DEBUG, "\n%s", header_str);
+    
     bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
-    bool data_is_text = (strstr(header_str,"text/parameters") != NULL);
+    bool data_is_text = (strstr(header_str,"text/") != NULL ||
+                         strstr(header_str, "x-mpegURL") != NULL);
     free(header_str);
     if (response_data) {
         if (response_datalen > 0 && logger_debug) {
+            /* logger has a buffer limit of 4096 */
             if (data_is_plist) {
                 plist_t res_root_node = NULL;
                 plist_from_bin(response_data, response_datalen, &res_root_node);
-                char * plist_xml;
+                char * plist_xml = NULL;
+                char * stripped_xml = NULL;
                 uint32_t plist_len;
                 plist_to_xml(res_root_node, &plist_xml, &plist_len);
+                stripped_xml = utils_strip_data_from_plist_xml(plist_xml);
+                logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", (stripped_xml ? stripped_xml : plist_xml));
+                if (stripped_xml) {
+                    free(stripped_xml);
+                }
+                if (plist_xml) {
+#ifdef PLIST_230
+                    plist_mem_free(plist_xml);
+#else
+                    plist_to_xml_free(plist_xml);
+#endif
+                }
                 plist_free(res_root_node);
-                logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", plist_xml);
-                free(plist_xml);
             } else if (data_is_text) {
                 char *data_str = utils_data_to_text((char*) response_data, response_datalen);
                 logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", data_str);                    
@@ -328,9 +486,9 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                 free(data_str);
             }
         }
-        free(response_data);
-        response_data = NULL;
-        response_datalen = 0;
+        if (response_data) {
+            free(response_data);
+	}
     }
 }
 
@@ -364,6 +522,13 @@ conn_destroy(void *ptr) {
     free(conn->remote);
     pairing_session_destroy(conn->session);
     fairplay_destroy(conn->fairplay);
+    if (conn->client_session_id) {
+        free(conn->client_session_id);
+    }
+    if (conn->airplay_video) {
+        airplay_video_service_destroy(conn->airplay_video);
+    }
+
     free(conn);
 }
 
@@ -417,9 +582,11 @@ raop_init(raop_callbacks_t *callbacks) {
     /* initialize switch for display of client's streaming data records */    
     raop->clientFPSdata = 0;
 
-    raop->max_ntp_timeouts = 0;
     raop->audio_delay_micros = 250000;
 
+    raop->hls_support = false;
+
+    raop->nonce = NULL;
     return raop;
 }
 
@@ -443,7 +610,7 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
 #else
     unsigned char public_key[ED25519_KEY_SIZE];
     pairing_get_public_key(pairing, public_key);
-    char *pk_str = utils_pk_to_string(public_key, ED25519_KEY_SIZE);
+    char *pk_str = utils_hex_to_string(public_key, ED25519_KEY_SIZE);
     strncpy(raop->pk_str, (const char *) pk_str, 2*ED25519_KEY_SIZE);
     free(pk_str);
 #endif
@@ -474,10 +641,18 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
 void
 raop_destroy(raop_t *raop) {
     if (raop) {
-        raop_stop(raop);
+        raop_destroy_airplay_video(raop);
+        raop_stop_httpd(raop);
         pairing_destroy(raop->pairing);
         httpd_destroy(raop->httpd);
         logger_destroy(raop->logger);
+	if (raop->nonce) {
+            free(raop->nonce);
+        }
+	if (raop->random_pw) {
+            free(raop->random_pw);
+        }
+
         free(raop);
 
         /* Cleanup the network */
@@ -522,9 +697,6 @@ int raop_set_plist(raop_t *raop, const char *plist_item, const int value) {
     } else if (strcmp(plist_item, "clientFPSdata") == 0) {
         raop->clientFPSdata = (value ? 1 : 0);
         if ((int) raop->clientFPSdata  != value) retval = 1;
-    } else if (strcmp(plist_item, "max_ntp_timeouts") == 0) {
-        raop->max_ntp_timeouts = (value > 0 ? value : 0);
-        if (raop->max_ntp_timeouts != value) retval = 1;
     } else if (strcmp(plist_item, "audio_delay_micros") == 0) {
         if (value >= 0 && value <= 10 * SECOND_IN_USECS) {     
             raop->audio_delay_micros = value;
@@ -533,6 +705,8 @@ int raop_set_plist(raop_t *raop, const char *plist_item, const int value) {
     } else if (strcmp(plist_item, "pin") == 0) {
         raop->pin = value;
         raop->use_pin = true;
+    } else if (strcmp(plist_item, "hls") == 0) {
+        raop->hls_support = (value > 0 ? true : false);
     } else {
         retval = -1;
     }	  
@@ -588,14 +762,47 @@ raop_set_dnssd(raop_t *raop, dnssd_t *dnssd) {
 
 
 int
-raop_start(raop_t *raop, unsigned short *port) {
+raop_start_httpd(raop_t *raop, unsigned short *port) {
     assert(raop);
     assert(port);
     return httpd_start(raop->httpd, port);
 }
 
 void
-raop_stop(raop_t *raop) {
+raop_stop_httpd(raop_t *raop) {
     assert(raop);
     httpd_stop(raop->httpd);
+}
+
+void raop_remove_known_connections(raop_t * raop) {
+    httpd_remove_known_connections(raop->httpd);
+}
+
+airplay_video_t *deregister_airplay_video(raop_t *raop) {
+    airplay_video_t *airplay_video = raop->airplay_video;
+    raop->airplay_video = NULL;
+    return airplay_video;
+}
+
+bool register_airplay_video(raop_t *raop, airplay_video_t *airplay_video) {
+    if (raop->airplay_video) {
+        return false;
+    }
+    raop->airplay_video = airplay_video;
+    return true;
+}
+
+airplay_video_t * get_airplay_video(raop_t *raop) {
+    return raop->airplay_video;
+}
+
+void raop_destroy_airplay_video(raop_t *raop) {
+    if (raop->airplay_video) {
+        airplay_video_service_destroy(raop->airplay_video);
+        raop->airplay_video = NULL;
+    }
+}
+
+uint64_t get_local_time() {
+    return raop_ntp_get_local_time();
 }

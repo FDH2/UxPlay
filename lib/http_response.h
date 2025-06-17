@@ -22,6 +22,8 @@ typedef struct http_response_s http_response_t;
 
 http_response_t *http_response_create();
 void http_response_init(http_response_t *response, const char *protocol, int code, const char *message);
+void http_response_reverse_request_init(http_response_t *request, const char *method, const char *url,
+                                        const char *protocol);
 
 void http_response_add_header(http_response_t *response, const char *name, const char *value);
 void http_response_finish(http_response_t *response, const char *data, int datalen);

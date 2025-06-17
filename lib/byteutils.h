@@ -28,5 +28,6 @@ float byteutils_get_float(unsigned char* b, int offset);
 
 uint64_t byteutils_get_ntp_timestamp(unsigned char *b, int offset);
 void byteutils_put_ntp_timestamp(unsigned char *b, int offset, uint64_t us_since_1970);
+void byteutils_put_long_be(unsigned char* b, int offset, uint64_t value);
 
 #endif //AIRPLAYSERVER_BYTEUTILS_H

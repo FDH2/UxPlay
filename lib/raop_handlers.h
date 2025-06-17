@@ -25,6 +25,7 @@
 #include <plist/plist.h>
 #define AUDIO_SAMPLE_RATE 44100   /* all supported AirPlay audio format use this sample rate */
 #define SECOND_IN_USECS 1000000
+#define SECOND_IN_NSECS 1000000000
 
 typedef void (*raop_handler_t)(raop_conn_t *, http_request_t *,
                                http_response_t *, char **, int *);
@@ -36,6 +37,33 @@ raop_handler_info(raop_conn_t *conn,
 {
     assert(conn->raop->dnssd);
 
+#if 0
+    /* initial GET/info request sends plist with string "txtAirPlay" */
+    bool txtAirPlay = false;
+    const char* content_type =  NULL;
+    content_type = http_request_get_header(request, "Content-Type");
+    if (content_type && strstr(content_type, "application/x-apple-binary-plist")) {
+        char *qualifier_string = NULL;
+        const char *data = NULL;
+        int data_len = 0;
+        data = http_request_get_data(request, &data_len);
+        //parsing bplist
+        plist_t req_root_node = NULL;
+        plist_from_bin(data, data_len, &req_root_node);
+        plist_t req_qualifier_node = plist_dict_get_item(req_root_node, "qualifier");
+        if (PLIST_IS_ARRAY(req_qualifier_node)) {
+            plist_t req_string_node = plist_array_get_item(req_qualifier_node, 0);
+            plist_get_string_val(req_string_node, &qualifier_string);
+        }
+        if (qualifier_string && !strcmp(qualifier_string, "txtAirPlay")) {
+	    printf("qualifier: %s\n", qualifier_string);
+	    txtAirPlay = true;
+        }
+	if (qualifier_string) {
+            free(qualifier_string);
+	}
+    }
+#endif
     plist_t res_node = plist_new_dict();
 
     /* deviceID is the physical hardware address, and will not change */
@@ -68,22 +96,47 @@ raop_handler_info(raop_conn_t *conn,
     plist_t name_node = plist_new_string(name);
     plist_dict_set_item(res_node, "name", name_node);
 
+    plist_t audio_latencies_node = plist_new_array();
+    plist_t audio_latencies_0_node = plist_new_dict();
+    plist_t audio_latencies_0_output_latency_micros_node = plist_new_bool(0);
+    plist_t audio_latencies_0_type_node = plist_new_uint(100);
+    plist_t audio_latencies_0_audio_type_node = plist_new_string("default");
+    plist_t audio_latencies_0_input_latency_micros_node = plist_new_uint(0);
+    plist_dict_set_item(audio_latencies_0_node, "type", audio_latencies_0_type_node);
+    plist_dict_set_item(audio_latencies_0_node, "inputLatencyMicros", audio_latencies_0_input_latency_micros_node);
+    plist_dict_set_item(audio_latencies_0_node, "audioType", audio_latencies_0_audio_type_node);
+    plist_dict_set_item(audio_latencies_0_node, "outputLatencyMicros", audio_latencies_0_output_latency_micros_node);
+    plist_array_append_item(audio_latencies_node, audio_latencies_0_node);
+
+    plist_t audio_latencies_1_node = plist_new_dict();
+    plist_t audio_latencies_1_output_latency_micros_node = plist_new_bool(0);
+    plist_t audio_latencies_1_type_node = plist_new_uint(101);
+    plist_t audio_latencies_1_audio_type_node = plist_new_string("default");
+    plist_t audio_latencies_1_input_latency_micros_node = plist_new_uint(0);
+    plist_dict_set_item(audio_latencies_1_node, "type", audio_latencies_1_type_node);
+    plist_dict_set_item(audio_latencies_1_node, "audioType", audio_latencies_1_audio_type_node);
+    plist_dict_set_item(audio_latencies_1_node, "inputLatencyMicros", audio_latencies_1_input_latency_micros_node);
+    plist_dict_set_item(audio_latencies_1_node, "outputLatencyMicros", audio_latencies_1_output_latency_micros_node);
+    plist_array_append_item(audio_latencies_node, audio_latencies_1_node);
+    plist_dict_set_item(res_node, "audioLatencies", audio_latencies_node);
+
     plist_t audio_formats_node = plist_new_array();
     plist_t audio_format_0_node = plist_new_dict();
     plist_t audio_format_0_type_node = plist_new_uint(100);
     plist_t audio_format_0_audio_input_formats_node = plist_new_uint(0x3fffffc);
     plist_t audio_format_0_audio_output_formats_node = plist_new_uint(0x3fffffc);
+    plist_dict_set_item(audio_format_0_node, "audioOutputFormats", audio_format_0_audio_output_formats_node);
     plist_dict_set_item(audio_format_0_node, "type", audio_format_0_type_node);
     plist_dict_set_item(audio_format_0_node, "audioInputFormats", audio_format_0_audio_input_formats_node);
-    plist_dict_set_item(audio_format_0_node, "audioOutputFormats", audio_format_0_audio_output_formats_node);
     plist_array_append_item(audio_formats_node, audio_format_0_node);
+
     plist_t audio_format_1_node = plist_new_dict();
     plist_t audio_format_1_type_node = plist_new_uint(101);
     plist_t audio_format_1_audio_input_formats_node = plist_new_uint(0x3fffffc);
     plist_t audio_format_1_audio_output_formats_node = plist_new_uint(0x3fffffc);
+    plist_dict_set_item(audio_format_1_node, "audioOutputFormats", audio_format_1_audio_output_formats_node);
     plist_dict_set_item(audio_format_1_node, "type", audio_format_1_type_node);
     plist_dict_set_item(audio_format_1_node, "audioInputFormats", audio_format_1_audio_input_formats_node);
-    plist_dict_set_item(audio_format_1_node, "audioOutputFormats", audio_format_1_audio_output_formats_node);
     plist_array_append_item(audio_formats_node, audio_format_1_node);
     plist_dict_set_item(res_node, "audioFormats", audio_formats_node);
 
@@ -102,31 +155,8 @@ raop_handler_info(raop_conn_t *conn,
     plist_t source_version_node = plist_new_string(GLOBAL_VERSION);
     plist_dict_set_item(res_node, "sourceVersion", source_version_node);
 
-    plist_t keep_alive_send_stats_as_body_node = plist_new_uint(1);
+    plist_t keep_alive_send_stats_as_body_node = plist_new_bool(1);
     plist_dict_set_item(res_node, "keepAliveSendStatsAsBody", keep_alive_send_stats_as_body_node);
-
-    plist_t audio_latencies_node = plist_new_array();
-    plist_t audio_latencies_0_node = plist_new_dict();
-    plist_t audio_latencies_0_output_latency_micros_node = plist_new_bool(0);
-    plist_t audio_latencies_0_type_node = plist_new_uint(100);
-    plist_t audio_latencies_0_audio_type_node = plist_new_string("default");
-    plist_t audio_latencies_0_input_latency_micros_node = plist_new_bool(0);
-    plist_dict_set_item(audio_latencies_0_node, "outputLatencyMicros", audio_latencies_0_output_latency_micros_node);
-    plist_dict_set_item(audio_latencies_0_node, "type", audio_latencies_0_type_node);
-    plist_dict_set_item(audio_latencies_0_node, "audioType", audio_latencies_0_audio_type_node);
-    plist_dict_set_item(audio_latencies_0_node, "inputLatencyMicros", audio_latencies_0_input_latency_micros_node);
-    plist_array_append_item(audio_latencies_node, audio_latencies_0_node);
-    plist_t audio_latencies_1_node = plist_new_dict();
-    plist_t audio_latencies_1_output_latency_micros_node = plist_new_bool(0);
-    plist_t audio_latencies_1_type_node = plist_new_uint(101);
-    plist_t audio_latencies_1_audio_type_node = plist_new_string("default");
-    plist_t audio_latencies_1_input_latency_micros_node = plist_new_bool(0);
-    plist_dict_set_item(audio_latencies_1_node, "outputLatencyMicros", audio_latencies_1_output_latency_micros_node);
-    plist_dict_set_item(audio_latencies_1_node, "type", audio_latencies_1_type_node);
-    plist_dict_set_item(audio_latencies_1_node, "audioType", audio_latencies_1_audio_type_node);
-    plist_dict_set_item(audio_latencies_1_node, "inputLatencyMicros", audio_latencies_1_input_latency_micros_node);
-    plist_array_append_item(audio_latencies_node, audio_latencies_1_node);
-    plist_dict_set_item(res_node, "audioLatencies", audio_latencies_node);
 
     plist_t model_node = plist_new_string(GLOBAL_MODEL);
     plist_dict_set_item(res_node, "model", model_node);
@@ -136,15 +166,15 @@ raop_handler_info(raop_conn_t *conn,
 
     plist_t displays_node = plist_new_array();
     plist_t displays_0_node = plist_new_dict();
+    plist_t displays_0_width_physical_node = plist_new_uint(0);
+    plist_t displays_0_height_physical_node = plist_new_uint(0);
     plist_t displays_0_uuid_node = plist_new_string("e0ff8a27-6738-3d56-8a16-cc53aacee925");
-    plist_t displays_0_width_physical_node = plist_new_bool(0);
-    plist_t displays_0_height_physical_node = plist_new_bool(0);
     plist_t displays_0_width_node = plist_new_uint(conn->raop->width);
     plist_t displays_0_height_node = plist_new_uint(conn->raop->height);
     plist_t displays_0_width_pixels_node = plist_new_uint(conn->raop->width);
     plist_t displays_0_height_pixels_node = plist_new_uint(conn->raop->height);
-    plist_t displays_0_rotation_node = plist_new_bool(0);
-    plist_t displays_0_refresh_rate_node = plist_new_uint(conn->raop->refreshRate);
+    plist_t displays_0_rotation_node = plist_new_bool(0); /* set to true in AppleTV gen 3 (which has features bit 8  set */
+    plist_t displays_0_refresh_rate_node = plist_new_real((double) 1.0 / conn->raop->refreshRate);  /* set as real 0.166666  = 60hz in AppleTV gen 3 */
     plist_t displays_0_max_fps_node = plist_new_uint(conn->raop->maxFPS);
     plist_t displays_0_overscanned_node = plist_new_bool(conn->raop->overscanned);
     plist_t displays_0_features = plist_new_uint(14);
@@ -156,7 +186,7 @@ raop_handler_info(raop_conn_t *conn,
     plist_dict_set_item(displays_0_node, "height", displays_0_height_node);
     plist_dict_set_item(displays_0_node, "widthPixels", displays_0_width_pixels_node);
     plist_dict_set_item(displays_0_node, "heightPixels", displays_0_height_pixels_node);
-    plist_dict_set_item(displays_0_node, "rotation", displays_0_rotation_node);
+    plist_dict_set_item(displays_0_node, "rotation", displays_0_rotation_node);    
     plist_dict_set_item(displays_0_node, "refreshRate", displays_0_refresh_rate_node);
     plist_dict_set_item(displays_0_node, "maxFPS", displays_0_max_fps_node);
     plist_dict_set_item(displays_0_node, "overscanned", displays_0_overscanned_node);
@@ -195,7 +225,6 @@ raop_handler_pairpinstart(raop_conn_t *conn,
     logger_log(conn->raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
     *response_data = NULL;
     response_datalen = 0;
-    return;
 }
 
 static void
@@ -508,7 +537,7 @@ raop_handler_options(raop_conn_t *conn,
                      http_request_t *request, http_response_t *response,
                      char **response_data, int *response_datalen)
 {
-    http_response_add_header(response, "Public", "SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
+    http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
 }
 
 static void
@@ -516,12 +545,12 @@ raop_handler_setup(raop_conn_t *conn,
                    http_request_t *request, http_response_t *response,
                    char **response_data, int *response_datalen)
 {
-    const char *dacp_id;
-    const char *active_remote_header;
+    const char *dacp_id = NULL;
+    const char *active_remote_header = NULL;
     bool logger_debug = (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG);
     
-    const char *data;
-    int data_len;
+    const char *data = NULL;
+    int data_len = 0;
     data = http_request_get_data(request, &data_len);
 
     dacp_id = http_request_get_header(request, "DACP-ID");
@@ -547,13 +576,103 @@ raop_handler_setup(raop_conn_t *conn,
     if (PLIST_IS_DATA(req_eiv_node) && PLIST_IS_DATA(req_ekey_node)) {
         // The first SETUP call that initializes keys and timing
 
-        unsigned char aesiv[16];
-        unsigned char aeskey[16];
-        unsigned char eaeskey[72];
+        unsigned char aesiv[16] = { 0 };
+        unsigned char aeskey[16] = { 0 };
+        unsigned char eaeskey[72] = { 0 };
 
         logger_log(conn->raop->logger, LOGGER_DEBUG, "SETUP 1");
 
         // First setup
+
+        /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
+        if (!conn->authenticated && conn->raop->callbacks.passwd) {
+            int len;
+            const char *password = conn->raop->callbacks.passwd(conn->raop->callbacks.cls, &len);
+            // len = -1 means use a random password for this connection
+            if (len == -1 && conn->raop->random_pw && conn->raop->auth_fail_count >= 5) {
+                // change random_pw after 5 failed authentication attempts
+                logger_log(conn->raop->logger, LOGGER_INFO, "Too many authentication failures: generate new random password");
+                free(conn->raop->random_pw);
+                conn->raop->random_pw = NULL;
+            }
+            if (len == -1 && !conn->raop->random_pw) {
+                // get and store 4 random digits
+                int pin_4  = random_pin();
+                if (pin_4 < 0) {
+                    logger_log(conn->raop->logger, LOGGER_ERR, "Failed to generate random pin");
+                    pin_4 = 1234;
+                }
+		size_t len = 4;
+		conn->raop->random_pw =  (char *) malloc(len + 1);
+                char *pin = conn->raop->random_pw;
+                snprintf(pin, len + 1, "%04u", pin_4 % 10000);
+                pin[len] = '\0';
+                conn->raop->auth_fail_count = 0;
+                if (conn->raop->callbacks.display_pin) {
+                    conn->raop->callbacks.display_pin(conn->raop->callbacks.cls, pin);
+                }
+                logger_log(conn->raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
+            }
+	    if (len && !conn->authenticated) {
+ 	        if (len == -1) {
+                    password = (const char *) conn->raop->random_pw;
+                }
+                char nonce_string[33] = { '\0' };
+                //bool stale = false;  //not implemented
+                const char *authorization = NULL;
+                authorization = http_request_get_header(request, "Authorization");
+                if (authorization) {
+                    char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
+                    strncpy(nonce_string, ptr, 32);
+                    const char *method = http_request_get_method(request);
+                    conn->authenticated = pairing_digest_verify(method, authorization, password);
+		    if (!conn->authenticated) {
+                        conn->raop->auth_fail_count++;
+                        logger_log(conn->raop->logger, LOGGER_INFO, "*** authentication failure: count = %u", conn->raop->auth_fail_count);
+		        if (conn->raop->callbacks.display_pin && conn->raop->auth_fail_count > 1) {
+                            conn->raop->callbacks.display_pin(conn->raop->callbacks.cls, conn->raop->random_pw);
+                        }
+                        logger_log(conn->raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", conn->raop->random_pw);
+                    }
+                    if (conn->authenticated) {
+                        printf("initial authenticatication OK\n");
+                        conn->authenticated = conn->authenticated && !strcmp(nonce_string, conn->raop->nonce);
+                        if (!conn->authenticated) {
+                            logger_log(conn->raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
+                                       nonce_string, conn->raop->nonce);
+                        }			
+                    }
+                    if (conn->authenticated && conn->raop->random_pw) {
+                        free (conn->raop->random_pw);
+                        conn->raop->random_pw = NULL;
+		    }
+                    if (conn->raop->nonce) {
+                        free(conn->raop->nonce);
+                        conn->raop->nonce = NULL;
+                    }
+                    logger_log(conn->raop->logger, LOGGER_INFO, "Client authentication %s", (conn->authenticated ? "success" : "failure"));
+                }
+                if (!conn->authenticated) {
+                    /* create a nonce */
+                    const char *url = http_request_get_url(request);
+                    unsigned char nonce[16] = { '\0' };
+                    int len = 16;
+                    uint64_t now = raop_ntp_get_local_time();
+                    assert (!pairing_session_make_nonce(conn->session, &now, url, nonce, len));
+                    if (conn->raop->nonce) {
+                        free(conn->raop->nonce);
+                    }
+                    conn->raop->nonce = utils_hex_to_string(nonce, len);
+                    char response_text[80] = "Digest realm=\"raop\", nonce=\"";
+                    strncat(response_text, conn->raop->nonce, 80 - strlen(response_text) - 1);
+                    strncat(response_text, "\"", 80 - strlen(response_text) - 1);
+                    http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
+                    http_response_add_header(response, "WWW-Authenticate", response_text);
+                    return;
+                }
+            }
+        }
+	
         char* eiv = NULL;
         uint64_t eiv_len = 0;
 
@@ -571,16 +690,11 @@ raop_handler_setup(raop_conn_t *conn,
             conn->raop->callbacks.report_client_request(conn->raop->callbacks.cls, deviceID, model, name, &admit_client);
         }
 	if (admit_client && deviceID && name && conn->raop->callbacks.register_client) {
-            bool pending_registration;
-            char *client_device_id;
-            char *client_pk;   /* encoded as null-terminated  base64 string*/
-            access_client_session_data(conn->session, &client_device_id, &client_pk, &pending_registration);
-            if (pending_registration) {
-                if (client_pk && !strcmp(deviceID, client_device_id)) { 
-                    conn->raop->callbacks.register_client(conn->raop->callbacks.cls, client_device_id, client_pk, name); 
-		}
-	    }
-            if (client_pk) {
+            char *client_device_id = NULL;
+            char *client_pk = NULL;   /* encoded as null-terminated  base64 string, must be freed*/
+            get_pairing_session_client_data(conn->session, &client_device_id, &client_pk);
+            if (client_pk && !strcmp(deviceID, client_device_id)) { 
+                conn->raop->callbacks.register_client(conn->raop->callbacks.cls, client_device_id, client_pk, name); 
                 free (client_pk);
             }
 	}
@@ -690,7 +804,7 @@ raop_handler_setup(raop_conn_t *conn,
             }
 	}
         char *timing_protocol = NULL;
-	timing_protocol_t time_protocol;
+	timing_protocol_t time_protocol = TP_NONE;
         plist_t req_timing_protocol_node = plist_dict_get_item(req_root_node, "timingProtocol");
         plist_get_string_val(req_timing_protocol_node, &timing_protocol);
         if (timing_protocol) {
@@ -729,7 +843,7 @@ raop_handler_setup(raop_conn_t *conn,
         conn->raop_ntp = NULL;
         conn->raop_rtp = NULL;
         conn->raop_rtp_mirror = NULL;
-        char remote[40];
+        char remote[40] = { 0 };
         int len = utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, remote, (int) sizeof(remote));
         if (!len || len > sizeof(remote)) {
             char *str = utils_data_to_string(conn->remote, conn->remotelen, 16);
@@ -741,19 +855,20 @@ raop_handler_setup(raop_conn_t *conn,
         }
         conn->raop_ntp = raop_ntp_init(conn->raop->logger, &conn->raop->callbacks, remote,
                                        conn->remotelen, (unsigned short) timing_rport, &time_protocol);
-        raop_ntp_start(conn->raop_ntp, &timing_lport, conn->raop->max_ntp_timeouts);
+        raop_ntp_start(conn->raop_ntp, &timing_lport);
         conn->raop_rtp = raop_rtp_init(conn->raop->logger, &conn->raop->callbacks, conn->raop_ntp,
                                        remote, conn->remotelen, aeskey, aesiv);
         conn->raop_rtp_mirror = raop_rtp_mirror_init(conn->raop->logger, &conn->raop->callbacks,
                                                      conn->raop_ntp, remote, conn->remotelen, aeskey);
 
-	// plist_t res_event_port_node = plist_new_uint(conn->raop->port);
-	plist_t res_event_port_node = plist_new_uint(0);
+        /* the event port is not used in mirror mode or audio mode */
+        unsigned short event_port = 0;
+        plist_t res_event_port_node = plist_new_uint(event_port);
         plist_t res_timing_port_node = plist_new_uint(timing_lport);
         plist_dict_set_item(res_root_node, "timingPort", res_timing_port_node);
         plist_dict_set_item(res_root_node, "eventPort", res_event_port_node);
 
-        logger_log(conn->raop->logger, LOGGER_DEBUG, "eport = %d, tport = %d", 0, timing_lport);
+        logger_log(conn->raop->logger, LOGGER_DEBUG, "eport = %d, tport = %d", event_port, timing_lport);
     }
 
     // Process stream setup requests
@@ -774,7 +889,7 @@ raop_handler_setup(raop_conn_t *conn,
                     // Mirroring
                     unsigned short dport = conn->raop->mirror_data_lport;
                     plist_t stream_id_node = plist_dict_get_item(req_stream_node, "streamConnectionID");
-                    uint64_t stream_connection_id;
+                    uint64_t stream_connection_id = 0;
                     plist_get_uint_val(stream_id_node, &stream_connection_id);
                     logger_log(conn->raop->logger, LOGGER_DEBUG, "streamConnectionID (needed for AES-CTR video decryption"
                                " key and iv): %llu", stream_connection_id);
@@ -800,7 +915,7 @@ raop_handler_setup(raop_conn_t *conn,
                     // Audio
                     unsigned short cport = conn->raop->control_lport, dport = conn->raop->data_lport; 
                     unsigned short remote_cport = 0;
-                    unsigned char ct;
+                    unsigned char ct = 0;
                     unsigned int sr = AUDIO_SAMPLE_RATE; /* all AirPlay audio formats supported so far have sample rate 44.1kHz */
 
                     uint64_t uint_val = 0;
@@ -814,10 +929,10 @@ raop_handler_setup(raop_conn_t *conn,
 
                     if (conn->raop->callbacks.audio_get_format) {
 		        /* get additional audio format parameters  */
-                        uint64_t audioFormat;
-                        unsigned short spf;
-                        bool isMedia; 
-                        bool usingScreen;
+                        uint64_t audioFormat = 0;
+                        unsigned short spf = 0;
+                        bool isMedia = false;
+                        bool usingScreen = false;
                         uint8_t bool_val = 0;
 
                         plist_t req_stream_spf_node = plist_dict_get_item(req_stream_node, "spf");
@@ -892,6 +1007,11 @@ raop_handler_get_parameter(raop_conn_t *conn,
     int datalen;
 
     content_type = http_request_get_header(request, "Content-Type");
+    if (!content_type) {
+        http_response_init(response, "RTSP/1.0", 451, "Parameter not understood");
+        return;
+    }
+
     data = http_request_get_data(request, &datalen);
     if (!strcmp(content_type, "text/parameters")) {
         const char *current = data;
@@ -901,8 +1021,10 @@ raop_handler_get_parameter(raop_conn_t *conn,
 
             /* This is a bit ugly, but seems to be how airport works too */
             if ((datalen - (current - data) >= 8) && !strncmp(current, "volume\r\n", 8)) {
-                const char volume[] = "volume: 0.0\r\n";
-
+                char volume[25] = "volume: 0.0\r\n";
+                if (conn->raop->callbacks.audio_set_client_volume) {
+                    snprintf(volume, 25, "volume: %9.6f\r\n", conn->raop->callbacks.audio_set_client_volume(conn->raop->callbacks.cls));
+		}
                 http_response_add_header(response, "Content-Type", "text/parameters");
                 *response_data = strdup(volume);
                 if (*response_data) {
@@ -938,6 +1060,10 @@ raop_handler_set_parameter(raop_conn_t *conn,
     int datalen;
 
     content_type = http_request_get_header(request, "Content-Type");
+    if (!content_type) {
+        http_response_init(response, "RTSP/1.0", 451, "Parameter not understood");
+        return;
+    }
     data = http_request_get_data(request, &datalen);
     if (!strcmp(content_type, "text/parameters")) {
         char *datastr;
@@ -981,6 +1107,8 @@ raop_handler_feedback(raop_conn_t *conn,
                       char **response_data, int *response_datalen)
 {
     logger_log(conn->raop->logger, LOGGER_DEBUG, "raop_handler_feedback");
+    /* register receipt of client's "heartbeat" signal  */
+    conn->raop->callbacks.conn_feedback(conn->raop->callbacks.cls);
 }
 
 static void
@@ -1041,7 +1169,7 @@ raop_handler_teardown(raop_conn_t *conn,
         uint64_t val;
         int count = plist_array_get_size(req_streams_node);
         for (int i = 0; i < count; i++) {
-            plist_t req_stream_node = plist_array_get_item(req_streams_node,0);
+            plist_t req_stream_node = plist_array_get_item(req_streams_node,i);
             plist_t req_stream_type_node = plist_dict_get_item(req_stream_node, "type");
             plist_get_uint_val(req_stream_type_node, &val);
             if (val == 96) {
@@ -1065,6 +1193,7 @@ raop_handler_teardown(raop_conn_t *conn,
             raop_rtp_stop(conn->raop_rtp);
         }
     } else if (teardown_110) {
+        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);	
         if (conn->raop_rtp_mirror) {
         /* Stop our video RTP session */
             raop_rtp_mirror_stop(conn->raop_rtp_mirror);
@@ -1079,5 +1208,7 @@ raop_handler_teardown(raop_conn_t *conn,
             raop_rtp_mirror_destroy(conn->raop_rtp_mirror);
             conn->raop_rtp_mirror = NULL;
         }
+	/* shut down any HLS connections */
+	httpd_remove_connections_by_type(conn->raop->httpd, CONNECTION_TYPE_HLS);
     }	
 }

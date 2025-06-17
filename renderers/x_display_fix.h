@@ -23,6 +23,9 @@
 
 /* based on code from David Ventura https://github.com/DavidVentura/UxPlay */
 
+/* This file should be only included from video_renderer.c as it defines static
+ * functions and depends on video_renderer internals */
+
 #ifndef X_DISPLAY_FIX_H
 #define X_DISPLAY_FIX_H
 
@@ -40,12 +43,12 @@ struct X11_Window_s {
     Window window;
 } typedef X11_Window_t;
 
-void get_X11_Display(X11_Window_t * X11) {
-    X11->display = XOpenDisplay(NULL);
+static void get_X11_Display(X11_Window_t * X11, char *display_name) {
+    X11->display = XOpenDisplay(display_name);
     X11->window = (Window) NULL;
 }
 
-Window enum_windows(const char * str, Display * display, Window window, int depth) {
+static Window enum_windows(const char * str, Display * display, Window window, int depth) {
     int i;
     XTextProperty text;
     XGetWMName(display, window, &text);
@@ -73,7 +76,7 @@ int X11_error_catcher( Display *disp, XErrorEvent *xe ) {
     return 0;
 }
 
-void get_x_window(X11_Window_t * X11, const char * name) {
+static void get_x_window(X11_Window_t * X11, const char * name) {
     Window root = XDefaultRootWindow(X11->display);
     XSetErrorHandler(X11_error_catcher);
     X11->window  = enum_windows(name, X11->display, root, 0);
@@ -89,7 +92,7 @@ void get_x_window(X11_Window_t * X11, const char * name) {
 #endif
 }
 
-void set_fullscreen(X11_Window_t * X11, bool * fullscreen) {
+static void set_fullscreen(X11_Window_t * X11, bool * fullscreen) {
     XClientMessageEvent msg = {
         .type = ClientMessage,
         .display = X11->display,

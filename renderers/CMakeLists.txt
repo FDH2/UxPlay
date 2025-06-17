@@ -1,9 +1,9 @@
-cmake_minimum_required(VERSION 3.5)
 
 if (APPLE )
   set( ENV{PKG_CONFIG_PATH} "/Library/FrameWorks/GStreamer.framework/Libraries/pkgconfig" ) # GStreamer.framework, preferred
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/lib/pkgconfig" ) # Brew or self-installed gstreamer
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/lib/pkgconfig" ) # Brew, M1/M2 macs  
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:$ENV{HOMEBREW_PREFIX}/lib/pkgconfig" ) # Brew, using prefix
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/local/lib/pkgconfig/" ) # MacPorts
   message( "PKG_CONFIG_PATH (Apple, renderers) = " $ENV{PKG_CONFIG_PATH} )
   find_program( PKG_CONFIG_EXECUTABLE  pkg-config  PATHS /Library/FrameWorks/GStreamer.framework/Commands )
@@ -38,17 +38,10 @@ pkg_check_modules(GST REQUIRED    gstreamer-1.0>=1.4
                                   gstreamer-app-1.0>=1.4
 )
 
-# temporary hack to deal with an issue in gstreamer 1.24
-pkg_check_modules ( GST124 gstreamer-1.0>=1.24 )
-if ( GST124_FOUND )
-  message( STATUS "*** GStreamer >= 1.24: GST_124 will be defined" )
-  set( GST_124 "1" CACHE STRING "define GST_124" )
-endif()
-
 add_library( renderers
              STATIC
-             audio_renderer_gstreamer.c
-	     video_renderer_gstreamer.c )
+             audio_renderer.c
+	     video_renderer.c )
 
 target_link_libraries ( renderers PUBLIC airplay )
 
@@ -63,6 +56,15 @@ if( GST_INCLUDE_DIRS MATCHES "/Library/FrameWorks/GStreamer.framework/include" )
     set( GST_MACOS "1" CACHE STRING "define GST_MACOS in uxplay.cpp" )
   endif()
 endif()
+
+# set GST_MACOS for all Apple when GStreamer >= 1.24
+if ( APPLE AND NOT GST_MACOS )
+  pkg_check_modules ( GST124 gstreamer-1.0>=1.24 )
+  if ( GST124_FOUND )
+     set( GST_MACOS "1" CACHE STRING "define GST_MACOS in uxplay.cpp" )
+   endif()
+endif()
+
 target_include_directories ( renderers PUBLIC ${GST_INCLUDE_DIRS} )
 
 if( GST_LIBRARY_DIRS MATCHES "/Library/FrameWorks/GStreamer.framework/lib" )

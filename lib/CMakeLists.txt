@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.5)
 include_directories( playfair llhttp )
 
 message( STATUS "*** CFLAGS \"" ${CMAKE_C_FLAGS} "\" from build environment will be postpended to CMAKE_CFLAGS" )
@@ -43,9 +42,11 @@ endif()
 if( APPLE )
   set( ENV{PKG_CONFIG_PATH} "/usr/local/lib/pkgconfig" ) # standard location, and Brew
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/lib/pkgconfig" ) # Brew for M1 macs
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:$ENV{HOMEBREW_PREFIX}/lib/pkgconfig" ) # Brew using prefix
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/local/lib/pkgconfig/" ) # MacPorts
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/opt/openssl@3/lib/pkgconfig" ) # Brew openssl
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/opt/openssl@3/lib/pkgconfig" ) # Brew M1 openssl
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:$ENV{HOMEBREW_PREFIX}/opt/openssl@3/lib/pkgconfig" ) # Brew using prefix  openssl
   message( "PKG_CONFIG_PATH (Apple, lib) = " $ENV{PKG_CONFIG_PATH} )
   find_program( PKG_CONFIG_EXECUTABLE  pkg-config  PATHS /Library/FrameWorks/GStreamer.framework/Commands )
   message( "PKG_CONFIG_EXECUTABLE " ${PKG_CONFIG_EXECUTABLE} )
@@ -80,21 +81,31 @@ else()
 endif()
 
 # libplist
-pkg_search_module(PLIST REQUIRED libplist-2.0)
-if ( PLIST_FOUND )
-   message( STATUS "found libplist-${PLIST_VERSION}" )
-endif()
+
 if( APPLE )
    # use static linking
+   pkg_search_module(PLIST REQUIRED libplist-2.0)
    find_library( LIBPLIST libplist-2.0.a REQUIRED )
    message( STATUS "(Static linking) LIBPLIST " ${LIBPLIST} )
    target_link_libraries ( airplay  ${LIBPLIST} )
 elseif( WIN32)
+pkg_search_module(PLIST REQUIRED libplist-2.0)
   find_library( LIBPLIST ${PLIST_LIBRARIES} PATH ${PLIST_LIBDIR} )
   target_link_libraries ( airplay ${LIBPLIST} )
 else ()
+  pkg_search_module(PLIST libplist>=2.0)
+  if(NOT PLIST_FOUND)
+    pkg_search_module(PLIST REQUIRED libplist-2.0)
+  endif()
   find_library( LIBPLIST ${PLIST_LIBRARIES} PATH ${PLIST_LIBDIR} )
   target_link_libraries ( airplay PUBLIC ${LIBPLIST} )
+endif()
+if ( PLIST_FOUND )
+   message( STATUS "found libplist-${PLIST_VERSION}")
+   pkg_check_modules ( PLIST_23 libplist-2.0>=2.3.0 )
+   if ( PLIST_23_FOUND )
+     add_definitions( -DPLIST_230 )
+   endif()
 endif()
 target_include_directories( airplay PRIVATE ${PLIST_INCLUDE_DIRS} )
 

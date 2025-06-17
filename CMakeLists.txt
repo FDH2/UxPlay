@@ -1,7 +1,7 @@
 if ( APPLE )
   cmake_minimum_required( VERSION 3.13 )
 else ()
-  cmake_minimum_required( VERSION 3.5 )
+  cmake_minimum_required( VERSION 3.10 )
 endif ()
 
 project( uxplay )
@@ -32,7 +32,9 @@ if ( ( UNIX AND NOT APPLE ) OR USE_X11 )
 endif()
 
 if( UNIX AND NOT APPLE )
- add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
+  add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
+  # convert AirPlay colormap 1:3:7:1 to sRGB (1:1:7:1), needed on Linux and BSD
+  add_definitions( -DFULL_RANGE_RGB_FIX )
 else()
   set( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
 endif()
@@ -47,12 +49,6 @@ if  ( GST_MACOS )
      message ( STATUS "define GST_MACOS" )
 endif()
 
-if  ( GST_124 )
-     add_definitions( -DGST_124 )
-     message ( STATUS "define GST_124" )
-endif()
-
-
 add_executable( uxplay uxplay.cpp )
 target_link_libraries( uxplay
                    renderers
@@ -62,7 +58,8 @@ target_link_libraries( uxplay
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} ) 
-install( FILES lib/llhttp/LICENSE-MIT DESTINATION ${CMAKE_INSTALL_DOCDIR}/llhttp ) 
+install( FILES lib/llhttp/LICENSE-MIT DESTINATION ${CMAKE_INSTALL_DOCDIR}/llhttp )
+install( FILES uxplay.service DESTINATION ${CMAKE_INSTALL_DOCDIR}/systemd ) 
 
 # uninstall target
 if(NOT TARGET uninstall)

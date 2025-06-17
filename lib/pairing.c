@@ -16,6 +16,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -193,6 +194,184 @@ pairing_session_get_public_key(pairing_session_t *session, unsigned char ecdh_ke
     x25519_key_get_raw(ecdh_key, session->ecdh_ours);
 
     return 0;
+}
+
+
+
+int
+pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, const char *client_data, unsigned char *nonce, int len)  {
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    if (len > sizeof(hash)) {
+      return -1;
+    }
+    if (!client_data || !local_time || !session || !nonce || len <= 0) {
+      return -2;
+    }
+    sha_ctx_t *ctx = sha_init();
+    sha_update(ctx, (const unsigned char *) local_time, sizeof(uint64_t));
+    sha_update(ctx, (const unsigned char *) client_data, strlen(client_data));
+    sha_update(ctx, (const unsigned char *) session->ed_ours, ED25519_KEY_SIZE);
+    sha_final(ctx, hash, NULL);
+    sha_destroy(ctx);
+    memcpy(nonce, hash, len);
+    return 0;
+}  
+
+static
+char *get_token(char **cursor, char *token_name, char start_char, char end_char) {
+    char *ptr = *cursor;
+
+    ptr = strstr(ptr, token_name);
+    if (!ptr) {
+        return NULL;
+    }
+    ptr += strlen(token_name);
+    ptr = strchr(ptr, start_char);
+    if (!ptr) {
+        return NULL;
+    }
+       
+    char *token = ++ptr;
+    ptr = strchr(ptr, end_char);
+    if (!ptr) {
+        return NULL;
+    }
+    
+    *(ptr++) = '\0';
+    *cursor = ptr;
+    return token; 
+}
+
+//#define test_digest
+bool
+pairing_digest_verify(const char *method, const char * authorization, const char *password) {
+  /* RFC 2617 HTTP md5 Digest password authentication */
+    size_t authlen = strlen(authorization);
+    char *sentence = (char *) malloc(authlen + 1);
+    memcpy(sentence, authorization, authlen);
+    *(sentence + authlen) = '\0';
+    char *username = NULL;
+    char *realm = NULL;
+    char *nonce = NULL;
+    char *uri = NULL;
+    char *qop = NULL;
+    char *nc = NULL;
+    char *cnonce = NULL;
+    char *response = NULL;
+    
+    char *cursor = sentence;
+    const char *pwd = password;
+    const char *mthd = method;
+    char *raw;
+    int len;
+    bool authenticated;
+
+#ifdef test_digest
+    char testauth[] = "Digest username=\"Mufasa\","
+                 "realm=\"testrealm@host.com\","
+                 "nonce=\"dcd98b7102dd2f0e8b11d0f600bfb0c093\","
+                 "uri=\"/dir/index.html\","
+                 "qop=auth,"
+                 "nc=00000001,"
+                 "cnonce=\"0a4f113b\","
+                 "response=\"6629fae49393a05397450978507c4ef1\","
+                 "opaque=\"5ccc069c403ebaf9f0171e9517f40e41\""
+    ;
+    pwd = "Circle Of Life";
+    mthd = "GET";
+    cursor = testauth;
+    
+    char HA1[] = "939e7578ed9e3c518a452acee763bce9";
+    char HA2[] = "39aff3a2bab6126f332b942af96d3366";
+#endif
+    username = get_token(&cursor, "username", '\"', '\"');
+    realm = get_token(&cursor, "realm", '\"', '\"');
+    nonce = get_token(&cursor,"nonce", '\"', '\"');
+    uri = get_token(&cursor,"uri", '\"', '\"');
+    qop = get_token(&cursor, "qop", '=', ',');
+    if (qop) {
+        nc = get_token(&cursor, "nc", '=', ',');
+        cnonce = get_token(&cursor, "cnonce", '\"', '\"');
+    }
+    response = get_token(&cursor, "response", '\"', '\"');
+
+#ifdef test_digest
+    printf("username: [%s]  realm: [%s]\n", username, realm);
+    printf("nonce: [%s]\n", nonce);
+    printf("method: [%s]\n", mthd);
+    printf("uri: [%s]\n", uri);
+    if (qop) {
+        printf("qop: [%s], nc=[%s], cnonce: [%s]\n", qop, nc, cnonce);
+    }
+    printf("response: [%s]\n", response);
+
+#endif
+    
+    /* H1 = H(username : realm : password ) */
+    len = strlen(username) + strlen(realm) + strlen(pwd) + 3;
+    raw = (char *) calloc(len, sizeof(char));
+    strncat(raw, username, len - strlen(raw) - 1);
+    strncat(raw, ":", len - strlen(raw) - 1);
+    strncat(raw, realm, len - strlen(raw) - 1);
+    strncat(raw, ":", len - strlen(raw) - 1);
+    strncat(raw, pwd, len - strlen(raw) - 1);   
+    char *hash1 = get_md5(raw);
+    free (raw);    
+    
+#ifdef test_digest
+    printf("hash1: should be %s, was: %s\n", HA1, hash1);
+#endif
+    
+    /* H2 = H(method : uri) */
+    len = strlen(mthd) + strlen(uri) + 2;
+    raw  = (char *) calloc(len, sizeof(char));
+    strncat(raw, mthd, len - strlen(raw) - 1);
+    strncat(raw, ":", len - strlen(raw) - 1);
+    strncat(raw, uri, len - strlen(raw) - 1);
+    char *hash2 = get_md5(raw);
+    free (raw);
+
+#ifdef test_digest
+    printf("hash2: should be %s, was:  %s\n", HA2, hash2);
+#endif
+
+    /* result = H(H1 : nonce (or nonce:nc:cnonce:qop) : H2) */    
+    len = strlen(hash1) +  strlen(nonce) + strlen(hash2) + 3;
+    if (qop) {
+        len += strlen(nc) + strlen(cnonce) + strlen(qop) + 3;
+    }
+    raw = (char *) calloc(len, sizeof(char));
+    strncat(raw, hash1, len - strlen(raw) - 1);
+    strncat(raw, ":", len - strlen(raw) - 1);
+    strncat(raw, nonce, len - strlen(raw) - 1);
+    strncat(raw, ":", len - strlen(raw) - 1);      
+    if (qop) {
+        strncat(raw, nc, len - strlen(raw) - 1);
+        strncat(raw, ":", len - strlen(raw) - 1);  
+        strncat(raw, cnonce, len - strlen(raw) - 1);
+        strncat(raw, ":", len - strlen(raw) - 1);  
+        strncat(raw, qop, len - strlen(raw) - 1);
+        strncat(raw, ":", len - strlen(raw) - 1);  
+    }
+    strncat(raw, hash2, len - strlen(raw) - 1);
+    free (hash1);
+    free (hash2);
+    char *result = get_md5(raw);
+    free (raw);
+    authenticated = (strcmp(result,response) ? false : true);
+
+#ifdef test_digest
+    printf("result: should be %s, was:  %s, authenticated is %s\n", response, result, (authenticated ? "true" : "false"));
+#endif
+
+    free (result);
+    free(sentence);
+
+#ifdef test_digest
+    exit(0);
+#endif
+
+    return authenticated;
 }
 
 int
@@ -447,11 +626,10 @@ srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
     return epk_len;    
 }
 
-void access_client_session_data(pairing_session_t *session, char **username, char **client_pk64, bool *setup) {
+void get_pairing_session_client_data(pairing_session_t *session, char **username, char **client_pk64) {
     int len64 = 4 * (1 + (ED25519_KEY_SIZE / 3)) + 1;
-    setup = &(session->pair_setup);
     *username = session->username;
-    if (setup) {
+    if (session->pair_setup) {
         *client_pk64 = (char *) malloc(len64);
         pk_to_base64(session->client_pk, ED25519_KEY_SIZE, *client_pk64, len64);
     } else {
