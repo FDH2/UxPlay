@@ -1155,10 +1155,10 @@ static void parse_arguments (int argc, char *argv[]) {
                 if (!file_has_write_access(fn)) {
                     fprintf(stderr, "%s cannot be written to:\noption \"-admp <fn>\" must be to a file with write access\n", fn);
                     exit(1);
-                }   		
+                }
             }
         } else if (arg  == "-ca" ) {
-	    if (i < argc - 1 && *argv[i+1] != '-') {
+            if (i < argc - 1 && *argv[i+1] != '-') {
                 coverart_filename.erase();
                 coverart_filename.append(argv[++i]);
                 const char *fn = coverart_filename.c_str();
