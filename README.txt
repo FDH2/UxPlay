@@ -2,6 +2,11 @@
 
 ### **Now developed at the GitHub site <https://github.com/FDH2/UxPlay> (where ALL user issues should be posted, and latest versions can be found).**
 
+-   **NEW on github**: option -ca (with no filename given) will now
+    render Apple Music cover art (in audio-only mode) inside UxPlay.
+    (-ca `<filename>` will continue to export cover art for display by
+    an external viewer).
+
 -   **NEW in v1.72**: Improved Support for (YouTube) HLS (HTTP Live
     Streaming) video with the new "-hls" option (introduced in 1.71).\*
     **Only streaming from the YouTube iOS app (in \"m3u8\" protocol) is
@@ -100,7 +105,8 @@ status](https://repology.org/badge/vertical-allrepos/uxplay.svg)](https://repolo
 
 -   For Audio-only mode (Apple Music, etc.) best quality is obtained
     with the option "uxplay -async", but there is then a 2 second
-    latency imposed by iOS.
+    latency imposed by iOS. Use option "uxplay -ca" to display any
+    "Cover Art" that accompanies the audio.
 
 -   If you are using UxPlay just to mirror the client's screen (without
     showing videos that need audio synchronized with video), it is best
@@ -620,12 +626,13 @@ value advances it.)
     -FPSdata.) When using this, you should use the default
     timestamp-based synchronization option `-vsync`.
 
--   Since UxPlay-1.54, you can display the accompanying "Cover Art" from
-    sources like Apple Music in Audio-Only (ALAC) mode: run
-    "`uxplay -ca <name> &`" in the background, then run a image viewer
-    with an autoreload feature: an example is "feh": run
-    "`feh -R 1 <name>`" in the foreground; terminate feh and then Uxplay
-    with "`ctrl-C fg ctrl-C`".
+-   You can now display (inside UxPlay) the accompanying "Cover Art"
+    from sources like Apple Music in Audio-Only (ALAC) mode with the
+    option `uxplay -ca`. *The older method of exporting cover art to an
+    external viewer remains available: run "`uxplay -ca <name> &`" in
+    the background, then run a image viewer with an autoreload feature:
+    an example is "feh": run "`feh -R 1 <name>`" in the foreground;
+    terminate feh and then Uxplay with "`ctrl-C fg ctrl-C`"*.
 
 By default, GStreamer uses an algorithm to search for the best
 "videosink" (GStreamer's term for a graphics driver to display images)
@@ -748,9 +755,8 @@ framebuffer video, use `<videosink>` = `kmssink`.
 -   Tip: to start UxPlay on a remote host (such as a Raspberry Pi) using
     ssh:
 
-```{=html}
 <!-- -->
-```
+
     ssh user@remote_host
            export DISPLAY=:0
            nohup uxplay [options] > FILE &
@@ -1265,6 +1271,9 @@ number of microseconds. Default is 0.25 sec (250000 usec). *(However,
 the client appears to ignore this reported latency, so this option seems
 non-functional.)*
 
+**-ca** (without specifying a filename) now displays "cover art" that
+accompanies Apple Music when played in "Audio-only" (ALAC) mode.
+
 **-ca *filename*** provides a file (where *filename* can include a full
 path) used for output of "cover art" (from Apple Music, *etc.*,) in
 audio-only ALAC mode. This file is overwritten with the latest cover art
@@ -1750,6 +1759,9 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
+
+xxxx 2025-06-18 Render Audio cover-art inside UxPlay with -ca option (no
+file specified).
 
 1.72.1 2025-06-06 minor update: fix regression in -reg option; add
 option -rc `<rcfile>`{=html} to specify initialization file; add "-nc
