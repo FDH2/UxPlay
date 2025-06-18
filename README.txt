@@ -106,7 +106,7 @@ status](https://repology.org/badge/vertical-allrepos/uxplay.svg)](https://repolo
 -   For Audio-only mode (Apple Music, etc.) best quality is obtained
     with the option "uxplay -async", but there is then a 2 second
     latency imposed by iOS. Use option "uxplay -ca" to display any
-    "Cover Art" that accompanies the music.
+    "Cover Art" that accompanies the audio.
 
 -   If you are using UxPlay just to mirror the client's screen (without
     showing videos that need audio synchronized with video), it is best
