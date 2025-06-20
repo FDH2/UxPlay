@@ -1086,11 +1086,11 @@ access can be controlled with a password set when uxplay starts (set it
 in the .uxplay startup file, where it is stored as cleartext.) All users
 must then know this password. This uses HTTP md5 Digest authentication,
 which is now regarded as providing weak security, but it is only used to
-validate the uxplay password, and no user credentials are exposed.
-\_Note: -pin and -pw are alternatives: if both are specified at startup,
-the earlier of these two options is discarded. If *pwd* is not
-specified, a random 4-digit pin code is displayed, and must be entered
-on the client at **each** new conenction.
+validate the uxplay password, and no user credentials are exposed. If
+*pwd* is **not** specified, a random 4-digit pin code is displayed, and
+must be entered on the client at **each** new connection. *Note: -pin
+and -pw are alternatives: if both are specified at startup, the earlier
+of these two options is discarded.*
 
 **-vsync \[x\]** (In Mirror mode:) this option (**now the default**)
 uses timestamps to synchronize audio with video on the server, with an
