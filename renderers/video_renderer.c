@@ -248,14 +248,16 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
     appname = NULL;
 
     /* the renderer for hls video will only be built if a HLS uri is provided in 
-     * the call to video_renderer_init, in which case the h264 and 265 mirror-mode 
-     * renderers will not be built.   This is because it appears that we cannot  
+     * the call to video_renderer_init, in which case the h264/h265 mirror-mode and jpeg
+     * audio-mode renderers will not be built.   This is because it appears that we cannot  
      * put playbin into GST_STATE_READY before knowing the uri (?), so cannot use a
-     * unified renderer structure with h264, h265 and hls  */  
+     * unified renderer structure with h264, h265, jpeg and hls  */  
     if (hls_video) {
         n_renderers = 1;
+        /* renderer[0]: playbin (hls) */
     } else {
         n_renderers = h265_support ? 3 : 2;
+        /* renderer[0]: jpeg; [1]: h264; [2]: h265 */
     }
     g_assert (n_renderers <= NCODECS);
     for (int i = 0; i < n_renderers; i++) {
@@ -282,8 +284,8 @@ void  video_renderer_init(logger_t *render_logger, const char *server_name, vide
             g_assert(renderer_type[i]->pipeline);
             renderer_type[i]->appsrc = NULL;
 	    renderer_type[i]->codec = hls;
-            /* if we are not using autovideosink, build a videossink based on the string "videosink" */
-            if(strcmp(videosink, "autovideosink")) {
+            /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
+            if (!auto_videosink) { 
                 GstElement *playbin_videosink = make_video_sink(videosink, videosink_options);  
                 if (!playbin_videosink) {
                     logger_log(logger, LOGGER_ERR, "video_renderer_init: failed to create playbin_videosink");
