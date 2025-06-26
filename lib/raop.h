@@ -82,6 +82,7 @@ struct raop_callbacks_s {
     void  (*audio_set_volume)(void *cls, float volume);
     void  (*audio_set_metadata)(void *cls, const void *buffer, int buflen);
     void  (*audio_set_coverart)(void *cls, const void *buffer, int buflen);
+    void  (*audio_stop_coverart_rendering) (void* cls);
     void  (*audio_remote_control_id)(void *cls, const char *dacp_id, const char *active_remote_header);
     void  (*audio_set_progress)(void *cls, unsigned int start, unsigned int curr, unsigned int end);
     void  (*audio_get_format)(void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat);
@@ -99,8 +100,8 @@ struct raop_callbacks_s {
     void  (*on_video_rate) (void *cls, const float rate);
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
-  
 };
+
 typedef struct raop_callbacks_s raop_callbacks_t;
 raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const char *remote,
                           int remote_addr_len, unsigned short timing_rport,

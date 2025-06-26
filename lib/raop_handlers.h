@@ -1191,6 +1191,10 @@ raop_handler_teardown(raop_conn_t *conn,
         if (conn->raop_rtp) {
             /* Stop our audio RTP session */
             raop_rtp_stop(conn->raop_rtp);
+            /* stop any  coverart rendering */
+            if (conn->raop->callbacks.audio_stop_coverart_rendering) {
+                conn->raop->callbacks.audio_stop_coverart_rendering(conn->raop->callbacks.cls);
+            }
         }
     } else if (teardown_110) {
         conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);	
