@@ -8,6 +8,10 @@ developed at the GitHub site <a href="https://github.com/FDH2/UxPlay"
 class="uri">https://github.com/FDH2/UxPlay</a> (where ALL user issues
 should be posted, and latest versions can be found).</strong></h3>
 <ul>
+<li><p><strong>NEW on github</strong>: option -ca (with no filename
+given) will now render Apple Music cover art (in audio-only mode) inside
+UxPlay. (-ca <code>&lt;filename&gt;</code> will continue to export cover
+art for display by an external viewer).</p></li>
 <li><p><strong>NEW in v1.72</strong>: Improved Support for (YouTube) HLS
 (HTTP Live Streaming) video with the new “-hls” option (introduced in
 1.71).* <strong>Only streaming from the YouTube iOS app (in "m3u8"
@@ -107,7 +111,8 @@ distribution’s <strong>GStreamer plugin packages</strong> you should
 also install.</p></li>
 <li><p>For Audio-only mode (Apple Music, etc.) best quality is obtained
 with the option “uxplay -async”, but there is then a 2 second latency
-imposed by iOS.</p></li>
+imposed by iOS. Use option “uxplay -ca” to display any “Cover Art” that
+accompanies the audio.</p></li>
 <li><p>If you are using UxPlay just to mirror the client’s screen
 (without showing videos that need audio synchronized with video), it is
 best to use the option “uxplay -vsync no”.</p></li>
@@ -621,12 +626,14 @@ some video to be played at 60 frames per second. (You can see what
 framerate is actually streaming by using -vs fpsdisplaysink, and/or
 -FPSdata.) When using this, you should use the default timestamp-based
 synchronization option <code>-vsync</code>.</p></li>
-<li><p>Since UxPlay-1.54, you can display the accompanying “Cover Art”
-from sources like Apple Music in Audio-Only (ALAC) mode: run
+<li><p>You can now display (inside UxPlay) the accompanying “Cover Art”
+from sources like Apple Music in Audio-Only (ALAC) mode with the option
+<code>uxplay -ca</code>. <em>The older method of exporting cover art to
+an external viewer remains available: run
 “<code>uxplay -ca &lt;name&gt; &amp;</code>” in the background, then run
 a image viewer with an autoreload feature: an example is “feh”: run
 “<code>feh -R 1 &lt;name&gt;</code>” in the foreground; terminate feh
-and then Uxplay with “<code>ctrl-C fg ctrl-C</code>”.</p></li>
+and then Uxplay with “<code>ctrl-C fg ctrl-C</code>”</em>.</p></li>
 </ul>
 <p>By default, GStreamer uses an algorithm to search for the best
 “videosink” (GStreamer’s term for a graphics driver to display images)
@@ -1067,11 +1074,11 @@ starts (set it in the .uxplay startup file, where it is stored as
 cleartext.) All users must then know this password. This uses HTTP md5
 Digest authentication, which is now regarded as providing weak security,
 but it is only used to validate the uxplay password, and no user
-credentials are exposed. _Note: -pin and -pw are alternatives: if both
-are specified at startup, the earlier of these two options is discarded.
-If <em>pwd</em> is not specified, a random 4-digit pin code is
-displayed, and must be entered on the client at <strong>each</strong>
-new conenction.</p>
+credentials are exposed. If <em>pwd</em> is <strong>not</strong>
+specified, a random 4-digit pin code is displayed, and must be entered
+on the client at <strong>each</strong> new connection. <em>Note: -pin
+and -pw are alternatives: if both are specified at startup, the earlier
+of these two options is discarded.</em></p>
 <p><strong>-vsync [x]</strong> (In Mirror mode:) this option
 (<strong>now the default</strong>) uses timestamps to synchronize audio
 with video on the server, with an optional audio delay in (decimal)
@@ -1236,6 +1243,9 @@ client. Values in the range [0.0, 10.0] seconds are allowed, and will be
 converted to a whole number of microseconds. Default is 0.25 sec (250000
 usec). <em>(However, the client appears to ignore this reported latency,
 so this option seems non-functional.)</em></p>
+<p><strong>-ca</strong> (without specifying a filename) now displays
+“cover art” that accompanies Apple Music when played in “Audio-only”
+(ALAC) mode.</p>
 <p><strong>-ca <em>filename</em></strong> provides a file (where
 <em>filename</em> can include a full path) used for output of “cover
 art” (from Apple Music, <em>etc.</em>,) in audio-only ALAC mode. This
@@ -1700,6 +1710,8 @@ an AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
+<p>xxxx 2025-06-18 Render Audio cover-art inside UxPlay with -ca option
+(no file specified). Update llhttp to 9.3.0</p>
 <p>1.72.1 2025-06-06 minor update: fix regression in -reg option; add
 option -rc <rcfile> to specify initialization file; add “-nc no” to
 unset “-nc” option (for macOS users, where -nc is default); add

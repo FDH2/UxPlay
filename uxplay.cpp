@@ -129,6 +129,7 @@ static bool dump_audio = false;
 static unsigned char audio_type = 0x00;
 static unsigned char previous_audio_type = 0x00;
 static bool fullscreen = false;
+static bool render_coverart = false;
 static std::string coverart_filename = "";
 static std::string metadata_filename = "";
 static bool do_append_hostname = true;
@@ -714,7 +715,7 @@ static void print_info (char *name) {
     printf("          osssink,oss4sink,osxaudiosink,wasapisink,directsoundsink.\n");
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
     printf("-al x     Audio latency in seconds (default 0.25) reported to client.\n");
-    printf("-ca <fn>  In Airplay Audio (ALAC) mode, write cover-art to file <fn>\n");
+    printf("-ca [<fn>]In Audio (ALAC) mode, render cover-art [or write to file <fn>]\n");
     printf("-md <fn>  In Airplay Audio (ALAC) mode, write metadata text to file <fn>\n");
     printf("-reset n  Reset after n seconds of client silence (default n=%d, 0=never)\n", MISSED_FEEDBACK_LIMIT);
     printf("-nofreeze Do NOT leave frozen screen in place after reset\n");
@@ -1154,20 +1155,20 @@ static void parse_arguments (int argc, char *argv[]) {
                 if (!file_has_write_access(fn)) {
                     fprintf(stderr, "%s cannot be written to:\noption \"-admp <fn>\" must be to a file with write access\n", fn);
                     exit(1);
-                }   		
+                }
             }
         } else if (arg  == "-ca" ) {
-            if (option_has_value(i, argc, arg, argv[i+1])) {
+            if (i < argc - 1 && *argv[i+1] != '-') {
                 coverart_filename.erase();
                 coverart_filename.append(argv[++i]);
                 const char *fn = coverart_filename.c_str();
+                render_coverart = false;
                 if (!file_has_write_access(fn)) {
                     fprintf(stderr, "%s cannot be written to:\noption \"-ca <fn>\" must be to a file with write access\n", fn);
                     exit(1);
                 }   
             } else {
-                fprintf(stderr,"option -ca must be followed by a filename for cover-art output\n");
-                exit(1);
+                render_coverart = true;
             }
         } else if (arg  == "-md" ) {
             if (option_has_value(i, argc, arg, argv[i+1])) {
@@ -1175,7 +1176,7 @@ static void parse_arguments (int argc, char *argv[]) {
                 metadata_filename.append(argv[++i]);
                 const char *fn = metadata_filename.c_str();
                 if (!file_has_write_access(fn)) {
-                    fprintf(stderr, "%s cannot be written to:\noption \"-ca <fn>\" must be to a file with write access\n", fn);
+                    fprintf(stderr, "%s cannot be written to:\noption \"-md <fn>\" must be to a file with write access\n", fn);
                     exit(1);
                 }   
             } else {
@@ -1689,7 +1690,7 @@ extern "C" void video_reset(void *cls) {
 
 extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     bool video_is_h265 = (codec == VIDEO_CODEC_H265);
-    return video_renderer_choose_codec(video_is_h265);
+    return video_renderer_choose_codec(false, video_is_h265);
 }
 
 extern "C" void display_pin(void *cls, char *pin) {
@@ -1963,6 +1964,9 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
     if (buffer && coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), buffer, buflen);
         LOGI("coverart size %d written to %s", buflen,  coverart_filename.c_str());
+    } else if (buffer && render_coverart) {
+        video_renderer_choose_codec(true, false);  /* video_is_jpeg = true */
+	video_renderer_display_jpeg(buffer, &buflen);
     }
 }
 
