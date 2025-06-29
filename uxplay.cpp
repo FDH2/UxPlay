@@ -2362,6 +2362,12 @@ int main (int argc, char *argv[]) {
     if (config_file.length()) {
         read_config_file(config_file.c_str(), argv[0]);
     }
+
+    const char *xdg_session_type = getenv("XDG_SESSION_TYPE");
+    if (xdg_session_type && strcmp(xdg_session_type, "wayland") == 0) {
+	videosink = "waylandsink";
+    }
+
     parse_arguments (argc, argv);
 
     log_level = (debug_log ? LOGGER_DEBUG_DATA : LOGGER_INFO);
