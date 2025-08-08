@@ -175,6 +175,7 @@ static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
+const char* lang = std::getenv("LANG");
 /* logging */
 
 static void log(int level, const char* format, ...) {
@@ -2613,6 +2614,21 @@ int main (int argc, char *argv[]) {
         stop_dnssd();
         goto cleanup;
     }
+    // TODO: use gettext for propper translations
+    const char* helptext1;
+    const char* helptext2;
+    if (lang != nullptr && strcmp(lang, "ru_RU.UTF-8") == 0) {
+		helptext1 = "Компьютер и iPhone/iPad должны быть подключены к одной сети";
+		helptext2 = "Запустите \"Повтор экрана\" на iPhone/iPad и выберите";
+	} else {
+		helptext1 = "Your computer and iPhone/iPad must be in one network";
+		helptext2 = "Run \"Screen Mirroring\" on iPhone/iPad and choose";
+	}
+    LOGI("");
+    LOGI("---------------------------------------------");
+    LOGI("---> %s", helptext1);
+    LOGI("---> %s \"%s\"", helptext2, server_name.c_str());
+    LOGI("----------------------------------------------");
     reconnect:
     compression_type = 0;
     close_window = new_window_closing_behavior;
