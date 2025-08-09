@@ -2149,6 +2149,29 @@ extern "C" void log_callback (void *cls, int level, const char *msg) {
     }
 }
 
+#ifdef DBUS
+int is_dbus_running() {
+    FILE *fp;
+    char path[1035];
+    int found = 0;
+
+    fp = popen("ps -ef | grep -e 'dbus-daemon --session' | grep -v grep", "r");
+    if (fp == NULL) {
+        return -1;
+    }
+
+    while (fgets(path, sizeof(path), fp) != NULL) {
+        if (strstr(path, "dbus-daemon --session") != NULL) {
+            found = 1;
+        break;
+        }
+    }
+
+    pclose(fp);
+    return found;
+}
+#endif
+
 static int start_raop_server (unsigned short display[5], unsigned short tcp[3], unsigned short udp[3], bool debug_log) {
     raop_callbacks_t raop_cbs;
     memset(&raop_cbs, 0, sizeof(raop_cbs));
@@ -2348,6 +2371,15 @@ int main (int argc, char *argv[]) {
     // if  getenv("AVAHI_COMPAT_NOWARN") returns null.
     static char avahi_compat_nowarn[] = "AVAHI_COMPAT_NOWARN=1";
     if (!getenv("AVAHI_COMPAT_NOWARN")) putenv(avahi_compat_nowarn);
+#endif
+
+
+
+#ifdef DBUS
+    bool use_dbus = (is_dbus_running() == 1);
+    if (use_dbus) {
+        LOGI ("Linux/*BSD D-Bus session support for power management is available");
+    }
 #endif
 
     char *rcfile = NULL;
