@@ -32,6 +32,15 @@ if ( ( UNIX AND NOT APPLE ) OR USE_X11 )
 endif()
 
 if( UNIX AND NOT APPLE )
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(DBUS dbus-1>=1.4.12)
+  if (DBUS_FOUND )
+      add_definitions(-DDBUS )
+      include_directories(${DBUS_INCLUDE_DIRS})
+  endif()
+endif()
+
+if( UNIX AND NOT APPLE )
   add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
   # convert AirPlay colormap 1:3:7:1 to sRGB (1:1:7:1), needed on Linux and BSD
   add_definitions( -DFULL_RANGE_RGB_FIX )
@@ -54,6 +63,11 @@ target_link_libraries( uxplay
                    renderers
                    airplay
 		   )
+if (DBUS_FOUND)
+target_link_libraries( uxplay
+		     ${DBUS_LIBRARIES}
+		     )
+endif()
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
