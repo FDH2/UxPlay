@@ -2514,8 +2514,18 @@ int main (int argc, char *argv[]) {
     }
     if (scrsv) {
         LOGD ("D-Bus session support is available, connection %p", dbus_connection);
-        LOGD("Desktop Environment:  %s", getenv("XDG_CURRENT_DESKTOP"));
-        LOGI("Will attempt to use org.freedesktop.ScreenSaver (D-Bus screensaver inhibition) %s", (scrsv == 1 ? "always" : "during screen activity"));
+        std::string desktop = getenv("XDG_CURRENT_DESKTOP"); 
+        LOGD("Desktop Environment:  %s", desktop.c_str());
+        if (strstr("XFCE", desktop.c_str())) {
+            dbus_service.erase();
+            dbus_service = "org.freedesktop.PowerManagement";
+            dbus_path.erase();
+            dbus_path = "/org/freedesktop/PowerManagement/Inhibit";
+            dbus_interface.erase();
+            dbus_interface = "org.freedesktop.PowerManagement.Inhibit";
+        }  
+        LOGI("Will attempt to use %s (D-Bus screensaver inhibition) %s", dbus_service.c_str(),
+             (scrsv == 1 ? "always" : "during screen activity"));
         if (scrsv == 1) {
             dbus_screensaver_inhibiter(true);
         }
