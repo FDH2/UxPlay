@@ -795,7 +795,7 @@ raop_rtp_mirror_thread(void *arg)
                  * Sometimes (e.g, when the client has a locked screen), there is a 25kB trailer attached to the packet.    *
                  * This 25000 Byte trailer with unidentified content seems to be the same data each time it is sent.        */
 
-                if (payload_size && raop_rtp_mirror->show_client_FPS_data) {
+                if (payload_size) {
                     //char *str = utils_data_to_string(packet, 128, 16);
                     //logger_log(raop_rtp_mirror->logger, LOGGER_WARNING, "type 5 video packet header:\n%s", str);
                     //free (str);
@@ -815,9 +815,17 @@ raop_rtp_mirror_thread(void *arg)
                         uint32_t plist_len;
                         plist_t root_node = NULL;
                         plist_from_bin((char *) payload, plist_size, &root_node);
-                        plist_to_xml(root_node, &plist_xml, &plist_len);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "%s", plist_xml);
-                        free(plist_xml);
+                        if (raop_rtp_mirror->callbacks.mirror_video_activity) {
+                            double txusage = 0.0;
+                            plist_t tx_usage_avg_node = plist_dict_get_item(root_node, "txUsageAvg");
+                            plist_get_real_val(tx_usage_avg_node, &txusage);
+                            raop_rtp_mirror->callbacks.mirror_video_activity(raop_rtp_mirror->callbacks.cls, &txusage);
+                        }
+                        if (raop_rtp_mirror->show_client_FPS_data) {
+                            plist_to_xml(root_node, &plist_xml, &plist_len);
+                            logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "%s", plist_xml);
+                            free(plist_xml);
+                        }
                     }
                 }
                 break;
