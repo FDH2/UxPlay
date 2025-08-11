@@ -2540,6 +2540,12 @@ int main (int argc, char *argv[]) {
         LOGD ("D-Bus session support is available, connection %p", dbus_connection);
         std::string desktop = getenv("XDG_CURRENT_DESKTOP"); 
         LOGD("Desktop Environment:  %s", desktop.c_str());
+
+        /* if dbus_service, dbus_path, dbus_interface, dbus_inhibit, dbus_uninhibit *
+         * in the detected  Desktop Environments are still non-conforming to        *
+         * org.freedesktop.ScreenSaver interface, they can be modifed here          */
+	  
+	/* 
         if (strstr("XFCE", desktop.c_str())) {
             dbus_service.erase();
             dbus_service = "org.freedesktop.PowerManagement";
@@ -2558,7 +2564,9 @@ int main (int argc, char *argv[]) {
             dbus_interface = "org.mate.SessionManager";
             dbus_uninhibit.erase();
             dbus_uninhibit = "Uninhibit";
-	}
+        }
+	*/
+
         LOGI("Will attempt to use %s (D-Bus screensaver inhibition) %s", dbus_service.c_str(),
              (scrsv == 1 ? "only during screen activity" : "always"));
         if (scrsv == 2) {
@@ -2566,7 +2574,6 @@ int main (int argc, char *argv[]) {
         }
     }
 #endif
-
     if (audiosink == "0") {
         use_audio = false;
         dump_audio = false;
@@ -2846,7 +2853,7 @@ int main (int argc, char *argv[]) {
         dbus_screensaver_inhibiter(false);
         if (dbus_pending) {
             dbus_pending_call_cancel(dbus_pending);
-            dbus_pending_call_unref(debus_pending);
+            dbus_pending_call_unref(dbus_pending);
         }
         LOGD("Closing D-Bus connection %p", dbus_connection);
 	dbus_connection_close(dbus_connection);
