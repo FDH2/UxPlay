@@ -2523,7 +2523,14 @@ int main (int argc, char *argv[]) {
             dbus_path = "/org/freedesktop/PowerManagement/Inhibit";
             dbus_interface.erase();
             dbus_interface = "org.freedesktop.PowerManagement.Inhibit";
-        }  
+        } else if (strstr("MATE", desktop.c_str())) {
+            dbus_service.erase();
+            dbus_service = "org.mate.SessionManager";
+            dbus_path.erase();
+            dbus_path = "/org/mate/SessionManager";
+            dbus_interface.erase();
+            dbus_interface = "org.mate.SessionManager";
+	}    
         LOGI("Will attempt to use %s (D-Bus screensaver inhibition) %s", dbus_service.c_str(),
              (scrsv == 1 ? "always" : "during screen activity"));
         if (scrsv == 1) {
