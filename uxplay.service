@@ -8,6 +8,7 @@ Type=simple
 ExecStart=uxplay
 Restart=on-failure
 #StandardOutput=file:%h/uxplay.log
+#Environment="XDG_RUNTIME_DIR=/var/run/user/0"
 
 [Install]
 WantedBy=default.target
