@@ -1024,6 +1024,13 @@ will also now be the name shown above the mirror display (X11) window.
 **-nh** Do not append "@_hostname_" at the end of the AirPlay server
 name.
 
+**-ble *filename*** Write a bluetooth BLS service discovery advertisement
+to file *filename.<pid\>* when uxplay starts. The file is removed when uxplay terminates.
+_An external script is required to
+actually broadcast  the "beacon-type" bluetooth announcement, which is an
+alternative to DNS_SD ("Bonjour/Rendezvous") for service discovery._
+
+
 **-h265** Activate "ScreenMultiCodec" support (AirPlay "Features" bit
 42) for accepting h265 (4K/HEVC) video in addition to h264 video (1080p)
 in screen-mirror mode. When this option is used, two "video pipelines"
@@ -1776,7 +1783,7 @@ what version UxPlay claims to be.
 # Changelog
 xxxx  2025-08-11 Render Audio cover-art inside UxPlay with -ca option (no file
 specified). (D-Bus based) option -scrsv <n> to inhibit screensaver while UxPlay
-is running (Linux/*BSD only).
+is running (Linux/*BSD only).   Add support for Bluetooth BLE service discovery.
 
 1.72.2 2025-07-07  Fix bug (typo) in DNS_SD advertisement introduced with -pw
 option.  Update llhttp to v 9.3.0
