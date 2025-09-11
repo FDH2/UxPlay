@@ -884,7 +884,7 @@ void find_local_ipv4_for_ble () {
                     if (ipv4_is_local(ip)) {
                         ipbin_v4.push_back(ip);
                         ipstr_v4.push_back(ipaddr);
-                        ipname_v4.push_back(u_address->AdapterName);
+                        ipname_v4.push_back(address->AdapterName);
                     }
                 }
                 u_address = u_address->Next;
