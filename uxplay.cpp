@@ -51,6 +51,7 @@
 #include <pwd.h>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
+#include <net/if.h>
 # ifdef __linux__
 # include <netpacket/packet.h>
 # else
@@ -858,16 +859,18 @@ void find_local_ipv4_for_ble () {
     if (addresses == NULL) { 					
         return;
     }
- 
+    if (GetAdaptersAddresses(AF_INET, 0, NULL, addresses, &buflen) == ERROR_BUFFER_OVERFLOW) {
+        free(addresses);
+        addresses = (IP_ADAPTER_ADDRESSES*) malloc(buflen);
+        if (addresses == NULL) {
+            return;
+        }
+    }
     if (GetAdaptersAddresses(AF_INET, 0, NULL, addresses, &buflen) == NO_ERROR) {
         for (PIP_ADAPTER_ADDRESSES address = addresses; address != NULL; address = address->Next) {
             if (address->PhysicalAddressLength != 6 ||              /* MAC has 6 octets */
                 (address->IfType != 6 && address->IfType != 71) ||  /* Ethernet or Wireless interface */
                 address->OperStatus != 1) {                      /* interface is up */
-                continue;
-            }
-            iface_test.erase();
-            if(iface != iface_test.append(address->AdapterName)) {
                 continue;
             }
 
@@ -881,6 +884,7 @@ void find_local_ipv4_for_ble () {
                     if (ipv4_is_local(ip)) {
                         ipbin_v4.push_back(ip);
                         ipstr_v4.push_back(ipaddr);
+                        ipname_v4.push_back(u_address->AdapterName);
                     }
                 }
                 u_address = u_address->Next;
@@ -893,23 +897,19 @@ void find_local_ipv4_for_ble () {
     bool local;
     int non_null_octets = 0;
     unsigned char octet[6];
-    printf("hello 1\n");
     if (getifaddrs(&ifap) == 0) {
-    printf("hello 2\n");
         // look for a local ipv4 address on iface (perhaps future task: implement for ipv6 too)
         for(ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
-	      printf("hello 3\n");
-            if (ifaptr->ifa_addr == NULL || ifaptr->ifa_addr->sa_family != AF_INET) {
+            if (ifaptr->ifa_addr == NULL ||
+                ifaptr->ifa_addr->sa_family != AF_INET ||
+                !(ifaptr->ifa_flags & IFF_RUNNING)) {
                 continue;
             }
-	    printf("hello 4\n");
             struct sockaddr_in *sa = (struct sockaddr_in *) ifaptr->ifa_addr;
             unsigned int ip = ntohl(sa->sin_addr.s_addr);
             char ipaddr[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &(sa->sin_addr), ipaddr, sizeof(ipaddr));
-	    printf("hello 5 %s\n", ipaddr);
             if (ipv4_is_local(ip)) {
-	      printf("hello 6\n");
                 ipbin_v4.push_back(ip);
                 ipstr_v4.push_back(ipaddr);
 		ipname_v4.push_back(ifaptr->ifa_name);
