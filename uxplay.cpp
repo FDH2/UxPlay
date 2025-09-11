@@ -818,7 +818,7 @@ int ble_update(const char *filename) {
     return count;
 }
 
-static bool add_ipv4_to_ble_adv(unsigned int *ip, char *ipaddr) {
+static bool add_ipv4_to_ble_adv(unsigned int *ip, const char *ipaddr) {
     bool success = false;
     unsigned int netaddr = ntohl(*ip);
     unsigned char *ptr = ble_advertisement;
@@ -845,13 +845,95 @@ static bool add_ipv4_to_ble_adv(unsigned int *ip, char *ipaddr) {
     return success;
 }
 
+void find_local_ipv4_for_ble () {
+/*  finds a local IP address of a network interface *
+ *  in a Windows, Linux, *BSD or macOS system.   */
+    std::string mac = "";
+    std::vector<uint32_t> ipbin_v4;
+    std::vector<std::string> ipstr_v4;
+    std::vector<std::string> ipname_v4;    
+#ifdef _WIN32
+    ULONG buflen = sizeof(IP_ADAPTER_ADDRESSES);
+    PIP_ADAPTER_ADDRESSES addresses = (IP_ADAPTER_ADDRESSES*) malloc(buflen);
+    if (addresses == NULL) { 					
+        return;
+    }
+ 
+    if (GetAdaptersAddresses(AF_INET, 0, NULL, addresses, &buflen) == NO_ERROR) {
+        for (PIP_ADAPTER_ADDRESSES address = addresses; address != NULL; address = address->Next) {
+            if (address->PhysicalAddressLength != 6 ||              /* MAC has 6 octets */
+                (address->IfType != 6 && address->IfType != 71) ||  /* Ethernet or Wireless interface */
+                address->OperStatus != 1) {                      /* interface is up */
+                continue;
+            }
+            iface_test.erase();
+            if(iface != iface_test.append(address->AdapterName)) {
+                continue;
+            }
+
+            PIP_ADAPTER_UNICAST_ADDRESS u_address = address->FirstUnicastAddress;
+            while (u_address) {
+                if (u_address->Address.lpSockaddr->sa_family == AF_INET) {
+                    SOCKADDR_IN* sa = (SOCKADDR_IN *) u_address->Address.lpSockaddr;
+                    unsigned int ip = ntohl(sa->sin_addr.s_addr);
+                    char ipaddr[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &(sa->sin_addr), ipaddr, sizeof(ipaddr));
+                    if (ipv4_is_local(ip)) {
+                        ipbin_v4.push_back(ip);
+                        ipstr_v4.push_back(ipaddr);
+                    }
+                }
+                u_address = u_address->Next;
+	    }
+        }
+    }
+    free(addresses);
+#else
+    struct ifaddrs *ifap, *ifaptr;
+    bool local;
+    int non_null_octets = 0;
+    unsigned char octet[6];
+    printf("hello 1\n");
+    if (getifaddrs(&ifap) == 0) {
+    printf("hello 2\n");
+        // look for a local ipv4 address on iface (perhaps future task: implement for ipv6 too)
+        for(ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
+	      printf("hello 3\n");
+            if (ifaptr->ifa_addr == NULL || ifaptr->ifa_addr->sa_family != AF_INET) {
+                continue;
+            }
+	    printf("hello 4\n");
+            struct sockaddr_in *sa = (struct sockaddr_in *) ifaptr->ifa_addr;
+            unsigned int ip = ntohl(sa->sin_addr.s_addr);
+            char ipaddr[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &(sa->sin_addr), ipaddr, sizeof(ipaddr));
+	    printf("hello 5 %s\n", ipaddr);
+            if (ipv4_is_local(ip)) {
+	      printf("hello 6\n");
+                ipbin_v4.push_back(ip);
+                ipstr_v4.push_back(ipaddr);
+		ipname_v4.push_back(ifaptr->ifa_name);
+            }
+        }
+    }
+    freeifaddrs(ifap);
+#endif
+   
+    if (ipstr_v4.empty()) {
+        LOGE("failed to find a local ipv4 address for a BLE advertisement");
+    } else {
+      for (int i = 0; i < ipstr_v4.size(); i++) {
+	printf("%d: %s %s\n", i + 1, ipstr_v4[i].c_str(), ipname_v4[i].c_str());
+      }
+      add_ipv4_to_ble_adv(&ipbin_v4[0], ipstr_v4[0].c_str());
+    }
+}
+
 static std::string find_mac () {
 /*  finds the MAC address of a network interface *
  *  in a Windows, Linux, *BSD or macOS system.   */
     std::string mac = "";
-    std::string iface, iface_test; 
-    char str[3];
-    bool success = false;
+    char str[4];
 #ifdef _WIN32
     ULONG buflen = sizeof(IP_ADAPTER_ADDRESSES);
     PIP_ADAPTER_ADDRESSES addresses = (IP_ADAPTER_ADDRESSES*) malloc(buflen);
@@ -878,41 +960,7 @@ static std::string find_mac () {
                 mac = mac + str;
                 if (i < 5) mac = mac + ":";
             }
-            iface.erase();
-            iface.append(address->AdapterName);
             break;
-        }
-    }
- 
-    if (!iface.empty() && !ble_filename.empty()) {
-        if (GetAdaptersAddresses(AF_INET, 0, NULL, addresses, &buflen) == NO_ERROR) {
-            for (PIP_ADAPTER_ADDRESSES address = addresses; address != NULL; address = address->Next) {
-                if (address->PhysicalAddressLength != 6 ||              /* MAC has 6 octets */
-                    (address->IfType != 6 && address->IfType != 71) ||  /* Ethernet or Wireless interface */
-                    address->OperStatus != 1) {                      /* interface is up */
-                    continue;
-                }
-                iface_test.erase();
-                if(iface != iface_test.append(address->AdapterName)) {
-                    continue;
-                }
-
-                PIP_ADAPTER_UNICAST_ADDRESS u_address = address->FirstUnicastAddress;
-                while (u_address) {
-                    if (u_address->Address.lpSockaddr->sa_family == AF_INET) {
-                        SOCKADDR_IN* sa = (SOCKADDR_IN *) u_address->Address.lpSockaddr;
-                         unsigned int ip = ntohl(sa->sin_addr.s_addr);
-                         char ipaddr[INET_ADDRSTRLEN];
-                         inet_ntop(AF_INET, &(sa->sin_addr), ipaddr, sizeof(ipaddr));
-                         if (ipv4_is_local(ip)) {
-                             if (success = add_ipv4_to_ble_adv(&ip, ipaddr)) {
-                                 break;
-                             }
-                         }
-                    }
-                    u_address = u_address->Next;
-                }
-            }
         }
     }
     free(addresses);
@@ -945,42 +993,14 @@ static std::string find_mac () {
                     mac = mac + str;
                     if (i < 5) mac = mac + ":";
                 }
-                iface.erase();
-                iface.append(ifaptr->ifa_name);
                 break;
-            }
-        }
-
-        // look for a local ipv4 address on iface (perhaps future task: implement for ipv6 too)
-        if (!iface.empty() && !ble_filename.empty()) {
-            for(ifaptr = ifap; ifaptr != NULL; ifaptr = ifaptr->ifa_next) {
-                if (ifaptr->ifa_addr == NULL || ifaptr->ifa_addr->sa_family != AF_INET) {
-                    continue;
-                }
-                iface_test.erase();
-                if (iface != iface_test.append(ifaptr->ifa_name)) {
-                    continue;
-                }
-                struct sockaddr_in *sa = (struct sockaddr_in *) ifaptr->ifa_addr;
-                unsigned int ip = ntohl(sa->sin_addr.s_addr);
-                char ipaddr[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &(sa->sin_addr), ipaddr, sizeof(ipaddr));
-                if (ipv4_is_local(ip)) {
-                    if ((success = add_ipv4_to_ble_adv(&ip, ipaddr))) {
-                        break;
-                    }
-                }
             }
         }
         freeifaddrs(ifap);
     }
 #endif
-    if (!ble_filename.empty() && !success) {
-        LOGE("failed to write ipv4 address to ble_advertisement");
-    }	    
     return mac;
 }
-
 
 
 
@@ -3008,8 +3028,11 @@ int main (int argc, char *argv[]) {
         LOGI("using network ports UDP %d %d %d TCP %d %d %d", udp[0], udp[1], udp[2], tcp[0], tcp[1], tcp[2]);
     }
 
+    
+    
     std::string true_mac_address = find_mac();
     if (!ble_filename.empty()) {
+      find_local_ipv4_for_ble ();
         int count = ble_update(ble_filename.c_str());
         LOGI("ble_update: %d bytes written to %s", count, ble_filename.c_str());
     }
