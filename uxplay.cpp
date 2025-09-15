@@ -189,6 +189,7 @@ static uint32_t rtptime_end = 0;
 static uint32_t rtptime_coverart_expired = 0;
 static std::string artist;
 static std::string coverart_artist;
+static std::string ble_filename = "";
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv;
@@ -351,6 +352,18 @@ static size_t write_metadata(const char *filename, const char *text) {
     size_t count = fwrite(text, sizeof(char), strlen(text) + 1, fp);
     fclose(fp);
     return count;
+}
+
+static int write_bledata( const uint32_t *pid, const char *process_name, const char *filename) {
+    char name[16] { 0 };
+    size_t len = strlen(process_name);
+    memcpy (name, process_name, (len > 15 ? 15 :len));
+    FILE *fp = fopen(filename, "wb");
+    size_t count = fwrite(pid, sizeof (uint32_t), 1, fp);
+    count *= sizeof(uint32_t);
+    count += fwrite(name, 1, sizeof(name), fp);
+    fclose(fp);
+    return (int) count;
 }
 
 static char *create_pin_display(char *pin_str, int margin, int gap) {
@@ -905,6 +918,7 @@ static void print_info (char *name) {
     printf("          =1,2,..; fn=\"audiodump\"; change with \"-admp [n] filename\".\n");
     printf("          x increases when audio format changes. If n is given, <= n\n");
     printf("          audio packets are dumped. \"aud\"= unknown format.\n");
+    printf("-ble fn   For BluetoothLE beacon: write PID to file fn (\"off\" to cancel)\n");
     printf("-d [n]    Enable debug logging; optional: n=1 to skip normal packet data\n");
     printf("-v        Displays version information\n");
     printf("-h        Displays this help\n");
@@ -1357,6 +1371,21 @@ static void parse_arguments (int argc, char *argv[]) {
                 fprintf(stderr,"option -md must be followed by a filename for metadata text output\n");
                 exit(1);
             }
+        } else if (arg  == "-ble" ) {
+            if (option_has_value(i, argc, arg, argv[i+1])) {
+                ble_filename.erase();
+                i++;
+                if (strlen(argv[i]) != 3 || strncmp(argv[i], "off", 3)) { 
+                    ble_filename.append(argv[i]);
+                    if (!file_has_write_access(argv[i])) {
+                        fprintf(stderr, "%s cannot be written to:\noption \"-ble<fn>\" must be to a file with write access\n", argv[i]);
+                        exit(1);
+                    }
+                }
+            } else {
+                fprintf(stderr,"option -ble must be followed by a filename for PID data or by \"off\"\n");
+                exit(1);
+            }
         } else if (arg == "-bt709") {
             bt709_fix = true;
         } else if (arg == "-srgb") {
@@ -1678,26 +1707,37 @@ static int register_dnssd() {
     int dnssd_error;
     uint64_t features;
     
-    if ((dnssd_error = dnssd_register_raop(dnssd, raop_port))) {
-        if (dnssd_error == -65537) {
-             LOGE("No DNS-SD Server found (DNSServiceRegister call returned kDNSServiceErr_Unknown)");
-        } else if (dnssd_error == -65548) {
-            LOGE("DNSServiceRegister call returned kDNSServiceErr_NameConflict");
-            LOGI("Is another instance of %s running with the same DeviceID (MAC address) or using same network ports?",
-                 DEFAULT_NAME);
-            LOGI("Use options -m ... and -p ... to allow multiple instances of %s to run concurrently", DEFAULT_NAME); 
+    dnssd_error = dnssd_register_raop(dnssd, raop_port);
+    if (dnssd_error) {
+        if (ble_filename.empty()) {
+            if (dnssd_error == -65537) {
+                LOGE("No DNS-SD Server found (DNSServiceRegister call returned kDNSServiceErr_Unknown)");
+            } else if (dnssd_error == -65548) {
+                LOGE("DNSServiceRegister call returned kDNSServiceErr_NameConflict");
+                LOGI("Is another instance of %s running with the same DeviceID (MAC address) or using same network ports?",
+                     DEFAULT_NAME);
+                LOGI("Use options -m ... and -p ... to allow multiple instances of %s to run concurrently", DEFAULT_NAME); 
+            } else {
+                LOGE("dnssd_register_raop failed with error code %d\n"
+                     "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+                     "(see Apple's dns_sd.h)", dnssd_error);
+            }
+            return -3;
         } else {
-             LOGE("dnssd_register_raop failed with error code %d\n"
-                  "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-                  "(see Apple's dns_sd.h)", dnssd_error);
+            LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
         }
-        return -3;
     }
-    if ((dnssd_error = dnssd_register_airplay(dnssd, airplay_port))) {
-        LOGE("dnssd_register_airplay failed with error code %d\n"
-             "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-             "(see Apple's dns_sd.h)", dnssd_error);
-        return -4;
+
+    dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
+    if (dnssd_error) {
+        if (ble_filename.empty()) {
+            LOGE("dnssd_register_airplay failed with error code %d\n"
+                 "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+                 "(see Apple's dns_sd.h)", dnssd_error);
+            return -4;
+        } else {
+            LOGI("dnssd_register_airplay failed: ignoring because Bluetooth LE service discovery may be available");   
+        }
     }
 
     LOGD("register_dnssd: advertised AirPlay service with \"Features\" code = 0x%llX",
@@ -2818,6 +2858,19 @@ int main (int argc, char *argv[]) {
         write_metadata(metadata_filename.c_str(), "no data\n");
     }
 
+#define PID_MAX 4194304 // 2^22
+    if (ble_filename.length()) {
+#ifdef _WIN_32
+        DWORD pid = GetCurrentProcessId();
+        g_assert(pid <= PID_MAX);
+#else
+        pid_t pid = getpid();
+        g_assert (pid <= PID_MAX && pid >= 0);
+#endif
+        write_bledata((uint32_t *) &pid, argv[0], ble_filename.c_str());
+        LOGI("Bluetooth LE beacon-based service discovery is possible: PID data written to %s", ble_filename.c_str());
+    }
+    
     /* set default resolutions for h264 or h265*/
     if (!display[0] && !display[1]) {
         if (h265_support) {
@@ -2895,10 +2948,13 @@ int main (int argc, char *argv[]) {
         fclose(video_dumpfile);
     }
     if (coverart_filename.length()) {
-	remove (coverart_filename.c_str());
+        remove (coverart_filename.c_str());
     }
     if (metadata_filename.length()) {
-	remove (metadata_filename.c_str());
+        remove (metadata_filename.c_str());
+    }
+    if (ble_filename.length()) {
+        remove (ble_filename.c_str());
     }
 #ifdef DBUS
     if (dbus_connection) {

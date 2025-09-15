@@ -188,26 +188,35 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     All requests arriving here have been parsed by llhttp to obtain 
     method | url | protocol (RTSP/1.0 or HTTP/1.1)
 
-    There are three types of connections supplying these requests:
+    There are four types of connections supplying these requests:
     Connections from the AirPlay client:
     (1) type RAOP connections with CSeq seqence  header, and no X-Apple-Session-ID header
     (2) type AIRPLAY connection with an X-Apple-Sequence-ID header and no Cseq header
     Connections from localhost:
     (3) type HLS internal connections from the local HLS server (gstreamer) at localhost with neither 
         of these headers,  but a Host: localhost:[port] header.   method = GET.
+    (4) a special RAOP connection trigggered by a Bluetooth LE beacon: Protocol RTSP/1.0, method: GET
+        url /info?txtAirPlay?txtRAOP, and no headers including CSeq
      */
 
     const char *method = http_request_get_method(request);
     const char *url = http_request_get_url(request);
+    const char *protocol = http_request_get_protocol(request);
 
-    if (!method  || !url) {
+    if (!method  || !url || !protocol) {
         return;
     }
 
-/* this rejects messages from _airplay._tcp for video streaming protocol unless bool raop->hls_support is true*/
+    /* ¨idenitfy if request is a response to a BLE beaconn */
     const char *cseq = http_request_get_header(request, "CSeq");
-    const char *protocol = http_request_get_protocol(request);
-    if (!cseq && !conn->raop->hls_support) {
+    bool ble = false;
+    if (!strcmp(protocol,"RTSP/1.0") && !cseq  && (strstr(url, "txtAirPlay") || strstr(url, "txtRAOP") )) {
+        logger_log(conn->raop->logger, LOGGER_INFO, "response to Bluetooth LE beacon advertisement received)");
+        ble = true;
+    }
+
+ /* this rejects messages from _airplay._tcp for video streaming protocol unless bool raop->hls_support is true*/   
+    if (!cseq && !conn->raop->hls_support && !ble) {
         logger_log(conn->raop->logger, LOGGER_INFO, "ignoring AirPlay video streaming request (use option -hls to activate HLS support)");
         return;
     }
@@ -217,7 +226,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     hls_request =  (host && !cseq && !client_session_id);
 
     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
-        if (cseq) {
+        if (cseq || ble) {
             if (httpd_count_connection_type(conn->raop->httpd, CONNECTION_TYPE_RAOP)) {
                 char ipaddr[40];
                 utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
@@ -367,7 +376,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                 handler = &raop_handler_audiomode;
             }
         } else if (!strcmp(method, "GET")) {
-            if (!strcmp(url, "/info")) {
+            if (strstr(url, "/info")) {
                 handler = &raop_handler_info;
             }
         } else if (!strcmp(method, "OPTIONS")) {
