@@ -1458,42 +1458,49 @@ GStreamer inner workings.
 
 # Bluetooth LE beacon setup
 
-When uxplay is started with the option `uxplay -ble <path-to-writeable-file>`, it writes a 20 byte data file
-containing (4 bytes)  the process ID (PID) as a uint32_t 32-bit unsigned integer, and
-(16 bytes) up to 15 bytes of the process name (usually "uxplay") as a null-terminated string,
-padded with zeroes to fill 16 bytes.  The file is deleted if  UxPlay is terminated normally (without a segfault),
-and could be used to determine if an instance of uxplay is running.   **This file is provided for possible future use
-in a script for controlling the beacon, and  will not be used here**.
-
-You may need to use a cheap USB Bluetooth dongle if your system  does not have Bluetooth 4.0 or later,
-or will not let you use it for LE (Low Energy) transmissions.
+To allow UxPlay to work with Bluetooth Low Energy (LE) Service Discovery, as an alternative to DNS-SD (Bonjour/Rendezvous)
+service discovery, start it with the option "`-ble <path-to-writeable-file>`", which at startup writes a  data file containing
+the uxplay process ID and process name, and is deleted when uxplay terminates normally. **This file
+is not used in the simple manual method for creating a beacon  described below**.
 
 
-These instructions are tested on Linux using the Bluez Bluetooth stack.  They use the `hcitool` and ``hciconfig``
+Bluetooth LE Service discovery uses a "beacon" broadcasting a simple 12-byte
+advertisement "`0B FF 4C 00 09 06 03 30 XX XX XX XX`" where XX XX XX XX is an IPv4 internet
+address of the UxPlay host translated into hexadecimal octets:  For
+example, "`XX XX XX XX`" = "``C0 A8 01 FD``"  means 192.168.2.253.   UxPlay
+must be able to receive messages on TCP port 7000 at this
+address.  The uxplay option "`-p`" sets up uxplay to listen on port 7000 for these messages.
+
+The full translation of this message is that it has length 0B = 0x0b = 11 octets, and is  a single  "Advertising Protocol Data Unit" (PDU) of type "`FF`",
+called "Manufacturer-Specific Data", with "manufacturer code"  "`4C 00`" =  0x004c = Apple (note the  reversal of octet order when
+two octets are combined to make a two-byte unsigned short integer), and "`09 06 03 30 XX XX XX XX`" is the Apple-specific data.
+
+The Apple-specific data contains a single Apple Data Unit with Apple type = 09 (Airplay),  Apple Data length 06 (0x06 = 6 octets) and
+Apple Data "`03 30 XX XX XX XX`" where 03 = 0000 0011 is Apple Flags, 30 is a seed (which  will be ignored), and XX XX XX XX
+is the IPv4 internet address.    This is smaller than the "iBeacon" Apple Data Unit, which has Apple type 02 and Apple length 15 (0x15 = 21 octets).
+
+In addition to creating the message, we need to set the "Advertising type" (ADV_NONCONN_IND) and "Advertising interval" range [AdvMin, AdvMax],
+where 0x00a0 = 100 msec <= AdvMin <= AdvMax <= 0x4000 =  10.24 sec
+(intervals are given in units of 0.625 msec as uint16_t unsigned short integers).  Setting AdvMin = AdvMax fixes the interval; AdvMin < AdvMax allows the choice
+of the time of each advertising broadcast to be flexible  within an allowed  window  to avoid clashing with other Bluetooth tasks.
+Keep the default choice to broadcast simultaneously on all three advertising channels, 37,38,39.
+
+An automated script to setup and start the beacon should use a high-level interface
+such as: (Linux) Bluez [LEAdvertisingManager1](https://manpages.opensuse.org/Leap-16.0/bluez/org.bluez.LEAdvertisement.5.en.html) (with
+an [example](https://github.com/bluez/bluez/blob/master/test/example-advertisement))
+and  (Windows 10/11)  [BluetoothLEAdvertisementPublisherClass](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.advertisement.bluetoothleadvertisementpublisher)
+(with an [example](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/uwp/devices-sensors/ble-beacon.md)).
+**We invite submission of Pull Requests for working implementations!**
+
+Until automated scripts are available, a simple Linux-only  low-level manual method
+is given below, using the `hcitool` and ``hciconfig``
 utilities which directly access the HCI stack, and need  elevated privileges (use `sudo`).   These utilities
-have been declared "deprecated" and "obsolete" by BlueZ developers: on Debian-based Linux `sudo apt install bluez`
+have been declared "deprecated" and "obsolete" by BlueZ developers: on Debian-based Linux "`sudo apt install bluez`"
 still provides `hcitool`, but on some other Linux distributions, it is split off from the main BlueZ package into an "extra" package
-with a name like "bluez-deprecated".   If we get the AirPlay beacon to work using the newer  `bluetoothctl` utility, these instructions will be
-updated. 
+with a name like "bluez-deprecated".   If we get the AirPlay beacon to work using the newer  `bluetoothctl` or ``btmgmt``  utilities, 
+these instructions will be updated. 
 
-*  **These manual instructions will hopefully be soon superseded by e.g. python scripts that automate beacon control, probably using D-Bus on Linux.  Please
-   submit any such scripts you get working for possible packaging together with UxPlay**. Note that the Apple Service Discovery beacon is
-   not a standard "**ibeacon**", and cannot be set up with unmodified "ibeacon"-specific applications.
-
-*  For testing Bluetooth beacon Service Discovery on Linux, you will need to suppress the avahi-daemon which
-provides DNS-SD Service Discovery on  UxPlay's Host system (replace `mask` and ``stop``
-below by `unmask` and ``start`` to restore DNS-SD service).;
-
-```
-$ sudo systemctl mask avahi-daemon.socket
-$ sudo systemctl stop avahi-daemon
-
-```
-Then verify that uxplay will not start without the `-ble <filename>` option.
-
-
-
-Before starting, check that you have a Bluetooth device with  "`hcitool dev`"
+First verify that a Bluetooth HCI interface is available:
 
 ```
 $hcitool dev
@@ -1502,80 +1509,44 @@ Devices:
         hci0    08:BE:AC:40:A9:DC
 ```
 
-This shows two devices with their MAC addresses. You can use "`hciconfig -i`" to see which version of Bluetooth they
-implement: we require Bluetooth v4.0 or later. Choose which to use (we will use hci0), and reset it.
-   
+This shows two devices with their MAC addresses. You can use "`hciconfig -a`" to see which versions of Bluetooth they
+implement: we require Bluetooth v4.0 or later;
+you may need to use a cheap USB Bluetooth dongle if your system  does not have it,
+or will not let you use it for LE (Low Energy) transmissions.     
+Choose which interface to  use (we will use hci0), and reset it.
+
 ```
 $ sudo hciconfig hci0 reset
 
 ```
 
-* **Step 1.** First reconfigure the Bluetooth device (hci0):
+**Step 1.** Configure the beacon by sending a  configure command 0x0006 to the Bluetooth LE stack 0x08. `hcitool` echoes the HCI command
+and the 4-byte  "HCI Event" response.  The only important part of the response is that the last byte is "`00`" (= "success":
+other values are error codes):
 
-`hcitool`  sends  HCI commands as a sequence  of 1-byte hexadecimal octets.   It echoes the length (here `plen` = 15 bytes) and content
-of the sequence it sends to the Bluetooth HCI stack, and of the 4-byte "HCI Event" response it gets.
-Only the last byte of the response is important:  `00` means the command succeded (other values are error codes).
 
 ```
 
-$ sudo hcitool -i hci0 cmd 0x08 0x0006 0xa0 0x00 0xa0 0x00 0x03 0x01 0x00  0x00 0x00 0x00 0x00 0x00 0x00 0x07 0x00 
+$ sudo hcitool -i hci0 cmd 0x08 0x0006 0xa0 0x00 0xa0 0x00 0x03 0x00 0x00  0x00 0x00 0x00 0x00 0x00 0x00 0x07 0x00 
 
 < HCI Command: ogf 0x08, ocf 0x0006, plen 15
-  A0 00 A0 00 03 01 00 00 00 00 00 00 00 07 00 
+  A0 00 A0 00 03 00 00 00 00 00 00 00 00 07 00 
 > HCI Event: 0x0e plen 4
   02 06 20 00 
 
 ```
 
-The above command configures the beacon:   "`cmd 0x08 0x006`"  means HCI LE (ogf=0x08) command number 6 (ocf=0x0006) of
-the Blutooth LE stack.
+The first "`0xa0 0x00`" sets AdvMin = 0x00a0 = 100 msec.   The second "``0xa0 0x00``" sets AdvMax = 0x00a0 = 100 msec.
+Then "`0x03`" sets the Advertising Type to ADV_NONCONN_IND. The other non-zero entry (0x07 = 0000 0111) is the flag for using
+all three
+advertising channels.
 
-The first two message bytes "`0xa0 0x00`" means a 2-byte "unsigned short" value 0x00a0.   (uint16_t integers such as 0xabcd are represented  as two bytes "`0xcd, 0xab`").    This is the minimum interval AdvMin  between
-beacon broadcasts, which are essentially simultaneous on all three advertising channels.   The next two entries  represent the maximum interval AdvMax, also set to 0x00a0,
-which means 100 msec (200 msec would be 2 * 0x00a0 = 0x0140 or "`0x40 0x01`").    Setting AdvMin = AdvMax fixes the interval between transmissions.
-If AdvMin < AdvMax, the timing of each broadcast event relative to the previous one can be chosen flexibly to not overlap with any other task the bluetooth socket is carrying out.
-The allowed range of these parameters is 0x00a0 = 100 msec <= AdvMin <= AdvMax <= 0x4000 = 10.24 sec.
+An Apple TV (Gen 3) seems to use AdvMin = AdvMax  = 180 msec = 0x0120 ("`0x20 0x01`").
 
-An Apple TV (Gen 3) seems to use a fixed interval of 180 msec = 0x0120  ("`0x20 0x01`").
-
-The sixth byte TxAdd = "`0x01`" says that a random MAC "advertisement address"" AdvAddr  for the Bluetooth device will be sent with the advertisement.    If you wish to send the true
-hardware MAC address of the Bluetooth device, replace this byte by "`0x00`".     
-
-
-__These are the only parameters you might want to vary__.   The fifth byte 0x03 is the Advertising PDU type "ADV_NONCONN_IND" (a beacon that transmits without accepting connections)
-and the fourteenth byte 0x07 is a flag 0000 0111 that says to use all three Bluetooth LE advertising channels.  
-
-
-
-* **Step 2.**  (**Optional: skip this if you changed byte 6 of the initial configuration message from** "``0x01``" **to** "`0x00`".)
-Use HCI LE command 5 (ocf=0x0005) to
-set private "advertising address" AdvAddr, which substitutes for the public MAC address of the Bluetooth device.
-
-This uses six random bytes r1,..,r6 and enters them as 
-` r1 , r2 , r3,  r4,  r5, r0 = (r6 | 0x03)`, where the 6th byte has been  masked with 0x03 = 00000011  so its last two bits  are on,
-and the  value r0  is restricted to 64 values "`0xrs`" where the second 
-hexadecimal digit ``s`` is one of {3, 7, b, f}, which indicates a "static random" private address that is guaranteed to not
-change between device reboots.   Note that Apple TV's use random private addresses without applying a mask to r6 to distinguish
-between different types.
-
-
-```
-
-$sudo hcitool -i hci0 cmd 0x08 0x0005 0x52 0xaa 0xaa 0x3a 0xb4 0x2f 
-< HCI Command: ogf 0x08, ocf 0x0005, plen 6
-  52 AA AA 3A B4 2F 
-> HCI Event: 0x0e plen 4
-  02 05 20 00 
-```
-
-On a Bluetooth packet sniffer with wireshark, this address displays as:  **Advertising Address: 2f:b4:3a:aa:aa:52**
-
-* **Step 3.**  Now provide the advertising message, with HCI LE command 8 (ocf=0x0008):
-
-
-This sends a 32 byte message to the HCI LE stack, where the first byte is the length (here 0x0c = 12 bytes) of the significant part of
-the following 31 bytes: 12 significant bytes, padded with 19 zeros to a total message length of 32 bytes.   (`hcitool` requires a message padded to the full
-32 bytes, but only sends the significant bytes to the Bluetooth LE stack.)
+**Step 2.**  Set the advertising message with HCI LE  command 0x0008.  For this command, hcitool requires a 32 octet message after
+`sudo hcitool -i hci0 cmd 0x08 0x0008`:   The first  octet is the length 0C = 0x0c = 12 of the "significant part" of the following 31 octets,
+followed by the 12 octets of the advertisement, then padded with 19 zeroes to a total length of 32 octets.  The example below sends an
+IPv4 address 192.168.1.253 as "`0xc0 0xa8 0x01 0xfd`":
 
 ```
 $ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0c 0x0b 0xff 0x4c 0x00 0x09 0x06 0x03 0x30  0xc0 0xa8 0x01 0xfd  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
@@ -1586,12 +1557,7 @@ $ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0c 0x0b 0xff 0x4c 0x00 0x09 0x06 0x03 0
   01 08 20 00 
 ```
 
-The only parts of this message that you must change are the four bytes 10,11,12,13, of the IPv4 address, here "` 0xc0 0xa8 0x01 0xfd `", (decimal 192 168 1 253, an IPv4 address 192.168.1.253)
- which should be an  IPv4 address at which  the UxPlay server can receive requests from  iOS/macOS clients at  TCP port 7000.    You need to find what IPv4 address will work 
-on the computer that hosts UxPlay (use `ifconfig`), convert each of the four numbers from decimal to hexadecimal, and  replace  bytes 13-16 of the message by them.
-
-
-* **Step 4.**  Start  advertising by the beacon  with Bluetooth LE command 10 (ocf = 0x000a) and  1-byte message "`0x01`" = "on". 
+**Step 3**.  Start the beacon with a 1-byte message "`0x01`"  = "on", sent with HCI LE command 0x000a = 10:
 
 ```
 $ sudo hcitool -i hci0 cmd 0x08 0x000a 0x01
@@ -1600,35 +1566,56 @@ $ sudo hcitool -i hci0 cmd 0x08 0x000a 0x01
 > HCI Event: 0x0e plen 4
   02 0A 20 00 
 ```
-
-(To stop advertising, use this command to send  the 1-byte message  "`0x00`" = "off".)
-
-
-
-For creating a higher-level script, it might be useful to know that the length 0C = 12 bytes advertisement sent in step 3 has a single  "Advertising Protocol Data Unit" (PDU):
-
-*  0B FF 4C 00 09 06 03 30 C0 A8 01 FD:   length 0B = 11 bytes, consisting of: FF ( type = manufacturer-specific) 4C 00  (manufacturer code =  0x004c, Apple ) manufacturer data  09 06 03 30 C0 A8 01 FD
-
-The manufacturer data defined by Apple  consists of a single Apple data unit:  09 (Apple type = AirPlay),  06 (Apple data length 6 bytes) Apple data 03 30 XX XX XX XX,  broken down into  03  (flags: 0000 0011)  30 (a seed)
-XX XX XX XX  (IPv4 network address, written as four hexadecimal octets in standard order).   (Apple TV's use a random private "AdvAddr" address as described above, and periodically update it at about  20 min intervals, each time
-increasing the seed by 1.)   
-
-Apple TV's also insert a type-1 ("Flags") 2-byte PDU "`02 01 1A`" before the manufacturer-specific PDU, increasing the significant length of the message to 0xf = 15 bytes.
-It turns out that the  "Flags" PDU is "optional" for advertisements like beacons that do not allow client connections:
-in our tests on v4.0 and later dongles, Service Discovery still worked fine after dropping the "Flags" PDU.  
-
-Both Linux and Windows have high-level interfaces that support users sending Advertising PDU's, but restricted to
-type 0xff "manufacturer-specific-data" only, without any "Flags".  These should be  used for automating beacon setup, and 
-are: (Linux) Bluez [LEAdvertisingManager1](https://github.com/bluez/bluez/blob/master/test/example-advertisement)
-and  (Windows 10/11)  [BluetoothLEAdvertisementPublisherClass](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.advertisement.bluetoothleadvertisementpublisher)
-(with an [example](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/uwp/devices-sensors/ble-beacon.md)).
+The full length of the broadcasted beacon message is 43 bytes.
+To stop the beacon, use this command to send the 1-byte message "`0x00`" = "off".
 
 
-**We don't know if these instructions  can be modified to advertise IPv6 addresses: if you know of any verified support for Bluetooth LE IPv6 Service Discovery in newer AppleTV models,
-please let us know.  Simply replacing the 4-byte IPv4 address with a 16-byte IPv6 address (and adjusting the lengths at bytes 1, 5 and 10) does not seem to work, although perhaps
-we did not find the right value for byte 11 ("Apple Flags").  If Apple's Bluetooth LE Service Discovery has  IPv6 support, we need to examine the beacon  advertisement packet
-for IPv6 addresses with a Bluetooth sniffer.** 
 
+* For testing Bluetooth beacon Service Discovery on Linux, you will need to suppress the avahi-daemon which
+provides DNS-SD Service Discovery on UxPlay's Host system (replace `mask` and ``stop`` below
+by `unmask` and ``start`` to restore DNS-SD service):
+
+```
+$ sudo systemctl mask avahi-daemon.socket
+$ sudo systemctl stop avahi-daemon
+```
+
+
+
+An automated procedure for creating the beacon would presumably want to switch it on when uxplay starts, and off when it
+stops. The 20-byte file created when uxplay starts (and deleted when it stops)  contains the PID as a uint32_t unsigned integer in the first 4 bytes,
+followed by up to the first
+11 characters of the process name (usually "uxplay") as a null-terminated string, padded with zeroes to 16 bytes. This data can be used to test
+whether uxplay is actually running, including cases where it has segfaulted and not deleted the file.
+
+
+
+This method above  creates a beacon that identifies itself with a "public Advertising Address" (the MAC hardware address of
+the Bluetooth device).  An Apple TV uses a private random address.   If you wish to do that, change the sixth octet (the one following `0x03`)
+in  Step 1 from "TxAdd" = `0x00` to TxAdd = ``0x01``, and add an intermediate  "step 1.5":
+
+**Step 1.5**  Choose 6 random bytes r1, r2, r3, r4, r5, r6, such as
+"`0x52 0xaa, 0xaa, 0x3a, 0xb4, 0x2f`", and use HCI LE command 0x0005  to set the random address:
+
+```
+$sudo hcitool -i hci0 cmd 0x08 0x0005 0x52 0xaa 0xaa 0x3a 0xb4 0x2f 
+< HCI Command: ogf 0x08, ocf 0x0005, plen 6
+  52 AA AA 3A B4 2F 
+> HCI Event: 0x0e plen 4
+  02 05 20 00 
+```
+
+On a Bluetooth packet sniffer with wireshark, this address displays as:  **Advertising Address: 2f:b4:3a:aa:aa:52**.
+In principle, random byte r6 should be masked with 0x03 (r6 = r6 | 0x03) to mark the address  as a "static random private address",
+but Apple TV does not do this.   In fact it updates to a new random Advertising Address every 20 mins or so, increasing
+the seed in the Apple Data by 1 each time.      Apple TV's also add a length 2 type 0x01 ("Flags") Advertising PDU "`0x02 0x01 0x1a`" in front of
+the main type  0xff "Manufacturer-Specific Data" Advertising PDU in Step 2.   This is "optional" for ADV_NONCONN_IND advertisement type,
+and testing shows that it can be dropped without affecting Service Discovery, which is fortunate
+because the high-level Linux and Windows interfaces mentioned earlier do not permit users to send a  "Flags"-type PDU.
+
+
+* **Our current understanding is that  Bluetooth LE AirPlay Service Discovery only supports
+broadcast of IPv4 addresses. Please let us know if this is incorrect, or if IPv6 support is introduced in  the future.**
 
 # Troubleshooting
 Note: `uxplay` is run from a terminal command line, and informational
