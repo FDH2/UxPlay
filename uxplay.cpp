@@ -2343,26 +2343,17 @@ extern "C" void on_video_rate(void *cls, const float rate) {
 }
 
 extern "C" void on_video_stop(void *cls) {
+    url.erase();
     LOGI("on_video_stop\n");
 }
 
 extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *playback_info) {
     int buffering_level;
-    LOGD("on_video_acquire_playback info\n");
-    bool still_playing = video_get_playback_info(&playback_info->duration, &playback_info->position,
-                                                 &playback_info->rate,
-                                                 &playback_info->playback_buffer_empty,
-                                                 &playback_info->playback_buffer_full);
+    video_get_playback_info(&playback_info->duration, &playback_info->position,
+                            &playback_info->rate, &playback_info->playback_buffer_empty,
+                            &playback_info->playback_buffer_full);
     playback_info->ready_to_play = true; //?
     playback_info->playback_likely_to_keep_up = true; //?
-    
-    LOGD("on_video_acquire_playback info done\n");
-    if (!still_playing) {
-        LOGI(" video has finished, %f", playback_info->position);
-        playback_info->position = -1.0;
-        playback_info->duration = -1.0;
-        video_renderer_stop();
-    }
 }
 
 extern "C" void log_callback (void *cls, int level, const char *msg) {

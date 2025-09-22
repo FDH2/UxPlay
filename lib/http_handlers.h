@@ -438,11 +438,11 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                 logger_log(conn->raop->logger, LOGGER_ERR, "uuid of playlist removal action request did not match current playlist:\n"
                            "   current: %s\n   remove: %s", playback_uuid, remove_uuid);
             } else {
-                logger_log(conn->raop->logger, LOGGER_DEBUG, "removal_uuid matches playback_uuid\n");
+                logger_log(conn->raop->logger, LOGGER_DEBUG, "removal_uuid matches playback_uuid, removing playlist\n");
+                airplay_video_service_destroy(conn->raop->airplay_video);
             }
             plist_mem_free (remove_uuid);
         }
-        logger_log(conn->raop->logger, LOGGER_ERR, "FIXME: playlist removal not yet implemented");
         goto finish;
     } else if (playlist_insert) {
         logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistInsert (add new playback)");

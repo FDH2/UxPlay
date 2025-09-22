@@ -469,10 +469,11 @@ void video_renderer_start() {
     GstState state;
     const gchar *state_name;
     if (hls_video) {
-        gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
-	gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
-	state_name = gst_element_state_get_name(state);
-	logger_log(logger, LOGGER_DEBUG, "video renderer_start: state %s", state_name);
+        gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+	//gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
+	//state_name = gst_element_state_get_name(state);
+	//logger_log(logger, LOGGER_DEBUG, "video renderer_start: state %s", state_name);
+	logger_log(logger, LOGGER_DEBUG, "video renderer_start (HLS)");
         return;
     } 
     /* when not hls, start both h264 and h265 pipelines; will shut down the "wrong" one when we know the codec */
@@ -1005,10 +1006,11 @@ bool video_get_playback_info(double *duration, double *position, float *rate, bo
     *duration = 0.0;
     *position = -1.0;
     *rate = 0.0f;
-    if (!renderer) {
-        return true;
+    if (!hls_playing) {
+        return false;
     }
 
+    g_assert(renderer);
     *buffer_empty = (bool) hls_buffer_empty;
     *buffer_full = (bool) hls_buffer_full;
     gst_element_get_state(renderer->pipeline, &state, NULL, 0);
@@ -1022,7 +1024,7 @@ bool video_get_playback_info(double *duration, double *position, float *rate, bo
 
     if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
         if (!gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration)) {
-            return true;
+            return false;
         }
     }
     *duration = ((double) hls_duration) / GST_SECOND;
