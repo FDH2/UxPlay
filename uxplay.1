@@ -98,6 +98,13 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-vs\fR 0     Streamed audio only, with no video display window.
 .TP
+\fB\-vrtp\fI pl\fR  Use rtph26[4,5]pay to send decoded video elsewhere: "pl"
+.IP
+   is the remaining pipeline, starting with rtph26*pay options:
+.IP
+   e.g. "config-interval=1 ! udpsink host=127.0.0.1 port=5000"
+.PP
+.TP
 \fB\-v4l2\fR     Use Video4Linux2 for GPU hardware h264 video decoding.
 .TP
 \fB\-bt709\fR    Sometimes needed for Raspberry Pi models using Video4Linux2.

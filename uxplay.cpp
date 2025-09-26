@@ -190,6 +190,8 @@ static uint32_t rtptime_coverart_expired = 0;
 static std::string artist;
 static std::string coverart_artist;
 static std::string ble_filename = "";
+static std::string rtp_pipeline = "";
+
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv;
@@ -879,6 +881,9 @@ static void print_info (char *name) {
     printf("          gtksink,waylandsink,kmssink,fbdevsink,osxvideosink,\n");
     printf("          d3d11videosink,d3v12videosink, etc.\n");
     printf("-vs 0     Streamed audio only, with no video display window\n");
+    printf("-vrtp pl  Use rtph26[4,5]pay to send decoded video elsewhere: \"pl\"\n");
+    printf("          is the remaining pipeline, starting with rtph26*pay options:\n");
+    printf("          e.g. \"config-interval=1 ! udpsink host=127.0.0.1 port=5000\"\n");
     printf("-v4l2     Use Video4Linux2 for GPU hardware h264 decoding\n");
     printf("-bt709    Sometimes needed for Raspberry Pi models using Video4Linux2 \n");
     printf("-srgb     Display \"Full range\" [0-255] color, not \"Limited Range\"[16-235]\n");
@@ -1297,6 +1302,14 @@ static void parse_arguments (int argc, char *argv[]) {
                 fprintf(stderr, "invalid \"-reset %s\"; -reset n must have n >= 0,  default n = %d seconds\n", argv[i], MISSED_FEEDBACK_LIMIT);
                 exit(1);
             }
+	} else if (arg == "-vrtp") {
+	  if (!option_has_value(i, argc, arg, argv[i+1])) {
+	    fprintf(stderr,"option \"-vrtp\" must be followed by a pipeline for sending the video stream:\n"
+		    "e.g., \"<rtph26[4,5]pay options> ! udpsink host=127.0.0.1 port -= 5000\"\n");
+	    exit(1);
+          }
+	  rtp_pipeline.erase();
+	  rtp_pipeline.append(argv[++i]);
         } else if (arg == "-vdmp") {
             dump_video = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
@@ -2817,7 +2830,7 @@ int main (int argc, char *argv[]) {
         LOGI("audio_disabled");
     }
     if (use_video) {
-        video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),
+      video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
                             render_coverart, playbin_version, NULL);
@@ -2914,7 +2927,7 @@ int main (int argc, char *argv[]) {
                 raop_remove_known_connections(raop);
             }
             const char *uri = (url.empty() ? NULL : url.c_str());
-            video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),
+            video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);

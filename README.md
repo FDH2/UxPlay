@@ -10,6 +10,12 @@
     __It is hoped that users will submit Pull Requests contributing scripts for automating beacon setup on all platforms.
     (Python may be an appropriate language choice)__ 
 
+-   **NEW on github**: option `-vrtp <rest-of-pipeline>`  bypasses rendering by UxPlay, and instead
+    transmits rtp packets of decrypted h264 or h265 video to
+    an external renderer (e.g. OBS Studio) at an address specified in `rest-of-pipeline`.
+    (Note: this is video only, an option "-rtp" which muxes audio and video into a mpeg4 container still needs to be created:
+    Pull Requests welcomed).
+    
 -   **NEW on github**: (for Linux/*BSD Desktop Environments using D-Bus). New option `-scrsv <n>` provides screensaver inhibition (e.g., to
     prevent screensaver function while watching mirrored videos without keyboard or mouse
     activity): n = 0 (off) n=1 (on during video activity) n=2 (always on while UxPlay is running).
@@ -1252,6 +1258,11 @@ video), and only used to render audio, which will be AAC
 lossily-compressed audio in mirror mode with unrendered video, and
 superior-quality ALAC Apple Lossless audio in Airplay audio-only mode.
 
+**-vrtp *pipeline***:  forward rtp packets of decrypted video to somewhere else, without rendering.
+Uses rtph264pay or rtph265pay as appropriate: *pipeline* should start with any
+rtph26xpay options (such as config_interval= or aggregate-mode =), followed by
+a sending method:  *e.g.*, `"config-interval=1 ! udpsink host=127.0.0.1 port=5000`".
+
 **-v4l2** Video settings for hardware h264 video decoding in the GPU by
 Video4Linux2. Equivalent to `-vd v4l2h264dec -vc v4l2convert`.
 
@@ -1957,10 +1968,11 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
-xxxx  2025-08-11 Render Audio cover-art inside UxPlay with -ca option (no file
+xxxx  2025-09-25 Render Audio cover-art inside UxPlay with -ca option (no file
 specified). (D-Bus based) option -scrsv <n> to inhibit screensaver while UxPlay
 is running (Linux/*BSD only).   Add support for Service  Discovery using a
-Bluetooth LE beacon.
+Bluetooth LE beacon.   Add -vrtp option for forwarding decrypted h264/5 video
+to an external renderer (e.g., OBS Studio)
 
 1.72.2 2025-07-07  Fix bug (typo) in DNS_SD advertisement introduced with -pw
 option.  Update llhttp to v 9.3.0

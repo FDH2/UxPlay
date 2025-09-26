@@ -222,11 +222,12 @@ GstElement *make_video_sink(const char *videosink, const char *videosink_options
     return video_sink;
 }
 
-void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser,
+void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
     GError *error = NULL;
     GstCaps *caps = NULL;
+    bool rtp = (bool) strlen(rtp_pipeline);
     hls_video = (uri != NULL);
     /* videosink choices that are auto */
     auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
@@ -332,30 +333,36 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                 g_string_append(launch, "queue ! ");
                 g_string_append(launch, parser);
                 g_string_append(launch, " ! ");
-                g_string_append(launch, decoder);
+                if (!rtp) {
+                    g_string_append(launch, decoder);
+                } else {
+                    g_string_append(launch, "rtph264pay ");
+                    g_string_append(launch, rtp_pipeline);
+                }
             }
-            g_string_append(launch, " ! ");
-            append_videoflip(launch, &videoflip[0], &videoflip[1]);
-            g_string_append(launch, converter);
-            g_string_append(launch, " ! ");
-            g_string_append(launch, "videoscale ! ");
-            if (jpeg_pipeline) {
-                g_string_append(launch, " imagefreeze allow-replace=TRUE ! ");
+            if (!rtp || jpeg_pipeline) {
+                g_string_append(launch, " ! ");
+                append_videoflip(launch, &videoflip[0], &videoflip[1]);
+                g_string_append(launch, converter);
+                g_string_append(launch, " ! ");
+                g_string_append(launch, "videoscale ! ");
+                if (jpeg_pipeline) {
+                    g_string_append(launch, " imagefreeze allow-replace=TRUE ! ");
+                }
+                g_string_append(launch, videosink);
+                g_string_append(launch, " name=");
+                g_string_append(launch, videosink);
+                g_string_append(launch, "_");
+                g_string_append(launch, renderer_type[i]->codec);
+                g_string_append(launch, videosink_options);
+                if (video_sync && !jpeg_pipeline) {
+                    g_string_append(launch, " sync=true");
+                    sync = true;
+                } else {
+                    g_string_append(launch, " sync=false");
+                    sync = false;
+                }
             }
-            g_string_append(launch, videosink);
-            g_string_append(launch, " name=");
-            g_string_append(launch, videosink);
-            g_string_append(launch, "_");
-            g_string_append(launch, renderer_type[i]->codec);
-            g_string_append(launch, videosink_options);
-            if (video_sync && !jpeg_pipeline) {
-                g_string_append(launch, " sync=true");
-                sync = true;
-            } else {
-                g_string_append(launch, " sync=false");
-                sync = false;
-            }
-
             if (!strcmp(renderer_type[i]->codec, h264)) {
                 char *pos = launch->str;
                 while ((pos = strstr(pos,h265))){
