@@ -7,12 +7,12 @@
     service discovery). The user must set up a Bluetooth LE "beacon", (a
     USB 4.0 or later "dongle" can be used). See instructions below. The
     beacon runs independently of UxPlay and regularly broadcasts a
-    Bluetooth LE ("Low Energy") 44 byte packet informing nearby
+    Bluetooth LE ("Low Energy") 46 byte packet informing nearby
     iOS/macOS devices of the local IPv4 network address of the UxPlay
-    server, which they can use to contact it on TCP port 7000.
-    Instructions for manually setting up such a beacon in Linux are
-    [given below](#bluetooth-le-beacon-setup). **It is hoped that users
-    will submit Pull Requests contributing scripts for automating beacon
+    server, and which TCP port to contact UxPlay on. Instructions for
+    manually setting up such a beacon in Linux are [given
+    below](#bluetooth-le-beacon-setup). **It is hoped that users will
+    submit Pull Requests contributing scripts for automating beacon
     setup on all platforms. (Python may be an appropriate language
     choice)**
 
@@ -1497,32 +1497,41 @@ this to see even more of the GStreamer inner workings.
 To allow UxPlay to work with Bluetooth Low Energy (LE) Service
 Discovery, as an alternative to DNS-SD (Bonjour/Rendezvous) service
 discovery, start it with the option "`-ble <path-to-writeable-file>`",
-which at startup writes a data file containing the uxplay process ID and
+which at startup writes a data file containing the uxplay TCP port for
+receiving replies to the advertisement, plus the uxplay process ID and
 process name, and is deleted when uxplay terminates normally. **This
 file is not used in the simple manual method for creating a beacon
 described below**.
 
 Bluetooth LE Service discovery uses a "beacon" broadcasting a simple
-12-byte advertisement "`0B FF 4C 00 09 06 03 30 XX XX XX XX`" where XX
-XX XX XX is an IPv4 internet address of the UxPlay host translated into
-hexadecimal octets: For example, "`XX XX XX XX`" = "`C0 A8 01 FD`" means
-192.168.2.253. UxPlay must be able to receive messages on TCP port 7000
-at this address. The uxplay option "`-p`" sets up uxplay to listen on
-port 7000 for these messages.
+14-byte advertisement "`0D FF 4C 00 09 08 13 30 XX XX XX XX YY YY`"
+where XX XX XX XX is an IPv4 internet address (and port YY YY) of the
+UxPlay host translated into hexadecimal octets. For example,
+"`XX XX XX XX YY YY`" = "`C0 A8 01 FD 1B 58`" means 192.168.2.253 port
+0x1b58 (decimal value 7000). UxPlay must be able to receive messages on
+this TCP port at this address. The uxplay option "`-p`" sets up uxplay
+to listen on the default port 7000 for these messages, as used in the
+example above. Otherwise the port in the beacon message should be the
+first (`<n>`) of the 3 open TCP ports specified with uxplay option
+`-p <n>`. If the `-p` option is not used (which is only possible if
+there is no active firewall) the TCP port is selected at random, and its
+value must be taken from the beginning of the file written with the
+`-ble` option.
 
-The full translation of this message is that it has length 0B = 0x0b =
-11 octets, and is a single "Advertising Protocol Data Unit" (PDU) of
+The full translation of this message is that it has length 0D = 0x0d =
+13 octets, and is a single "Advertising Protocol Data Unit" (PDU) of
 type "`FF`", called "Manufacturer-Specific Data", with "manufacturer
 code" "`4C 00`" = 0x004c = Apple (note the reversal of octet order when
 two octets are combined to make a two-byte unsigned short integer), and
-"`09 06 03 30 XX XX XX XX`" is the Apple-specific data.
+"`09 08 13 30 XX XX XX XX YY YY`" is the Apple-specific data.
 
 The Apple-specific data contains a single Apple Data Unit with Apple
-type = 09 (Airplay), Apple Data length 06 (0x06 = 6 octets) and Apple
-Data "`03 30 XX XX XX XX`" where 03 = 0000 0011 is Apple Flags, 30 is a
-seed (which will be ignored), and XX XX XX XX is the IPv4 internet
-address. This is smaller than the "iBeacon" Apple Data Unit, which has
-Apple type 02 and Apple length 15 (0x15 = 21 octets).
+type = 09 (Airplay), Apple Data length 08 (0x08 = 8 octets) and Apple
+Data "`13 30 XX XX XX XX YY YY`" where 13 = 0001 0011 is Apple Flags, 30
+is a seed (which will be ignored), XX XX XX XX is the IPv4 internet
+address and YY YY is the port. This is smaller than the "iBeacon" Apple
+Data Unit, which has Apple type 02 and Apple length 15 (0x15 = 21
+octets).
 
 In addition to creating the message, we need to set the "Advertising
 type" (ADV_NONCONN_IND) and "Advertising interval" range \[AdvMin,
@@ -1596,15 +1605,16 @@ An Apple TV (Gen 3) seems to use AdvMin = AdvMax = 180 msec = 0x0120
 
 **Step 2.** Set the advertising message with HCI LE command 0x0008. For
 this command, hcitool requires a 32 octet message after
-`sudo hcitool -i hci0 cmd 0x08 0x0008`: The first octet is the length 0C
-= 0x0c = 12 of the "significant part" of the following 31 octets,
-followed by the 12 octets of the advertisement, then padded with 19
+`sudo hcitool -i hci0 cmd 0x08 0x0008`: The first octet is the length 0E
+= 0x0e = 14 of the "significant part" of the following 31 octets,
+followed by the 14 octets of the advertisement, then padded with 17
 zeroes to a total length of 32 octets. The example below sends an IPv4
-address 192.168.1.253 as "`0xc0 0xa8 0x01 0xfd`":
+address 192.168.1.253 as "`0xc0 0xa8 0x01 0xfd`" and the TCP port as
+0x1b 0x58 (port 7000 = 0x1b58):
 
-    $ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0c 0x0b 0xff 0x4c 0x00 0x09 0x06 0x03 0x30  0xc0 0xa8 0x01 0xfd  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
+    $ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0e 0x0d 0xff 0x4c 0x00 0x09 0x08 0x13 0x30  0xc0 0xa8 0x01 0xfd  0x1b 0x58 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
     < HCI Command: ogf 0x08, ocf 0x0008, plen 32
-      0C 0B FF 4C 00 09 06 03 30 C0 A8 01 FD 00 00 00 00 00 00 00 
+      0E 0D FF 4C 00 09 08 13 30 C0 A8 01 FD 1B 58 00 00 00 00 00 
       00 00 00 00 00 00 00 00 00 00 00 00 
     > HCI Event: 0x0e plen 4
       01 08 20 00 
@@ -1618,7 +1628,7 @@ with HCI LE command 0x000a = 10:
     > HCI Event: 0x0e plen 4
       02 0A 20 00 
 
-The full length of the broadcasted beacon message is 43 bytes. To stop
+The full length of the broadcasted beacon message is 46 bytes. To stop
 the beacon, use this command to send the 1-byte message "`0x00`" =
 "off".
 
@@ -1634,13 +1644,17 @@ the beacon, use this command to send the 1-byte message "`0x00`" =
     $ sudo systemctl stop avahi-daemon
 
 An automated procedure for creating the beacon would presumably want to
-switch it on when uxplay starts, and off when it stops. The 20-byte file
-created when uxplay starts (and deleted when it stops) contains the PID
-as a uint32_t unsigned integer in the first 4 bytes, followed by up to
-the first 11 characters of the process name (usually "uxplay") as a
-null-terminated string, padded with zeroes to 16 bytes. This data can be
-used to test whether uxplay is actually running, including cases where
-it has segfaulted and not deleted the file.
+switch it on when uxplay starts, and off when it stops. The 22-byte file
+created when uxplay starts (and deleted when it stops) contains the RAOP
+port as a uint16_t unsigned short, in the first 2 bytes, followed by the
+uxplay PID as a uint32_t unsigned integer in the next 4 bytes, then
+followed by up to the first 11 characters of the process name (usually
+"uxplay") as a null-terminated string, padded with zeroes to 16 bytes.
+The port data identifies the port on the Host that uxplay listens on,
+which should be included along with the Host IPv4 address in the
+advertisement broadcast by the beacon. The remaining data can be used to
+check whether uxplay is actually running, including cases where it has
+segfaulted and not deleted the file.
 
 This method above creates a beacon that identifies itself with a "public
 Advertising Address" (the MAC hardware address of the Bluetooth device).

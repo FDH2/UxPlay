@@ -13,10 +13,10 @@ discovery using a Bluetooth LE “beacon”</strong> (as an alternative to
 Bonjour/Rendezvous DNS-SD service discovery). The user must set up a
 Bluetooth LE “beacon”, (a USB 4.0 or later “dongle” can be used). See
 instructions below. The beacon runs independently of UxPlay and
-regularly broadcasts a Bluetooth LE (“Low Energy”) 44 byte packet
+regularly broadcasts a Bluetooth LE (“Low Energy”) 46 byte packet
 informing nearby iOS/macOS devices of the local IPv4 network address of
-the UxPlay server, which they can use to contact it on TCP port 7000.
-Instructions for manually setting up such a beacon in Linux are <a
+the UxPlay server, and which TCP port to contact UxPlay on. Instructions
+for manually setting up such a beacon in Linux are <a
 href="#bluetooth-le-beacon-setup">given below</a>. <strong>It is hoped
 that users will submit Pull Requests contributing scripts for automating
 beacon setup on all platforms. (Python may be an appropriate language
@@ -1455,31 +1455,42 @@ this to see even more of the GStreamer inner workings.</p>
 Discovery, as an alternative to DNS-SD (Bonjour/Rendezvous) service
 discovery, start it with the option
 “<code>-ble &lt;path-to-writeable-file&gt;</code>”, which at startup
-writes a data file containing the uxplay process ID and process name,
-and is deleted when uxplay terminates normally. <strong>This file is not
+writes a data file containing the uxplay TCP port for receiving replies
+to the advertisement, plus the uxplay process ID and process name, and
+is deleted when uxplay terminates normally. <strong>This file is not
 used in the simple manual method for creating a beacon described
 below</strong>.</p>
 <p>Bluetooth LE Service discovery uses a “beacon” broadcasting a simple
-12-byte advertisement “<code>0B FF 4C 00 09 06 03 30 XX XX XX XX</code>”
-where XX XX XX XX is an IPv4 internet address of the UxPlay host
-translated into hexadecimal octets: For example,
-“<code>XX XX XX XX</code>” = “<code>C0 A8 01 FD</code>” means
-192.168.2.253. UxPlay must be able to receive messages on TCP port 7000
-at this address. The uxplay option “<code>-p</code>” sets up uxplay to
-listen on port 7000 for these messages.</p>
-<p>The full translation of this message is that it has length 0B = 0x0b
-= 11 octets, and is a single “Advertising Protocol Data Unit” (PDU) of
+14-byte advertisement
+“<code>0D FF 4C 00 09 08 13 30 XX XX XX XX YY YY</code>” where XX XX XX
+XX is an IPv4 internet address (and port YY YY) of the UxPlay host
+translated into hexadecimal octets. For example,
+“<code>XX XX XX XX YY YY</code>” = “<code>C0 A8 01 FD 1B 58</code>”
+means 192.168.2.253 port 0x1b58 (decimal value 7000). UxPlay must be
+able to receive messages on this TCP port at this address. The uxplay
+option “<code>-p</code>” sets up uxplay to listen on the default port
+7000 for these messages, as used in the example above. Otherwise the
+port in the beacon message should be the first (<code>&lt;n&gt;</code>)
+of the 3 open TCP ports specified with uxplay option
+<code>-p &lt;n&gt;</code>. If the <code>-p</code> option is not used
+(which is only possible if there is no active firewall) the TCP port is
+selected at random, and its value must be taken from the beginning of
+the file written with the <code>-ble</code> option.</p>
+<p>The full translation of this message is that it has length 0D = 0x0d
+= 13 octets, and is a single “Advertising Protocol Data Unit” (PDU) of
 type “<code>FF</code>”, called “Manufacturer-Specific Data”, with
 “manufacturer code” “<code>4C 00</code>” = 0x004c = Apple (note the
 reversal of octet order when two octets are combined to make a two-byte
-unsigned short integer), and “<code>09 06 03 30 XX XX XX XX</code>” is
-the Apple-specific data.</p>
+unsigned short integer), and
+“<code>09 08 13 30 XX XX XX XX YY YY</code>” is the Apple-specific
+data.</p>
 <p>The Apple-specific data contains a single Apple Data Unit with Apple
-type = 09 (Airplay), Apple Data length 06 (0x06 = 6 octets) and Apple
-Data “<code>03 30 XX XX XX XX</code>” where 03 = 0000 0011 is Apple
-Flags, 30 is a seed (which will be ignored), and XX XX XX XX is the IPv4
-internet address. This is smaller than the “iBeacon” Apple Data Unit,
-which has Apple type 02 and Apple length 15 (0x15 = 21 octets).</p>
+type = 09 (Airplay), Apple Data length 08 (0x08 = 8 octets) and Apple
+Data “<code>13 30 XX XX XX XX YY YY</code>” where 13 = 0001 0011 is
+Apple Flags, 30 is a seed (which will be ignored), XX XX XX XX is the
+IPv4 internet address and YY YY is the port. This is smaller than the
+“iBeacon” Apple Data Unit, which has Apple type 02 and Apple length 15
+(0x15 = 21 octets).</p>
 <p>In addition to creating the message, we need to set the “Advertising
 type” (ADV_NONCONN_IND) and “Advertising interval” range [AdvMin,
 AdvMax], where 0x00a0 = 100 msec &lt;= AdvMin &lt;= AdvMax &lt;= 0x4000
@@ -1547,13 +1558,14 @@ three advertising channels.</p>
 <p><strong>Step 2.</strong> Set the advertising message with HCI LE
 command 0x0008. For this command, hcitool requires a 32 octet message
 after <code>sudo hcitool -i hci0 cmd 0x08 0x0008</code>: The first octet
-is the length 0C = 0x0c = 12 of the “significant part” of the following
-31 octets, followed by the 12 octets of the advertisement, then padded
-with 19 zeroes to a total length of 32 octets. The example below sends
-an IPv4 address 192.168.1.253 as “<code>0xc0 0xa8 0x01 0xfd</code>”:</p>
-<pre><code>$ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0c 0x0b 0xff 0x4c 0x00 0x09 0x06 0x03 0x30  0xc0 0xa8 0x01 0xfd  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
+is the length 0E = 0x0e = 14 of the “significant part” of the following
+31 octets, followed by the 14 octets of the advertisement, then padded
+with 17 zeroes to a total length of 32 octets. The example below sends
+an IPv4 address 192.168.1.253 as “<code>0xc0 0xa8 0x01 0xfd</code>” and
+the TCP port as 0x1b 0x58 (port 7000 = 0x1b58):</p>
+<pre><code>$ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0e 0x0d 0xff 0x4c 0x00 0x09 0x08 0x13 0x30  0xc0 0xa8 0x01 0xfd  0x1b 0x58 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
 &lt; HCI Command: ogf 0x08, ocf 0x0008, plen 32
-  0C 0B FF 4C 00 09 06 03 30 C0 A8 01 FD 00 00 00 00 00 00 00 
+  0E 0D FF 4C 00 09 08 13 30 C0 A8 01 FD 1B 58 00 00 00 00 00 
   00 00 00 00 00 00 00 00 00 00 00 00 
 &gt; HCI Event: 0x0e plen 4
   01 08 20 00 </code></pre>
@@ -1564,7 +1576,7 @@ an IPv4 address 192.168.1.253 as “<code>0xc0 0xa8 0x01 0xfd</code>”:</p>
   01 
 &gt; HCI Event: 0x0e plen 4
   02 0A 20 00 </code></pre>
-<p>The full length of the broadcasted beacon message is 43 bytes. To
+<p>The full length of the broadcasted beacon message is 46 bytes. To
 stop the beacon, use this command to send the 1-byte message
 “<code>0x00</code>” = “off”.</p>
 <ul>
@@ -1577,13 +1589,17 @@ restore DNS-SD service):</li>
 <pre><code>$ sudo systemctl mask avahi-daemon.socket
 $ sudo systemctl stop avahi-daemon</code></pre>
 <p>An automated procedure for creating the beacon would presumably want
-to switch it on when uxplay starts, and off when it stops. The 20-byte
+to switch it on when uxplay starts, and off when it stops. The 22-byte
 file created when uxplay starts (and deleted when it stops) contains the
-PID as a uint32_t unsigned integer in the first 4 bytes, followed by up
-to the first 11 characters of the process name (usually “uxplay”) as a
-null-terminated string, padded with zeroes to 16 bytes. This data can be
-used to test whether uxplay is actually running, including cases where
-it has segfaulted and not deleted the file.</p>
+RAOP port as a uint16_t unsigned short, in the first 2 bytes, followed
+by the uxplay PID as a uint32_t unsigned integer in the next 4 bytes,
+then followed by up to the first 11 characters of the process name
+(usually “uxplay”) as a null-terminated string, padded with zeroes to 16
+bytes. The port data identifies the port on the Host that uxplay listens
+on, which should be included along with the Host IPv4 address in the
+advertisement broadcast by the beacon. The remaining data can be used to
+check whether uxplay is actually running, including cases where it has
+segfaulted and not deleted the file.</p>
 <p>This method above creates a beacon that identifies itself with a
 “public Advertising Address” (the MAC hardware address of the Bluetooth
 device). An Apple TV uses a private random address. If you wish to do

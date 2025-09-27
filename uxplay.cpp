@@ -361,8 +361,9 @@ static int write_bledata( const uint32_t *pid, const char *process_name, const c
     size_t len = strlen(process_name);
     memcpy (name, process_name, (len > 15 ? 15 :len));
     FILE *fp = fopen(filename, "wb");
-    size_t count = fwrite(pid, sizeof (uint32_t), 1, fp);
-    count *= sizeof(uint32_t);
+    printf("port %u\n", raop_port);
+    size_t count = sizeof(uint16_t) * fwrite(&raop_port, sizeof(uint16_t), 1, fp);
+    count += sizeof(uint32_t) * fwrite(pid, sizeof(uint32_t), 1, fp);
     count += fwrite(name, 1, sizeof(name), fp);
     fclose(fp);
     return (int) count;
@@ -2871,19 +2872,6 @@ int main (int argc, char *argv[]) {
         write_metadata(metadata_filename.c_str(), "no data\n");
     }
 
-#define PID_MAX 4194304 // 2^22
-    if (ble_filename.length()) {
-#ifdef _WIN_32
-        DWORD pid = GetCurrentProcessId();
-        g_assert(pid <= PID_MAX);
-#else
-        pid_t pid = getpid();
-        g_assert (pid <= PID_MAX && pid >= 0);
-#endif
-        write_bledata((uint32_t *) &pid, argv[0], ble_filename.c_str());
-        LOGI("Bluetooth LE beacon-based service discovery is possible: PID data written to %s", ble_filename.c_str());
-    }
-    
     /* set default resolutions for h264 or h265*/
     if (!display[0] && !display[1]) {
         if (h265_support) {
@@ -2902,6 +2890,20 @@ int main (int argc, char *argv[]) {
         stop_dnssd();
         goto cleanup;
     }
+
+#define PID_MAX 4194304 // 2^22
+    if (ble_filename.length()) {
+#ifdef _WIN_32
+        DWORD pid = GetCurrentProcessId();
+        g_assert(pid <= PID_MAX);
+#else
+        pid_t pid = getpid();
+        g_assert (pid <= PID_MAX && pid >= 0);
+#endif
+        write_bledata((uint32_t *) &pid, argv[0], ble_filename.c_str());
+        LOGI("Bluetooth LE beacon-based service discovery is possible: PID data written to %s", ble_filename.c_str());
+    }
+    
     if (register_dnssd()) {
         stop_raop_server();
         stop_dnssd();
