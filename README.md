@@ -1478,7 +1478,7 @@ is not used in the simple manual method for creating a beacon  described below**
 Bluetooth LE Service discovery uses a "beacon" broadcasting a simple 14-byte
 advertisement "`0D FF 4C 00 09 08 13 30 XX XX XX XX YY YY`" where XX XX XX XX  is an IPv4 internet
 address (and port  YY YY) of the UxPlay host translated into hexadecimal octets. For
-example, "`XX XX XX XX YY YY`" = "``C0 A8 01 FD 1B 58``"  means 192.168.2.253 port 0x1b58  (decimal value 7000).   UxPlay
+example, "`XX XX XX XX YY YY`" = "``C0 A8 01 FD 1B 58``"  means 192.168.1.253 port 0x1b58  (decimal value 7000).   UxPlay
 must be able to receive messages on this TCP port at this
 address.  The uxplay option "`-p`" sets up uxplay to listen on the default port 7000 for these messages, as used in the
 example above.  Otherwise the port in the beacon message should
@@ -1595,19 +1595,20 @@ $ sudo systemctl mask avahi-daemon.socket
 $ sudo systemctl stop avahi-daemon
 ```
 
-
-
 An automated procedure for creating the beacon would presumably want to switch it on when uxplay starts, and off when it
-stops. The 22-byte file created when uxplay starts (and deleted when it stops)  contains the RAOP port as a uint16_t unsigned short,
+stops. It has the task of determing a host IPv4 address that the client can use to reach uxplay.
+The 22-byte file created when uxplay starts (and deleted when it stops) contains the RAOP port as a uint16_t unsigned short,
 in the first 2 bytes, followed by
 the uxplay PID as a uint32_t unsigned integer in the next 4 bytes, then
 followed by up to the first
-11 characters of the process name (usually "uxplay") as a null-terminated string, padded with zeroes to 16 bytes. The port data
+15 characters of the process name (usually "uxplay") as a null-terminated string, padded with zeroes to 16 bytes. The port data
 identifies the port on the Host that uxplay listens on, which should be included along with the Host IPv4 address
-in the advertisement broadcast by the beacon.  The remaining data can be used to check
-whether uxplay is actually running, including cases where it has segfaulted and not deleted the file.
-
-
+in the advertisement broadcast by the beacon. The path to this file is needed as the only input by the procedure when it is started.
+The presence of the file should be checked at regular intervals (once per second?). If it is absent, uxplay has stopped running,
+but if it exists the process ID and process name of that PID should be checked to handle cases where a new uxplay process has
+started, or if uxplay has exited abnormally and failed to delete the file.   (While it is probably not an important use case, the possibility of
+concurrent uxplay processes listening on different ports and writing different files could be handled: the advertising protocol allows
+cycling between different messages.)
 
 This method above  creates a beacon that identifies itself with a "public Advertising Address" (the MAC hardware address of
 the Bluetooth device).  An Apple TV uses a private random address.   If you wish to do that, change the sixth octet (the one following `0x03`)
