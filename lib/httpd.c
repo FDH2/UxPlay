@@ -292,6 +292,12 @@ httpd_accept_connection(httpd_t *httpd, int server_fd, int is_ipv6)
     logger_log(httpd->logger, LOGGER_INFO, "Accepted %s client on socket %d, port %u",
                (is_ipv6 ? "IPv6"  : "IPv4"), fd, port);
     remote = netutils_get_address(&remote_saddr, &remote_len, &remote_zone_id, NULL);
+
+    // is it correct that ipv6 link-local local and remote zone id should be the same, as asserted below? 
+    if (local_zone_id != remote_zone_id) {
+        logger_log(httpd->logger, LOGGER_INFO, "ipv6 zone_id mismatch: local_zone_id = %u, remote_zone_id = %u",
+		   local_zone_id, remote_zone_id);
+    }      
     assert (local_zone_id == remote_zone_id);
 
     ret = httpd_add_connection(httpd, fd, local, local_len, remote, remote_len, local_zone_id);
