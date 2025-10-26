@@ -75,6 +75,14 @@ install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INST
 install( FILES lib/llhttp/LICENSE-MIT DESTINATION ${CMAKE_INSTALL_DOCDIR}/llhttp )
 install( FILES uxplay.service DESTINATION ${CMAKE_INSTALL_DOCDIR}/systemd ) 
 
+if (DBUS_FOUND)
+install( FILES Bluetooth_LE_beacon/dbus/uxplay-beacon.py
+         DESTINATION bin
+	 PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
+install( FILES uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+endif()
+
+
 # uninstall target
 if(NOT TARGET uninstall)
   configure_file(

@@ -9,12 +9,13 @@
     beacon runs independently of UxPlay and regularly broadcasts a
     Bluetooth LE ("Low Energy") 46 byte packet informing nearby
     iOS/macOS devices of the local IPv4 network address of the UxPlay
-    server, and which TCP port to contact UxPlay on. Instructions for
-    manually setting up such a beacon in Linux are [given
-    below](#bluetooth-le-beacon-setup). **It is hoped that users will
-    submit Pull Requests contributing scripts for automating beacon
-    setup on all platforms. (Python may be an appropriate language
-    choice)**
+    server, and which TCP port to contact UxPlay on. A python script
+    (Python \>=3.6) "uxplay-beacon.py", to broadcast the
+    Service-Discovery advertisement will be installed on systems with
+    DBus support (Linux and \*BSD, using Bluez for Bluetooth control):
+    this does **not** require enhanced "root permissions" to run. A
+    windows version of this script is also planned for the future.
+    Instructions are [given below](#bluetooth-le-beacon-setup).
 
 -   **NEW on github**: option `-vrtp <rest-of-pipeline>` bypasses
     rendering by UxPlay, and instead transmits rtp packets of decrypted
@@ -1478,11 +1479,12 @@ that (unlike dumped video) the dumped audio is currently only useful for
 debugging, as it is not containerized to make it playable with standard
 audio players.*
 
-**-ble *filename***. Enable Bluetooth beacon Service Discovery. The PID
-and process name of the UxPlay process is recorded in *filename*, which
-must be the full path to a writeable file. (This file is created when
-UxPlay starts and deleted when it stops.) **See below for beacon setup
-instructions.**
+**-ble \[*filename*\]**. Enable Bluetooth beacon Service Discovery. The
+port, PID and process name of the UxPlay process is recorded by default
+in `~/.uxplay.ble` : (this file is created when UxPlay starts and
+deleted when it stops.) Optionally the file *filename*, which must be
+the full path to a writeable file can instead be used. **See below for
+beacon setup instructions.**
 
 **-d \[n\]** Enable debug output; optional argument n=1 suppresses
 audio/video packet data in debug output. Note: this does not show
@@ -1494,206 +1496,72 @@ this to see even more of the GStreamer inner workings.
 
 # Bluetooth LE beacon setup
 
-To allow UxPlay to work with Bluetooth Low Energy (LE) Service
-Discovery, as an alternative to DNS-SD (Bonjour/Rendezvous) service
-discovery, start it with the option "`-ble <path-to-writeable-file>`",
-which at startup writes a data file containing the uxplay TCP port for
-receiving replies to the advertisement, plus the uxplay process ID and
-process name, and is deleted when uxplay terminates normally. **This
-file is not used in the simple manual method for creating a beacon
-described below**.
+The python\>=3.6 script for running a Bluetooth-LE Service Discovery
+beacon is uxplay-beacon.py. Currently only a DBus version (for Linux and
+\*BSD) is available, and it is only installed on systems which support
+DBus.
 
-Bluetooth LE Service discovery uses a "beacon" broadcasting a simple
-14-byte advertisement "`0D FF 4C 00 09 08 13 30 XX XX XX XX YY YY`"
-where XX XX XX XX is an IPv4 internet address (and port YY YY) of the
-UxPlay host translated into hexadecimal octets. For example,
-"`XX XX XX XX YY YY`" = "`C0 A8 01 FD 1B 58`" means 192.168.1.253 port
-0x1b58 (decimal value 7000). UxPlay must be able to receive messages on
-this TCP port at this address. The uxplay option "`-p`" sets up uxplay
-to listen on the default port 7000 for these messages, as used in the
-example above. Otherwise the port in the beacon message should be the
-first (`<n>`) of the 3 open TCP ports specified with uxplay option
-`-p <n>`. If the `-p` option is not used (which is only possible if
-there is no active firewall) the TCP port is selected at random, and its
-value must be taken from the beginning of the file written with the
-`-ble` option.
+If uxplay will be run with option "`uxplay -ble`" (so it writes data for
+the Bluetooth beacon in the default BLE data file `~/.uxplay.ble`), just
+run `uxplay-beacon.py` in a separate terminal. The python script will
+start Bluetooth LE Service-Discovery advertising when it detects that
+UxPlay is running by checking if the BLE data file exists, and stop when
+it no longer detects a running UxPlay plus this file (it will restart
+advertising if UxPlay later reappears). The script will remain active
+until stopped with Ctrl+C in its terminal window (or its terminal window
+is closed).
 
-The full translation of this message is that it has length 0D = 0x0d =
-13 octets, and is a single "Advertising Protocol Data Unit" (PDU) of
-type "`FF`", called "Manufacturer-Specific Data", with "manufacturer
-code" "`4C 00`" = 0x004c = Apple (note the reversal of octet order when
-two octets are combined to make a two-byte unsigned short integer), and
-"`09 08 13 30 XX XX XX XX YY YY`" is the Apple-specific data.
+The beacon script can be more finely controlled using five possible
+options: these can be given on the command line, or read from a
+configuration file `~/.uxplay.beacon`, if it exists. Configuration file
+entries are like the command line forms, one per line (e.g.,
+`--ipv4 192.168.1.100`). Lines commented out with an initial `#` are
+ignored. Command line options override the configuration file options.
 
-The Apple-specific data contains a single Apple Data Unit with Apple
-type = 09 (Airplay), Apple Data length 08 (0x08 = 8 octets) and Apple
-Data "`13 30 XX XX XX XX YY YY`" where 13 = 0001 0011 is Apple Flags, 30
-is a seed (which will be ignored), XX XX XX XX is the IPv4 internet
-address and YY YY is the port. This is smaller than the "iBeacon" Apple
-Data Unit, which has Apple type 02 and Apple length 15 (0x15 = 21
-octets).
+-   `--file <config file>` read beacon options from `<config file>`
+    instead of `~/.uxplay.beacon`.
 
-In addition to creating the message, we need to set the "Advertising
-type" (ADV_NONCONN_IND) and "Advertising interval" range \[AdvMin,
-AdvMax\], where 0x00a0 = 100 msec \<= AdvMin \<= AdvMax \<= 0x4000 =
-10.24 sec (intervals are given in units of 0.625 msec as uint16_t
-unsigned short integers). Setting AdvMin = AdvMax fixes the interval;
-AdvMin \< AdvMax allows the choice of the time of each advertising
-broadcast to be flexible within an allowed window to avoid clashing with
-other Bluetooth tasks. Keep the default choice to broadcast
-simultaneously on all three advertising channels, 37,38,39.
+-   `--ipv4  <ipv4 address>`. This option can be used to specify the
+    ipv4 address at which the UxPlay server should be contacted by the
+    client. If it is not given, an address will be obtained
+    automatically using `gethostbyname`. Only ipv4 addresses are
+    supported.
 
-An automated script to setup and start the beacon should use a
-high-level interface such as: (Linux) Bluez
-[LEAdvertisingManager1](https://manpages.opensuse.org/Leap-16.0/bluez/org.bluez.LEAdvertisement.5.en.html)
-(with an
-[example](https://github.com/bluez/bluez/blob/master/test/example-advertisement))
-and (Windows 10/11)
-[BluetoothLEAdvertisementPublisherClass](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.advertisement.bluetoothleadvertisementpublisher)
-(with an
-[example](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/uwp/devices-sensors/ble-beacon.md)).
-**We invite submission of Pull Requests for working implementations!**
+-   `--path <BLE data file>`. This overrides the default choice of BLE
+    data file (`~/.uxplay.ble`) that is monitored by the beacon script.
+    This also requires that uxplay is run with option
+    "`uxplay -ble <BLE data file>`".
 
-Until automated scripts are available, a simple Linux-only low-level
-manual method is given below, using the `hcitool` and `hciconfig`
-utilities which directly access the HCI stack, and need elevated
-privileges (use `sudo`). These utilities have been declared "deprecated"
-and "obsolete" by BlueZ developers: on Debian-based Linux
-"`sudo apt install bluez`" still provides `hcitool`, but on some other
-Linux distributions, it is split off from the main BlueZ package into an
-"extra" package with a name like "bluez-deprecated". If we get the
-AirPlay beacon to work using the newer `bluetoothctl` or `btmgmt`
-utilities, these instructions will be updated.
+-   `--AdvMin x`, `--AdvMax y`. These controls the interval between BLE
+    advertisement broadcasts. This interval is in the range \[x, y\],
+    given in units of msecs. Allowed ranges are 100 \<= x \<= y
+    \<= 10240. If AdvMin=AdvMax, the interval is fixed: if AdvMin \<
+    AdvMax it is chosen flexibly in this range to avoid interfering with
+    other tasks the Bluetooth device is carrying out. The default values
+    are AdvMin = AdvMax = 100. The advertisement is broadcast on all
+    three Bluetooth LE advertising channels: 37,38,39.
 
-First verify that a Bluetooth HCI interface is available:
+-   `--index x` (default x = 0, x \>= 0). This should be used to
+    distinguish between multiple simultaneous instances of
+    uxplay-beacon.py that are running to support multiple instances of
+    UxPlay. Each instance must have its own BLE Data file (just as each
+    instance of UxPlay must also have its own MAC address and ports).
+    *Note: running multiple beacons simultaneously on the same host has
+    not been tested.*
 
-    $hcitool dev
-    Devices:
-            hci1    E8:EA:6A:7C:3F:CC
-            hci0    08:BE:AC:40:A9:DC
+If you wish to test Bluetooth LE Service Discovery on Linux/\*BSD, you
+can disable DNS_SD Service discovery by the avahi-daemon with
 
-This shows two devices with their MAC addresses. You can use
-"`hciconfig -a`" to see which versions of Bluetooth they implement: we
-require Bluetooth v4.0 or later; you may need to use a cheap USB
-Bluetooth dongle if your system does not have it, or will not let you
-use it for LE (Low Energy) transmissions.\
-Choose which interface to use (we will use hci0), and reset it.
-
-    $ sudo hciconfig hci0 reset
-
-**Step 1.** Configure the beacon by sending a configure command 0x0006
-to the Bluetooth LE stack 0x08. `hcitool` echoes the HCI command and the
-4-byte "HCI Event" response. The only important part of the response is
-that the last byte is "`00`" (= "success": other values are error
-codes):
-
-
-    $ sudo hcitool -i hci0 cmd 0x08 0x0006 0xa0 0x00 0xa0 0x00 0x03 0x00 0x00  0x00 0x00 0x00 0x00 0x00 0x00 0x07 0x00 
-
-    < HCI Command: ogf 0x08, ocf 0x0006, plen 15
-      A0 00 A0 00 03 00 00 00 00 00 00 00 00 07 00 
-    > HCI Event: 0x0e plen 4
-      02 06 20 00 
-
-The first "`0xa0 0x00`" sets AdvMin = 0x00a0 = 100 msec. The second
-"`0xa0 0x00`" sets AdvMax = 0x00a0 = 100 msec. Then "`0x03`" sets the
-Advertising Type to ADV_NONCONN_IND. The other non-zero entry (0x07 =
-0000 0111) is the flag for using all three advertising channels.
-
-An Apple TV (Gen 3) seems to use AdvMin = AdvMax = 180 msec = 0x0120
-("`0x20 0x01`").
-
-**Step 2.** Set the advertising message with HCI LE command 0x0008. For
-this command, hcitool requires a 32 octet message after
-`sudo hcitool -i hci0 cmd 0x08 0x0008`: The first octet is the length 0E
-= 0x0e = 14 of the "significant part" of the following 31 octets,
-followed by the 14 octets of the advertisement, then padded with 17
-zeroes to a total length of 32 octets. The example below sends an IPv4
-address 192.168.1.253 as "`0xc0 0xa8 0x01 0xfd`" and the TCP port as
-0x1b 0x58 (port 7000 = 0x1b58):
-
-    $ sudo hcitool -i hci0 cmd 0x08 0x0008 0x0e 0x0d 0xff 0x4c 0x00 0x09 0x08 0x13 0x30  0xc0 0xa8 0x01 0xfd  0x1b 0x58 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00 0x00  0x00 0x00 0x00
-    < HCI Command: ogf 0x08, ocf 0x0008, plen 32
-      0E 0D FF 4C 00 09 08 13 30 C0 A8 01 FD 1B 58 00 00 00 00 00 
-      00 00 00 00 00 00 00 00 00 00 00 00 
-    > HCI Event: 0x0e plen 4
-      01 08 20 00 
-
-**Step 3**. Start the beacon with a 1-byte message "`0x01`" = "on", sent
-with HCI LE command 0x000a = 10:
-
-    $ sudo hcitool -i hci0 cmd 0x08 0x000a 0x01
-    < HCI Command: ogf 0x08, ocf 0x000a, plen 1
-      01 
-    > HCI Event: 0x0e plen 4
-      02 0A 20 00 
-
-The full length of the broadcasted beacon message is 46 bytes. To stop
-the beacon, use this command to send the 1-byte message "`0x00`" =
-"off".
-
--   For testing Bluetooth beacon Service Discovery on Linux, you will
-    need to suppress the avahi-daemon which provides DNS-SD Service
-    Discovery on UxPlay's Host system (replace `mask` and `stop` below
-    by `unmask` and `start` to restore DNS-SD service):
-
-```{=html}
-<!-- -->
-```
     $ sudo systemctl mask avahi-daemon.socket
     $ sudo systemctl stop avahi-daemon
 
-An automated procedure for creating the beacon would presumably want to
-switch it on when uxplay starts, and off when it stops. It has the task
-of determing a host IPv4 address that the client can use to reach
-uxplay. The 22-byte file created when uxplay starts (and deleted when it
-stops) contains the RAOP port as a uint16_t unsigned short, in the first
-2 bytes, followed by the uxplay PID as a uint32_t unsigned integer in
-the next 4 bytes, then followed by up to the first 15 characters of the
-process name (usually "uxplay") as a null-terminated string, padded with
-zeroes to 16 bytes. The port data identifies the port on the Host that
-uxplay listens on, which should be included along with the Host IPv4
-address in the advertisement broadcast by the beacon. The path to this
-file is needed as the only input by the procedure when it is started.
-The presence of the file should be checked at regular intervals (once
-per second?). If it is absent, uxplay has stopped running, but if it
-exists the process ID and process name of that PID should be checked to
-handle cases where a new uxplay process has started, or if uxplay has
-exited abnormally and failed to delete the file. (While it is probably
-not an important use case, the possibility of concurrent uxplay
-processes listening on different ports and writing different files could
-be handled: the advertising protocol allows cycling between different
-messages.)
+To restore DNS_SD Service discovery, replace "mask" by "unmask", and
+"stop" by "start".
 
-This method above creates a beacon that identifies itself with a "public
-Advertising Address" (the MAC hardware address of the Bluetooth device).
-An Apple TV uses a private random address. If you wish to do that,
-change the sixth octet (the one following `0x03`) in Step 1 from "TxAdd"
-= `0x00` to TxAdd = `0x01`, and add an intermediate "step 1.5":
-
-**Step 1.5** Choose 6 random bytes r1, r2, r3, r4, r5, r6, such as
-"`0x52 0xaa, 0xaa, 0x3a, 0xb4, 0x2f`", and use HCI LE command 0x0005 to
-set the random address:
-
-    $sudo hcitool -i hci0 cmd 0x08 0x0005 0x52 0xaa 0xaa 0x3a 0xb4 0x2f 
-    < HCI Command: ogf 0x08, ocf 0x0005, plen 6
-      52 AA AA 3A B4 2F 
-    > HCI Event: 0x0e plen 4
-      02 05 20 00 
-
-On a Bluetooth packet sniffer with wireshark, this address displays as:
-**Advertising Address: 2f:b4:3a:aa:aa:52**. In principle, random byte r6
-should be masked with 0x03 (r6 = r6 \| 0x03) to mark the address as a
-"static random private address", but Apple TV does not do this. In fact
-it updates to a new random Advertising Address every 20 mins or so,
-increasing the seed in the Apple Data by 1 each time. Apple TV's also
-add a length 2 type 0x01 ("Flags") Advertising PDU "`0x02 0x01 0x1a`" in
-front of the main type 0xff "Manufacturer-Specific Data" Advertising PDU
-in Step 2. This is "optional" for ADV_NONCONN_IND advertisement type,
-and testing shows that it can be dropped without affecting Service
-Discovery, which is fortunate because the high-level Linux and Windows
-interfaces mentioned earlier do not permit users to send a "Flags"-type
-PDU.
+For more information, see the [wiki
+page](https://github.com/FDH2/UxPlay/wiki/Bluetooth_LE_beacon) This has
+useful information if you wish to build a python beacon controller
+script for Windows (we would like to have one!).
 
 -   **Our current understanding is that Bluetooth LE AirPlay Service
     Discovery only supports broadcast of IPv4 addresses. Please let us

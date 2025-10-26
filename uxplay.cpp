@@ -924,7 +924,8 @@ static void print_info (char *name) {
     printf("          =1,2,..; fn=\"audiodump\"; change with \"-admp [n] filename\".\n");
     printf("          x increases when audio format changes. If n is given, <= n\n");
     printf("          audio packets are dumped. \"aud\"= unknown format.\n");
-    printf("-ble fn   For BluetoothLE beacon: write PID to file fn (\"off\" to cancel)\n");
+    printf("-ble [fn] For BluetoothLE beacon: write data to file ~/.uxplay.ble\n");
+    printf("          optional: write to file \"fn\" (\"fn\" = \"off\" to cancel)\n");
     printf("-d [n]    Enable debug logging; optional: n=1 to skip normal packet data\n");
     printf("-v        Displays version information\n");
     printf("-h        Displays this help\n");
@@ -1386,8 +1387,8 @@ static void parse_arguments (int argc, char *argv[]) {
                 exit(1);
             }
         } else if (arg  == "-ble" ) {
-            if (option_has_value(i, argc, arg, argv[i+1])) {
-                ble_filename.erase();
+            ble_filename.erase();
+            if (i < argc - 1 && *argv[i+1] != '-') {
                 i++;
                 if (strlen(argv[i]) != 3 || strncmp(argv[i], "off", 3)) { 
                     ble_filename.append(argv[i]);
@@ -1397,8 +1398,18 @@ static void parse_arguments (int argc, char *argv[]) {
                     }
                 }
             } else {
-                fprintf(stderr,"option -ble must be followed by a filename for PID data or by \"off\"\n");
-                exit(1);
+                static const char* homedir = get_homedir();
+                if (homedir) {
+                    ble_filename = homedir;
+                    ble_filename.append("/.uxplay.ble");
+                    if (!file_has_write_access(ble_filename.c_str())) {
+                        fprintf(stderr, "%s cannot be written to\n",ble_filename.c_str()) ;
+                        exit(1);
+                    }
+                } else {
+                    fprintf(stderr,"failed to obtain home directory\n");
+                    exit(1);
+                }
             }
         } else if (arg == "-bt709") {
             bt709_fix = true;
