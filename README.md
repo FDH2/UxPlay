@@ -6,7 +6,7 @@
     service discovery).    The user must set up a Bluetooth LE "beacon", (a USB 4.0 or later "dongle" can be used). See instructions
     below.   The beacon runs independently of UxPlay and regularly broadcasts a Bluetooth LE ("Low Energy") 46 byte packet informing nearby iOS/macOS devices of
     the local IPv4 network address of the UxPlay server, and which TCP port to contact UxPlay on.    A python script (Python >=3.6) "uxplay-beacon.py",
-    to broadcast the Service-Discovery advertisement  will be installed on systems with DBus support (Linux and *BSD, using Bluez for Bluetooth control):
+    to broadcast the Service-Discovery advertisement  will be installed on systems with DBus support (Linux and *BSD, using BlueZ for Bluetooth control):
     this does **not** require enhanced "root permissions" to run.
     A windows version of this script is also planned for the future.
     Instructions are [given below](#bluetooth-le-beacon-setup).
@@ -1475,7 +1475,17 @@ GStreamer inner workings.
 
 The python>=3.6 script for running a Bluetooth-LE Service Discovery beacon is uxplay-beacon.py.
 Currently only a DBus version (for Linux and *BSD) is available, and it is only installed on systems which
-support DBus.
+support DBus.    Bluetooth >= 4.0 hardware on the host computer is required: a cheap USB bluetooth dongle
+can be used.    Bluetooth support (BlueZ) must be installed (on Debian-based systems: `sudo apt install bluez bluez-tools`;
+recent Ubuntu releases provide bluez as a snap package).
+
+In addition to standard Python3 libraries, you may need to install the gi, dbus, and psutil Python libraries used by
+uxplay-beacon.py.  On Debian-based systems:
+
+```
+sudo apt install python3-gi python3-dbus python3-psutil
+```
+
 
 If uxplay will be  run with option "`uxplay -ble`" (so it writes data for the Bluetooth beacon in the default BLE data file
 `~/.uxplay.ble`), just run ``uxplay-beacon.py`` in a separate terminal.    The python script will start
