@@ -1026,6 +1026,22 @@ that is apparently now fixed (a workaround is to use d3d11)._
 The executable uxplay.exe can also be run without the MSYS2 environment,
 in the Windows Terminal, with `C:\msys64\ucrt64\bin\uxplay`.
 
+There is a new modernized Windows Terminal application available from Microsoft that
+provides various terminals, and can be customized to also provide the MSYS2 terminals.
+See https://www.msys2.org/docs/terminals/ (to make those instructions clearer:
+in the dropdown "Settings" menu, there is a second "settings" icon in the lower left corner:
+click on that to edit the settings.json file as described).
+
+The server name (-n <name> option) can be given in internationalized UTF-8 encoding:
+To enter UTF-8 characters in the MSYS2 or other Windows terminals, use the numerical keypad
+with "Num Lock" on: while holding down the "Alt" key, type "+" on the keypad, followed
+by the UTF-8 hex code for the character (using the keypad for numbers), then release the "Alt" key.
+(The UTF-8 hex codes have 4 hex digits: for example, the "copyright" symbol has  hex code 00a9.)
+This method must be activated in the Windows Registry:  using
+regedit, find the Registry section 'HKEY_Current_User/Control Panel/Input Method",
+and add a new Key "EnableHexNumpad" with value "1", then reboot the computer.
+
+
 # Usage
 
 Options:
@@ -1877,7 +1893,8 @@ xxxx  2025-09-25 Render Audio cover-art inside UxPlay with -ca option (no file
 specified). (D-Bus based) option -scrsv <n> to inhibit screensaver while UxPlay
 is running (Linux/*BSD only).   Add support for Service  Discovery using a
 Bluetooth LE beacon.   Add -vrtp option for forwarding decrypted h264/5 video
-to an external renderer (e.g., OBS Studio)
+to an external renderer (e.g., OBS Studio).  Check that option input strings
+have valid UTF-8 encoding.
 
 1.72.2 2025-07-07  Fix bug (typo) in DNS_SD advertisement introduced with -pw
 option.  Update llhttp to v 9.3.0
