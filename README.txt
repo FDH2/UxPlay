@@ -1075,6 +1075,7 @@ this overrides `$UXPLAYRC`, `~/.uxplayrc`, etc.
 the name that appears offering AirPlay services to your iPad, iPhone
 etc, where *hostname* is the name of the server running uxplay. This
 will also now be the name shown above the mirror display (X11) window.
+**Internationalized server names encoded as UTF-8 are accepted.**
 
 **-nh** Do not append "@_hostname_" at the end of the AirPlay server
 name.

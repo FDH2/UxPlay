@@ -91,6 +91,7 @@
 #endif
 
 static std::string server_name = DEFAULT_NAME;
+static bool server_name_is_utf8 = false;
 static dnssd_t *dnssd = NULL;
 static raop_t *raop = NULL;
 static logger_t *render_logger = NULL;
@@ -839,7 +840,7 @@ static void print_info (char *name) {
     printf("=========== Website: https://github.com/FDH2/UxPlay ==========\n");
     printf("Usage: %s [-n name] [-s wxh] [-p [n]] [(other options)]\n", name);
     printf("Options:\n");
-    printf("-n name   Specify the network name of the AirPlay server\n");
+    printf("-n name   Specify network name of the AirPlay server (UTF-8/ascii)\n");
     printf("-nh       Do not add \"@hostname\" at the end of AirPlay server name\n");
     printf("-h265     Support h265 (4K) video (with h265 versions of h264 plugins)\n");
     printf("-hls [v]  Support HTTP Live Streaming (currently Youtube video only) \n");
@@ -1067,8 +1068,62 @@ static void append_hostname(std::string &server_name) {
 #endif
 }
 
+bool is_utf8(const char *string, bool *is_printable_ascii) {
+    /* test if C-string is printable ascii or valid UTF-8 (max 4 bytes) */
+    if (is_printable_ascii)  {
+        *is_printable_ascii = true;
+    }
+    int len = (int) strlen(string);
+    for (int i = 0; i < len; i++) {
+        unsigned char c = (unsigned char) string[i];
+        int n = 0;
+        if (0x20 <= c && c <= 0x7e) {
+            continue;   //printable ascii, no control characters.
+        } else if (is_printable_ascii) {
+            *is_printable_ascii = false;
+        }
+        if (0x00 <= c && c <= 0x7f) {
+            continue; //one byte code, 0bbbbbbb
+        } else if (c == 0xc0 || c == 0xc1) {
+             return false;  //two byte code, invalid start byte
+        } else if ((c & 0xe0) == 0xc0) {
+            n = 1; //two byte code, 110bbbbb
+        } else if (c == 0xe0 && i < len - 1 && (unsigned char) string[i + 1] < 0xa0) {
+            return false;  //three byte code, overlong encoding
+        } else if (c == 0xed && i < len - 1 && (unsigned char) string[i + 1] > 0x9f) {
+            return false;  //three byte code, exclude U+dc00 to U+dfff
+        } else if ((c & 0xf0) == 0xe0) {
+            n = 2; //three byte code 1110bbbb
+        } else if (c >= 0xf5) {
+            return false;  //four byte code, invalid start byte
+        } else if (c == 0xf0 && i < len - 1 && (unsigned char) string[i + 1] < 0x90) {
+            return false;  //four byte code, overlong encoding
+        } else if (c == 0xf4 && i < len - 1 && (unsigned char) string[i + 1] > 0x8f) {
+            return false;  //four byte code, out of range character (> U+10ffff)
+        } else if ((c & 0xf8) == 0xf0) {
+            n = 3; //four byte code, 11110bbb
+        } else {
+            return false;  //more than 4 bytes
+        }
+        for (int j = 0; j < n && i < len ; j++) { // n bytes matching 10bbbbbb must follow ?
+            if ((++i == len) || (((unsigned char) string[i] & 0xc0) != 0x80)) {
+                return false;
+            }
+        }
+	
+    }
+    return true;
+}
+
 static void parse_arguments (int argc, char *argv[]) {
     // Parse arguments
+    for (int i = 1; i < argc; i++) {
+        if (!is_utf8(argv[i], NULL)) {
+            fprintf(stderr,"Error: detected a non-ascii or non-UTF-8 string \"%s\""
+                    "while parsing input arguments", argv[i]);
+            exit(0);
+        }
+    }
     for (int i = 1; i < argc; i++) {
         std::string arg(argv[i]);
         if (arg == "-rc") {
@@ -1092,7 +1147,20 @@ static void parse_arguments (int argc, char *argv[]) {
             restrict_clients = true;
         } else if (arg == "-n") {
             if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
-            server_name = std::string(argv[++i]);
+            bool ascii;
+            server_name_is_utf8 = false;
+            server_name.erase();
+            bool utf8 = is_utf8(argv[++i], &ascii);
+            if (!utf8) {
+                fprintf(stderr, "invalid (non-UTF-8/ascii) server name in \"-n %s\"", argv[i]);
+                exit(1);
+            }
+            server_name = std::string(argv[i]);
+            if (!ascii) {
+                server_name_is_utf8 = true;
+                printf("WARNING: a non-ascii (UTF-8) server-name \"%s\" was specified:"
+                       " ensure correct locale settings to display it\n",server_name.c_str()); 
+            }
         } else if (arg == "-nh") {
             do_append_hostname = false;
         } else if (arg == "-async") {
