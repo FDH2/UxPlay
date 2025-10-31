@@ -2972,7 +2972,7 @@ int main (int argc, char *argv[]) {
 
 #define PID_MAX 4194304 // 2^22
     if (ble_filename.length()) {
-#ifdef _WIN_32
+#ifdef _WIN32
         DWORD pid = GetCurrentProcessId();
         g_assert(pid <= PID_MAX);
 #else
