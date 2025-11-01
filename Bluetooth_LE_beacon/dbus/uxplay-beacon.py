@@ -114,8 +114,8 @@ class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
         assert port <= 65535
         mfg_data = bytearray([0x09, 0x08, 0x13, 0x30]) # Apple Data Unit type 9 (Airplay), length 8, flags 0001 0011, seed 30
         import ipaddress
-        ipv4_address = ipaddress.ip_address(ipv4_str);
-        ipv4 = bytearray(ipv4_address.packed);
+        ipv4_address = ipaddress.ip_address(ipv4_str)
+        ipv4 = bytearray(ipv4_address.packed)
         mfg_data.extend(ipv4)
         port_bytes = port.to_bytes(2, 'big')
         mfg_data.extend(port_bytes)
