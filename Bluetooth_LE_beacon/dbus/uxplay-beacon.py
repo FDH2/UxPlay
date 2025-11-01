@@ -260,7 +260,7 @@ def check_file_exists(file_path):
             port = struct.unpack('<H', data)[0]
             data = file.read(4)
             pid = struct.unpack('<I', data)[0]
-            data = file.read(16)
+            data = file.read()
             pname = data.split(b'\0',1)[0].decode('utf-8')
             last_element_of_pname = os.path.basename(pname)
             test = check_process_name(pid, last_element_of_pname)

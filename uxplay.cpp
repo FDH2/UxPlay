@@ -360,12 +360,11 @@ static size_t write_metadata(const char *filename, const char *text) {
 static int write_bledata( const uint32_t *pid, const char *process_name, const char *filename) {
     char name[16] { 0 };
     size_t len = strlen(process_name);
-    memcpy (name, process_name, (len > 15 ? 15 :len));
     FILE *fp = fopen(filename, "wb");
     printf("port %u\n", raop_port);
     size_t count = sizeof(uint16_t) * fwrite(&raop_port, sizeof(uint16_t), 1, fp);
     count += sizeof(uint32_t) * fwrite(pid, sizeof(uint32_t), 1, fp);
-    count += fwrite(name, 1, sizeof(name), fp);
+    count += sizeof(char) * len * fwrite(process_name, 1, len * sizeof(char), fp);
     fclose(fp);
     return (int) count;
 }
@@ -2973,7 +2972,8 @@ int main (int argc, char *argv[]) {
 #define PID_MAX 4194304 // 2^22
     if (ble_filename.length()) {
 #ifdef _WIN32
-        DWORD pid = GetCurrentProcessId();
+        DWORD winpid = GetCurrentProcessId();
+	uint32_t pid = (uint32_t) winpid;
         g_assert(pid <= PID_MAX);
 #else
         pid_t pid = getpid();

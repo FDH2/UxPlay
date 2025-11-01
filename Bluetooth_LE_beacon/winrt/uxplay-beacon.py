@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
-# adapted from https://github.com/bluez/bluez/blob/master/test/example-advertisement
 #----------------------------------------------------------------
-# a standalone python-3.6 or later DBus-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
+# a standalone python-3.6 or later winrt-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
 # (c)  F. Duncanh, October 2025
 
 import gi
@@ -14,7 +13,7 @@ except ImportError:
     
 
 def setup_beacon(ipv4_str, port, advmin, advmax, index):
-    print(f"setup_becaon port {ipv4_str}:{port} [{advin}:{advmax}] ({index})")
+    print(f"setup_beacon port {ipv4_str}:{port} [{advmin}:{advmax}] ({index})")
     
 def beacon_on():
     print(f"beacon_on")
@@ -95,7 +94,7 @@ def check_file_exists(file_path):
             port = struct.unpack('<H', data)[0]
             data = file.read(4)
             pid = struct.unpack('<I', data)[0]
-            data = file.read(16)
+            data = file.read()
             pname = data.split(b'\0',1)[0].decode('utf-8')
             last_element_of_pname = os.path.basename(pname)
             test = check_process_name(pid, last_element_of_pname)
@@ -103,13 +102,9 @@ def check_file_exists(file_path):
                 if not beacon_is_running:
                     beacon_is_pending_on = True
             else:
-                print(f'orphan beacon file {file_path} exists, but process {pname} (pid {pid}) is no longer active')
-                try:
-                    os.remove(file_path)
-                    print(f'File "{file_path}" deleted successfully.')
-                except FileNotFoundError:
-                    print(f'File "{file_path}" not found.')
                 if beacon_is_running:
+                    print(f'orphan beacon file {file_path} exists, but process {pname} (pid {pid}) is no longer active')
+                    # PermissionError prevents deletion of orphan beacon files in Windows systems
                     beacon_is_pending_off = True
     else:
         if beacon_is_running:
@@ -180,7 +175,8 @@ if __name__ == '__main__':
         epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble" --AdvMin 100 --AdvMax 100"'
     )
 
-    home_dir = os.path.expanduser("~")
+    home_dir = os.environ.get("HOME")
+    print(f"homedir = {home_dir}")
     # Add arguments
     parser.add_argument(
         '--file',
