@@ -8,8 +8,8 @@
 import gi
 try:
     from gi.repository import GLib
-except ImportError:
-    print(f"ImportError: failed to import GLib")
+except ImportError as e:
+    print(f"ImportError: {e}, failed to import GLib")
 
     
 import dbus
@@ -196,6 +196,7 @@ import sys
 import psutil
 import struct
 import socket
+import time
 
 # global variables
 beacon_is_running = False
@@ -222,7 +223,10 @@ def stop_beacon():
     global beacon_is_running
     beacon_off()
     beacon_is_running = False
-    
+
+def pid_is_running(pid):
+    return psutil.pid_exists(pid)
+
 def check_process_name(pid, pname):
     try:
         process = psutil.Process(pid)
@@ -260,10 +264,13 @@ def check_file_exists(file_path):
             port = struct.unpack('<H', data)[0]
             data = file.read(4)
             pid = struct.unpack('<I', data)[0]
-            data = file.read()
-            pname = data.split(b'\0',1)[0].decode('utf-8')
-            last_element_of_pname = os.path.basename(pname)
-            test = check_process_name(pid, last_element_of_pname)
+            if not pid_is_running(pid):
+                test = False
+            else :
+                data = file.read()
+                pname = data.split(b'\0',1)[0].decode('utf-8')
+                last_element_of_pname = os.path.basename(pname)
+                test = check_process_name(pid, last_element_of_pname)
             if test == True:
                 if not beacon_is_running:
                     beacon_is_pending_on = True
@@ -294,7 +301,6 @@ def process_input(value):
         return None
 
 
-    
 #check AdvInterval
 def check_adv_intrvl(min, max):
     if not (100 <= min):
@@ -323,8 +329,8 @@ def main(file_path, ipv4_str_in, advmin_in, advmax_in, index_in):
                 print(f'Error: {e}')
                 raise SystemExit(1)      
             
-            GLib.timeout_add_seconds(5, on_timeout, file_path)
-            GLib.timeout_add_seconds(1, check_pending)
+            GLib.timeout_add_seconds(1, on_timeout, file_path)
+            GLib.timeout_add(200, check_pending)
             mainloop = GLib.MainLoop()
             mainloop.run()
     except KeyboardInterrupt:

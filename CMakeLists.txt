@@ -78,9 +78,17 @@ install( FILES uxplay.service DESTINATION ${CMAKE_INSTALL_DOCDIR}/systemd )
 if (DBUS_FOUND)
 install( FILES Bluetooth_LE_beacon/dbus/uxplay-beacon.py
          DESTINATION bin
-	 PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
-install( FILES uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+         PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
+install( FILES Bluetooth_LE_beacon/dbus/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 endif()
+
+if (WIN32)
+install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.py
+         DESTINATION bin
+         PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
+install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+endif()
+
 
 
 # uninstall target
