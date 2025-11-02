@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 #include <cstring>
-#include <signal.h>
 #include <unistd.h>
 #include <ctype.h>
 #include <string>
@@ -42,7 +41,9 @@
 #include <unordered_map>
 #include <winsock2.h>
 #include <iphlpapi.h>
+#include <pthread.h>   //for pthreads in MSYS2 UCRT
 #else
+#include <csignal>
 #include <glib-unix.h>
 #include <sys/utsname.h>
 #include <sys/socket.h>
@@ -192,7 +193,7 @@ static std::string artist;
 static std::string coverart_artist;
 static std::string ble_filename = "";
 static std::string rtp_pipeline = "";
-
+static GMainLoop *gmainloop = NULL;
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv;
@@ -550,6 +551,39 @@ static gboolean x11_window_callback(gpointer loop) {
     return FALSE;
 }
 
+/* signals handlers (ctrl-c, etc )*/
+
+static void cleanup();
+
+#ifdef _WIN32
+static gboolean handle_signal(gpointer data) {
+    relaunch_video = false;
+    g_main_loop_quit(gmainloop);
+    return G_SOURCE_REMOVE;
+}
+
+static BOOL WINAPI CtrlHandler(DWORD signal) {
+    switch (signal) {
+    case CTRL_C_EVENT:
+    case CTRL_CLOSE_EVENT:
+    case CTRL_SHUTDOWN_EVENT:
+        if (gmainloop) {
+            g_idle_add(handle_signal, NULL);
+            return TRUE;
+        } else {  
+            cleanup();
+            exit(0);
+	}
+    default:
+        return FALSE;
+    }
+}
+#else
+static void CtrlHandler(int signum) {
+    cleanup();
+    exit(0);
+}
+
 static gboolean sigint_callback(gpointer loop) {
     relaunch_video = false;
     g_main_loop_quit((GMainLoop *) loop);
@@ -562,24 +596,10 @@ static gboolean sigterm_callback(gpointer loop) {
     return TRUE;
 }
 
-#ifdef _WIN32
-struct signal_handler {
-    GSourceFunc handler;
-    gpointer user_data;
-};
-
-static std::unordered_map<gint, signal_handler> u = {};
-
-static void SignalHandler(int signum) {
-    if (signum == SIGTERM || signum == SIGINT) {
-        u[signum].handler(u[signum].user_data);
-    }
-}
-
-static guint g_unix_signal_add(gint signum, GSourceFunc handler, gpointer user_data) {
-    u[signum] = signal_handler{handler, user_data};
-    (void) signal(signum, SignalHandler);
-    return 0;
+static gboolean sighup_callback(gpointer loop) {
+    relaunch_video = false;
+    g_main_loop_quit((GMainLoop *) loop);
+    return TRUE;
 }
 #endif
 
@@ -665,9 +685,29 @@ static void main_loop()  {
     guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
     guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
     guint video_reset_watch_id = g_timeout_add(100, (GSourceFunc) video_reset_callback, (gpointer) loop);
+
+#ifdef _WIN32
+    gmainloop = loop;
+#else 
+    signal(SIGINT, SIG_DFL);
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGHUP, SIG_DFL);
     guint sigterm_watch_id = g_unix_signal_add(SIGTERM, (GSourceFunc) sigterm_callback, (gpointer) loop);
     guint sigint_watch_id = g_unix_signal_add(SIGINT, (GSourceFunc) sigint_callback, (gpointer) loop);
+    guint sighup_watch_id = g_unix_signal_add(SIGHUP, (GSourceFunc) sigint_callback, (gpointer) loop);
+#endif
     g_main_loop_run(loop);
+
+#ifdef _WIN32
+    gmainloop = NULL;
+#else
+    signal(SIGINT, CtrlHandler);  //switch back to non-mainloop CtrlHandler
+    signal(SIGTERM, CtrlHandler);
+    signal(SIGHUP, CtrlHandler);
+    if (sigint_watch_id > 0) g_source_remove(sigint_watch_id);
+    if (sigterm_watch_id > 0) g_source_remove(sigterm_watch_id);
+    if (sighup_watch_id > 0) g_source_remove(sighup_watch_id);
+#endif
 
     for (int i = 0; i < n_video_renderers; i++) {
         if (gst_video_bus_watch_id[i] > 0) g_source_remove(gst_video_bus_watch_id[i]);
@@ -676,8 +716,6 @@ static void main_loop()  {
         if (gst_audio_bus_watch_id[i] > 0) g_source_remove(gst_audio_bus_watch_id[i]);
     }
     if (gst_x11_window_id > 0) g_source_remove(gst_x11_window_id);
-    if (sigint_watch_id > 0) g_source_remove(sigint_watch_id);
-    if (sigterm_watch_id > 0) g_source_remove(sigterm_watch_id);
     if (reset_watch_id > 0) g_source_remove(reset_watch_id);
     if (progress_id > 0) g_source_remove(progress_id);
     if (video_reset_watch_id > 0) g_source_remove(video_reset_watch_id);
@@ -2669,6 +2707,17 @@ int main (int argc, char *argv[]) {
     std::vector<char> server_hw_addr;
     std::string config_file = "";
 
+#ifdef _WIN32
+    if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
+        LOGE("Could not set control handler");
+        exit(1);
+    }
+#else
+    signal(SIGINT, CtrlHandler);
+    signal(SIGTERM, CtrlHandler);
+    signal(SIGHUP, CtrlHandler);
+#endif
+
 #ifdef __OpenBSD__
     if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
         err(1, "unveil");
@@ -2962,11 +3011,11 @@ int main (int argc, char *argv[]) {
     }
 
     if (start_dnssd(server_hw_addr, server_name)) {
-        goto cleanup;
+        cleanup();
     }
     if (start_raop_server(display, tcp, udp, debug_log)) {
         stop_dnssd();
-        goto cleanup;
+        cleanup();
     }
 
 #define PID_MAX 4194304 // 2^22
@@ -2986,12 +3035,11 @@ int main (int argc, char *argv[]) {
     if (register_dnssd()) {
         stop_raop_server();
         stop_dnssd();
-        goto cleanup;
+        cleanup();
     }
     reconnect:
     compression_type = 0;
     close_window = new_window_closing_behavior;
-
     main_loop();
     if (relaunch_video) {
         if (reset_httpd) {
@@ -3025,7 +3073,10 @@ int main (int argc, char *argv[]) {
         stop_raop_server();
         stop_dnssd();
     }
-    cleanup:
+    cleanup();
+}
+ 
+static void cleanup() {
     if (use_audio) {
         audio_renderer_destroy();
     }
