@@ -9,18 +9,19 @@ class="uri">https://github.com/FDH2/UxPlay</a> (where ALL user issues
 should be posted, and latest versions can be found).</strong></h3>
 <ul>
 <li><p><strong>NEW on github</strong>: Support for <strong>service
-discovery using a Bluetooth LE “beacon”</strong> (as an alternative to
-Bonjour/Rendezvous DNS-SD service discovery). The user must set up a
-Bluetooth LE “beacon”, (a USB 4.0 or later “dongle” can be used). See
-instructions below. The beacon runs independently of UxPlay and
-regularly broadcasts a Bluetooth LE (“Low Energy”) 46 byte packet
-informing nearby iOS/macOS devices of the local IPv4 network address of
-the UxPlay server, and which TCP port to contact UxPlay on. A python
-script (Python &gt;=3.6) “uxplay-beacon.py”, to broadcast the
-Service-Discovery advertisement will be installed on systems with DBus
-support (Linux and *BSD, using BlueZ for Bluetooth control): this does
-<strong>not</strong> require enhanced “root permissions” to run. A
-windows version of this script is also planned for the future.
+discovery using a Bluetooth LE “beacon”</strong> for both Linux/*BSD and
+Windows (as an alternative to Bonjour/Rendezvous DNS-SD service
+discovery). The user must set up a Bluetooth LE “beacon”, (a USB 4.0 or
+later “dongle” can be used). See instructions below. The beacon runs
+independently of UxPlay and regularly broadcasts a Bluetooth LE (“Low
+Energy”) 46 byte packet informing nearby iOS/macOS devices of the local
+IPv4 network address of the UxPlay server, and which TCP port to contact
+UxPlay on. Two versions of a Python script (Python &gt;=3.6)
+“uxplay-beacon.py”, (one for Linux/*BSD using BlueZ
+LEAdvertisingManager1 with DBus, and one for Windows using
+winrt/BluetoothLEAdvertisementPublisher) are ready for users to run: the
+appropriate version will be installed when UxPlay is built. They
+independently run Service-Discovery beacons that iOS devices respond to.
 Instructions are <a href="#bluetooth-le-beacon-setup">given
 below</a>.</p></li>
 <li><p><strong>NEW on github</strong>: option
@@ -1472,17 +1473,24 @@ messages, set GST_DEBUG=4; for DEBUG messages, GST_DEBUG=5; increase
 this to see even more of the GStreamer inner workings.</p>
 <h1 id="bluetooth-le-beacon-setup">Bluetooth LE beacon setup</h1>
 <p>The python&gt;=3.6 script for running a Bluetooth-LE Service
-Discovery beacon is uxplay-beacon.py. Currently only a DBus version (for
-Linux and *BSD) is available, and it is only installed on systems which
-support DBus. Bluetooth &gt;= 4.0 hardware on the host computer is
-required: a cheap USB bluetooth dongle can be used. Bluetooth support
-(BlueZ) must be installed (on Debian-based systems:
-<code>sudo apt install bluez bluez-tools</code>; recent Ubuntu releases
-provide bluez as a snap package).</p>
-<p>In addition to standard Python3 libraries, you may need to install
-the gi, dbus, and psutil Python libraries used by uxplay-beacon.py. On
-Debian-based systems:</p>
+Discovery beacon is uxplay-beacon.py. It comes in two versions, one (for
+Linux and *BSD) is only installed on systems which support DBUS, and
+another only for Windows 10/11. Bluetooth &gt;= 4.0 hardware on the host
+computer is required: a cheap USB bluetooth dongle can be used.</p>
+<p>On Linux/*BSD, Bluetooth support (BlueZ) must be installed (on
+Debian-based systems: <code>sudo apt install bluez bluez-tools</code>;
+recent Ubuntu releases provide bluez as a snap package). In addition to
+standard Python3 libraries, you may need to install the gi, dbus, and
+psutil Python libraries used by uxplay-beacon.py. On Debian-based
+systems:</p>
 <pre><code>sudo apt install python3-gi python3-dbus python3-psutil</code></pre>
+<p>For Windows support on MSYS2 UCRT systems, use pacman -S to install
+<code>mingw-w64-ucrt-x86_64-python</code>,
+<code>*-python-gobject</code>, <code>*-python-psutil</code>, and
+<code>*-python-pip</code>. Then install winrt bindings
+<code>pip install winrt-Windows.Foundation.Collections</code>,
+<code>winrt-Windows.Devices.Bluetooth.Advertisement</code> and
+<code>winrt-Windows.Storage.Streams</code>.</p>
 <p>If uxplay will be run with option “<code>uxplay -ble</code>” (so it
 writes data for the Bluetooth beacon in the default BLE data file
 <code>~/.uxplay.ble</code>), just run <code>uxplay-beacon.py</code> in a
@@ -1492,13 +1500,14 @@ checking if the BLE data file exists, and stop when it no longer detects
 a running UxPlay plus this file (it will restart advertising if UxPlay
 later reappears). The script will remain active until stopped with
 Ctrl+C in its terminal window (or its terminal window is closed).</p>
-<p>The beacon script can be more finely controlled using five possible
+<p>The beacon script can be more finely controlled using certain
 options: these can be given on the command line, or read from a
 configuration file <code>~/.uxplay.beacon</code>, if it exists.
 Configuration file entries are like the command line forms, one per line
 (e.g., <code>--ipv4 192.168.1.100</code>). Lines commented out with an
 initial <code>#</code> are ignored. Command line options override the
-configuration file options.</p>
+configuration file options. Get help with <code>man uxplay-beacon</code>
+or <code>uxplay-beacon.py --help</code>. Options are</p>
 <ul>
 <li><p><code>--file &lt;config file&gt;</code> read beacon options from
 <code>&lt;config file&gt;</code> instead of
@@ -1512,6 +1521,10 @@ supported.</p></li>
 default choice of BLE data file (<code>~/.uxplay.ble</code>) that is
 monitored by the beacon script. This also requires that uxplay is run
 with option “<code>uxplay -ble &lt;BLE data file&gt;</code>”.</p></li>
+</ul>
+<p>The BlueZ/Dbus version has thee more options not offered by the
+Windows version:</p>
+<ul>
 <li><p><code>--AdvMin x</code>, <code>--AdvMax y</code>. These controls
 the interval between BLE advertisement broadcasts. This interval is in
 the range [x, y], given in units of msecs. Allowed ranges are 100 &lt;=
@@ -1534,15 +1547,17 @@ can disable DNS_SD Service discovery by the avahi-daemon with</p>
 $ sudo systemctl stop avahi-daemon</code></pre>
 <p>To restore DNS_SD Service discovery, replace “mask” by “unmask”, and
 “stop” by “start”.</p>
+<p>On Windows, the Bonjour Service is controlled using <strong>Services
+Management</strong>: press “Windows + R” to open the Run dialog, run
+<code>services.msc</code>, and click on <strong>Bonjour Service</strong>
+in the alphabetic list. This will show links for it to be stopped and
+restarted.</p>
 <p>For more information, see the <a
 href="https://github.com/FDH2/UxPlay/wiki/Bluetooth_LE_beacon">wiki
-page</a> This has useful information if you wish to build a python
-beacon controller script for Windows (we would like to have one!).</p>
+page</a></p>
 <ul>
-<li><strong>Our current understanding is that Bluetooth LE AirPlay
-Service Discovery only supports broadcast of IPv4 addresses. Please let
-us know if this is incorrect, or if IPv6 support is introduced in the
-future.</strong></li>
+<li><strong>Note that Bluetooth LE AirPlay Service Discovery only
+supports broadcast of IPv4 addresses</strong>.</li>
 </ul>
 <h1 id="troubleshooting">Troubleshooting</h1>
 <p>Note: <code>uxplay</code> is run from a terminal command line, and
