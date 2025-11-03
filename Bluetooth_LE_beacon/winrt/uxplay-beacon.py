@@ -163,9 +163,11 @@ def check_file_exists(file_path):
             data = file.read(4)
             pid = struct.unpack('<I', data)[0]
             if not pid_is_running(pid):
+                file.close()
                 test = False
             else:
                 data = file.read()
+                file.close()
                 pname = data.split(b'\0',1)[0].decode('utf-8')
                 last_element_of_pname = os.path.basename(pname)
                 test = check_process_name(pid, last_element_of_pname)
