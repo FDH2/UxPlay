@@ -2,6 +2,26 @@
 
 ### **Now developed at the GitHub site <https://github.com/FDH2/UxPlay> (where ALL user issues should be posted, and latest versions can be found).**
 
+-   **NEW on github**: Support for **service discovery using a Bluetooth LE "beacon"** for both Linux/\*BSD and Windows (as an alternative to Bonjour/Rendezvous DNS-SD
+    service discovery).    The user must set up a Bluetooth LE "beacon", (a USB 4.0 or later "dongle" can be used). See instructions
+    below.   The beacon runs independently of UxPlay and regularly broadcasts a Bluetooth LE ("Low Energy") 46 byte packet informing nearby iOS/macOS devices of
+    the local IPv4 network address of the UxPlay server, and which TCP port to contact UxPlay on.    Two versions of a Python script (Python >=3.6) "uxplay-beacon.py",
+    (one for Linux/*BSD using BlueZ LEAdvertisingManager1 with DBus, and one for Windows using winrt/BluetoothLEAdvertisementPublisher) are ready  for users to
+    run: the appropriate version will be installed when UxPlay is built.   They independently run Service-Discovery beacons that iOS devices respond to.
+    Instructions are [given below](#bluetooth-le-beacon-setup).
+
+-   **NEW on github**: option `-vrtp <rest-of-pipeline>`  bypasses rendering by UxPlay, and instead
+    transmits rtp packets of decrypted h264 or h265 video to
+    an external renderer (e.g. OBS Studio) at an address specified in `rest-of-pipeline`.
+    (Note: this is video only, an option "-rtp" which muxes audio and video into a mpeg4 container still needs to be created:
+    Pull Requests welcomed).
+    
+-   **NEW on github**: (for Linux/*BSD Desktop Environments using D-Bus). New option `-scrsv <n>` provides screensaver inhibition (e.g., to
+    prevent screensaver function while watching mirrored videos without keyboard or mouse
+    activity): n = 0 (off) n=1 (on during video activity) n=2 (always on while UxPlay is running).
+    Tested on Gnome/KDE/Cinnamon/Mate/Xfce 4: may need adjustment for other Desktop Environments (please report).
+    (watch output of `dbus-monitor` to verify that inhibition is working). _Might not work on Wayland_.
+
 -   **NEW on github**:  option -ca (with no filename given) will now render
     Apple Music cover art (in audio-only mode) inside
     UxPlay. (-ca `<filename>` will continue to export cover art for
@@ -114,6 +134,9 @@ status](https://repology.org/badge/vertical-allrepos/uxplay.svg)](https://repolo
     from terminal commands "ps waux \| grep pulse" or "pactl info" will
     contain "pipewire" if your Linux/BSD system uses it).*
 
+-   For Linux/*BSD systems using D-Bus, the option `-scrsv 1` inhibits the screensaver while
+    there is video activity on UxPlay (`-scrsv 2` inhibits it whenever UxPlay is running).
+
 -   For Linux systems using systemd, there is a **systemd** service file **uxplay.service**
     found in the UxPlay top directory of the distribution, and also installed
     in `<DOCDIR>/uxplay/systemd/` (where DOCDIR is usually ``/usr/local/share/doc``), that allows users to start
@@ -192,7 +215,10 @@ necessary that the local network also be of the ".local" mDNS-based
 type). On Linux and BSD Unix servers, this is usually provided by
 [Avahi](https://www.avahi.org), through the avahi-daemon service, and is
 included in most Linux distributions (this service can also be provided
-by macOS, iOS or Windows servers).
+by macOS, iOS or Windows servers).   There is now an alternative Service
+discovery method, using a Bluetooth LE "beacon" See below
+for [instructions](#bluetooth-le-beacon-setup).
+
 
 Connections to the UxPlay server by iOS/MacOS clients can be initiated
 both in **AirPlay Mirror** mode (which streams lossily-compressed AAC
@@ -523,7 +549,9 @@ as comments and ignored.
 **Run uxplay in a terminal window**. On some systems, you can specify
 fullscreen mode with the `-fs` option, or toggle into and out of
 fullscreen mode with F11 or (held-down left Alt)+Enter keys. Use Ctrl-C
-(or close the window) to terminate it when done. If the UxPlay server is
+(or close the window) to terminate it when done.
+
+If the UxPlay server is
 not seen by the iOS client's drop-down "Screen Mirroring" panel, check
 that your DNS-SD server (usually avahi-daemon) is running: do this in a
 terminal window with `systemctl status avahi-daemon`. If this shows the
@@ -537,6 +565,10 @@ receiving client connection requests unless some network ports are
 opened: **if a firewall is active, also open UDP port 5353 (for mDNS
 queries) needed by Avahi**. See [Troubleshooting](#troubleshooting)
 below for help with this or other problems.
+
+Note that there is now an
+alternative Service Discovery method using a Bluetooth LE beacon.
+See the instructions on [Bluetooth beacon setup](#bluetooth-le-beacon-setup).
 
 -   Unlike an Apple TV, the UxPlay server does not by default require
     clients to initially "pair" with it using a pin code displayed by
@@ -978,10 +1010,11 @@ like `\{0.0.0.00000000\}.\{98e35b2b-8eba-412e-b840-fd2c2492cf44\}`. If
 
 If you wish to specify the videosink using the `-vs <videosink>` option,
 some choices for `<videosink>` are  `d3d12videosink`, ``d3d11videosink``, ```d3dvideosink```,
-`glimagesink`, ``gtksink``, ```autovideosink```.   If you do not specify the videosink,
-the d3d11videosink will be used (users have reported segfaults of the newer d3d12  videodecoder
-on certain older Nvidia cards when the image resolution changes:
-d3d11 will used by default until this is fixed).
+`glimagesink`, ``gtksink``, ```autovideosink```.   _There have been reports of
+segfaults of the newer d3d12 videodecoder
+on certain older Nvidia cards when the image resolution changes, e.g., when the iOS client
+is rotated between portrait and landcape modes: this was a GStreamer issue
+that is apparently now fixed (a workaround is to use d3d11)._
 
 -   With Direct3D 11.0 or greater, various options can be set
     using  e.g. `-vs "d3d11videosink <options>"` (see the gstreamer videosink
@@ -991,6 +1024,22 @@ d3d11 will used by default until this is fixed).
 
 The executable uxplay.exe can also be run without the MSYS2 environment,
 in the Windows Terminal, with `C:\msys64\ucrt64\bin\uxplay`.
+
+There is a new modernized Windows Terminal application available from Microsoft that
+provides various terminals, and can be customized to also provide the MSYS2 terminals.
+See https://www.msys2.org/docs/terminals/ (to make those instructions clearer:
+in the dropdown "Settings" menu, there is a second "settings" icon in the lower left corner:
+click on that to edit the settings.json file as described).
+
+The server name (-n <name> option) can be given in internationalized UTF-8 encoding:
+To enter UTF-8 characters in the MSYS2 or other Windows terminals, use the numerical keypad
+with "Num Lock" on: while holding down the "Alt" key, type "+" on the keypad, followed
+by the UTF-8 hex code for the character (using the keypad for numbers), then release the "Alt" key.
+(The UTF-8 hex codes have 4 hex digits: for example, the "copyright" symbol has  hex code 00a9.)
+This method must be activated in the Windows Registry:  using
+regedit, find the Registry section 'HKEY_Current_User/Control Panel/Input Method",
+and add a new Key "EnableHexNumpad" with value "1", then reboot the computer.
+
 
 # Usage
 
@@ -1010,6 +1059,7 @@ overrides `$UXPLAYRC`, ``~/.uxplayrc``, etc.
 the name that appears offering AirPlay services to your iPad, iPhone
 etc, where *hostname* is the name of the server running uxplay. This
 will also now be the name shown above the mirror display (X11) window.
+**Internationalized server names encoded as UTF-8 are accepted.**
 
 **-nh** Do not append "@_hostname_" at the end of the AirPlay server
 name.
@@ -1035,6 +1085,18 @@ allows selection of the version of GStreamer's
 \"playbin\" video player to use for playing HLS video. _(Playbin v3
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
+
+**-scrsv n**. (since 1.73) (So far, only implemented
+on Linux/*BSD systems using D-Bus). Inhibit the screensaver in the
+absence of keyboard input (e.g., while watching video), using the
+org.freedesktop.ScreenSaver D-Bus service:
+n = 0: (off) n= 1 (on during video activity) n=2 (always on).
+_Note: to verify this feature is working, you can use `dbus-monitor`
+to view events on the D-Bus; depending on the Desktop Environment,
+commands like
+`gnome-session-inhibit -l`,  ``xfce4-screensaver-commannd -q``, etc.,
+should list UxPlay when it is inhibiting
+the screensaver._
 
 **-pin \[nnnn\]**: (since v1.67) use Apple-style (one-time) "pin"
 authentication when a new client connects for the first time: a
@@ -1064,13 +1126,23 @@ deregisters the corresponding client (see options -restrict, -block,
 the startup file if you wish to use this feature.)*
 
 **-pw** [*pwd*].  (since 1.72). As an alternative to -pin, client access
-can be controlled with a password set when uxplay starts (set it in
-the .uxplay startup file, where it is stored as cleartext.)  All users must
-then know this password.    This uses HTTP md5 Digest authentication,
+can be controlled with a password.   If a password *pwd* (of length at least
+six characters) is set when uxplay
+starts (usually set in the startup file, where it is stored as
+cleartext), all users must know this password to connect to UxPlay
+(the client prompts for it).
+This method uses HTTP md5 Digest authentication,
 which is now regarded as providing weak security, but it is only used to
 validate the uxplay password, and no user credentials are exposed.
-If *pwd* is **not** specified, a random 4-digit pin code is displayed, and must
-be entered on the client at **each** new connection.
+After a successful authentication, the client stores the password, and will use
+it initially for future authentications without prompting, so long as
+the UxPlay deviceID has not changed (this initial authentication will fail
+if the UxPlay password has changed).
+If *pwd* is **not** specified with the -pw option when UxPlay starts, a
+new random 4-digit pin code is generated and displayed on the UxPlay terminal
+for **each** new connection, and must
+be entered on the client (there are three
+chances to enter it, before it is changed).
 _Note: -pin and -pw are alternatives: if both are specified at startup, the
 earlier of these two options is discarded._
 
@@ -1202,6 +1274,11 @@ used if the server is "headless" (with no attached screen to display
 video), and only used to render audio, which will be AAC
 lossily-compressed audio in mirror mode with unrendered video, and
 superior-quality ALAC Apple Lossless audio in Airplay audio-only mode.
+
+**-vrtp *pipeline***:  forward rtp packets of decrypted video to somewhere else, without rendering.
+Uses rtph264pay or rtph265pay as appropriate: *pipeline* should start with any
+rtph26xpay options (such as config_interval= or aggregate-mode =), followed by
+a sending method:  *e.g.*, `"config-interval=1 ! udpsink host=127.0.0.1 port=5000`".
 
 **-v4l2** Video settings for hardware h264 video decoding in the GPU by
 Video4Linux2. Equivalent to `-vd v4l2h264dec -vc v4l2convert`.
@@ -1392,6 +1469,15 @@ that (unlike dumped video) the dumped audio is currently only useful for
 debugging, as it is not containerized to make it playable with standard
 audio players.*
 
+**-ble [*filename*]**.  Enable Bluetooth beacon Service Discovery.
+The port, PID and process name of the UxPlay process is recorded by default in
+`~/.uxplay.ble` : (this file is created
+when UxPlay starts and deleted when it stops.)
+Optionally the  file
+*filename*, which must be the  full path to a  writeable file can instead be used.
+__See below for beacon setup
+instructions.__
+
 **-d \[n\]** Enable debug output; optional argument n=1 suppresses audio/video
 packet data in debug output.
 Note: this does not show GStreamer error or
@@ -1401,8 +1487,80 @@ uxplay. To see GStreamer information messages, set GST_DEBUG=4; for
 DEBUG messages, GST_DEBUG=5; increase this to see even more of the
 GStreamer inner workings.
 
-# Troubleshooting
+# Bluetooth LE beacon setup
 
+The python>=3.6 script for running a Bluetooth-LE Service Discovery beacon is uxplay-beacon.py.
+It comes in two versions, one  (for Linux and *BSD) is only installed on systems which
+support DBUS, and another only for Windows 10/11.    Bluetooth >= 4.0 hardware on the host computer is required: a cheap USB bluetooth dongle
+can be used.    
+
+On Linux/*BSD,
+Bluetooth support (BlueZ) must be installed (on Debian-based systems: `sudo apt install bluez bluez-tools`;
+recent Ubuntu releases provide bluez as a snap package).
+In addition to standard Python3 libraries, you may need to install the gi, dbus, and psutil Python libraries used by
+uxplay-beacon.py.  On Debian-based systems:
+
+```
+sudo apt install python3-gi python3-dbus python3-psutil
+```
+
+For Windows support on MSYS2 UCRT systems, use pacman -S to
+install `mingw-w64-ucrt-x86_64-python`, ``*-python-gobject``,
+`*-python-psutil`, and ``*-python-pip``.   Then install winrt
+bindings `pip install winrt-Windows.Foundation.Collections`,
+``winrt-Windows.Devices.Bluetooth.Advertisement`` and
+``winrt-Windows.Storage.Streams``.
+
+If uxplay will be  run with option "`uxplay -ble`" (so it writes data for the Bluetooth beacon in the default BLE data file
+`~/.uxplay.ble`), just run ``uxplay-beacon.py`` in a separate terminal.    The python script will start
+Bluetooth LE Service-Discovery advertising when it detects that UxPlay is running by checking if the BLE data file exists, and stop when it no longer detects
+a running UxPlay plus this file (it will restart advertising if UxPlay later reappears).   The script will remain active until stopped with Ctrl+C in its
+terminal window (or its terminal window is closed).
+
+The beacon script can be more finely controlled using certain options:  these can be given on the command line, or read from
+a configuration file `~/.uxplay.beacon`, if it exists. Configuration file entries are like the command line forms, one per line (e.g.,
+`--ipv4 192.168.1.100`).  Lines commented out with an initial ``#`` are ignored.  Command line options override the configuration file
+options.   Get help with `man uxplay-beacon` or ``uxplay-beacon.py --help``.  Options are
+
+* `--file <config file>` read beacon options from ``<config file>`` instead of
+`~/.uxplay.beacon`.
+
+* `--ipv4  <ipv4 address>`.  This option can be used to specify the ipv4 address at which the UxPlay server should be contacted by the client. If
+it is not given, an address will be obtained automatically using `gethostbyname`.   Only ipv4 addresses are supported.
+
+* `--path <BLE data file>`.  This overrides the default choice of BLE data file (``~/.uxplay.ble``) that is monitored by the beacon script.   This also requires
+that uxplay is run with option "`uxplay -ble <BLE data file>`".
+
+The BlueZ/Dbus version has thee more options not offered by the Windows version:
+
+* `--AdvMin x`, ``--AdvMax y``.  These controls the interval between BLE advertisement broadcasts.  This interval is in the range
+[x, y], given in units of msecs.   Allowed ranges are 100 <= x <= y <= 10240.  If AdvMin=AdvMax, the interval is fixed: if AdvMin < AdvMax
+it is chosen flexibly in this range to avoid interfering with other tasks the Bluetooth device is carrying out.   The default values are
+AdvMin = AdvMax = 100.   The advertisement is broadcast on all three Bluetooth LE advertising channels: 37,38,39.
+
+* `--index x` (default x = 0, x >= 0).  This should be used to distinguish between  multiple simultaneous instances of uxplay-beacon.py that are running to support multiple
+  instances of UxPlay.  Each instance must have its own BLE Data file (just as each instance of UxPlay must also have its own MAC address and ports).  _Note:
+  running multiple beacons simultaneously on the same host has not been tested._
+
+If you wish to test Bluetooth LE Service Discovery on Linux/*BSD, you can disable DNS_SD Service discovery by the avahi-daemon with
+
+```
+$ sudo systemctl mask avahi-daemon.socket
+$ sudo systemctl stop avahi-daemon
+```
+
+To restore DNS_SD Service discovery, replace "mask" by "unmask", and "stop" by "start".
+
+On Windows, the Bonjour Service is controlled  using **Services Management**: press "Windows + R" to open the Run dialog, 
+run `services.msc`, and click on  **Bonjour Service** in the alphabetic list. This
+will show links for it to be stopped and restarted.
+
+For more information, see the [wiki page](https://github.com/FDH2/UxPlay/wiki/Bluetooth_LE_beacon)
+
+* **Note that  Bluetooth LE AirPlay Service Discovery only supports
+broadcast of IPv4 addresses**.
+
+# Troubleshooting
 Note: `uxplay` is run from a terminal command line, and informational
 messages are written to the terminal.
 
@@ -1742,8 +1900,12 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
-xxxx  2025-07-07 Render Audio cover-art inside UxPlay with -ca option (no file
-specified).
+xxxx  2025-09-25 Render Audio cover-art inside UxPlay with -ca option (no file
+specified). (D-Bus based) option -scrsv <n> to inhibit screensaver while UxPlay
+is running (Linux/*BSD only).   Add support for Service  Discovery using a
+Bluetooth LE beacon.   Add -vrtp option for forwarding decrypted h264/5 video
+to an external renderer (e.g., OBS Studio).  Check that option input strings
+have valid UTF-8 encoding.
 
 1.72.2 2025-07-07  Fix bug (typo) in DNS_SD advertisement introduced with -pw
 option.  Update llhttp to v 9.3.0

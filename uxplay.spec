@@ -129,6 +129,7 @@ cd build
 %{_docdir}/%{name}/README.txt
 %{_docdir}/%{name}/README.html
 %{_docdir}/%{name}/README.md
+%{_docdir}/%{name}/systemd/uxplay.service
 
 %license
 %{_docdir}/%{name}/LICENSE

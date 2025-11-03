@@ -310,16 +310,16 @@ dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
     case 2:
     case 3:
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
-	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 4, "0x84");
-	break;
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 4, "0x84");
+        break;
     case 1:
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
-	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 3, "0x8c");
-	break;
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", 3, "0x8c");
+        break;
     default:
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("false"), "false");
-	dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen(RAOP_SF), RAOP_SF);
-	break;
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen(RAOP_SF), RAOP_SF);
+        break;
     }
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "sr", strlen(RAOP_SR), RAOP_SR);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "ss", strlen(RAOP_SS), RAOP_SS);
@@ -382,8 +382,8 @@ dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
     switch (dnssd->pin_pw) {
     case 1:   // display onscreen pin
         dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("true"), "true");
-	dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", 3, "0x4");
-	break;  
+        dnssd->TXTRecordSetValue(&dnssd->airplay_record, "flags", 3, "0x4");
+        break;  
     case 2:  // require password
     case 3:
         dnssd->TXTRecordSetValue(&dnssd->airplay_record, "pw", strlen("true"), "true");
@@ -410,6 +410,13 @@ dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
                               NULL, NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
+}
+
+const char *
+dnssd_get_raop_txt(dnssd_t *dnssd, int *length)
+{
+    *length = dnssd->TXTRecordGetLength(&dnssd->raop_record);
+    return dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record);
 }
 
 const char *
@@ -476,13 +483,13 @@ dnssd_unregister_airplay(dnssd_t *dnssd)
 }
 
 uint64_t dnssd_get_airplay_features(dnssd_t *dnssd) {
-  uint64_t features = ((uint64_t) dnssd->features2) << 32;
-  features += (uint64_t) dnssd->features1;
-  return features;
+    uint64_t features = ((uint64_t) dnssd->features2) << 32;
+    features += (uint64_t) dnssd->features1;
+    return features;
 }
 
 void dnssd_set_pk(dnssd_t *dnssd, char * pk_str) {
-  dnssd->pk = pk_str;
+    dnssd->pk = pk_str;
 }
 
 void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
@@ -498,8 +505,8 @@ void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
         features = &(dnssd->features1);
     }
     if (val) {
-      *features = *features | mask;
+        *features = *features | mask;
     } else {
-      *features = *features & ~mask;
+        *features = *features & ~mask;
     }
 }

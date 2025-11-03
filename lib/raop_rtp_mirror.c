@@ -330,13 +330,13 @@ raop_rtp_mirror_thread(void *arg)
             /*packet[0:3] contains the payload size */
             int payload_size = byteutils_get_int(packet, 0);
             char packet_description[13] = {0};
-	    char *p = packet_description;
+            char *p = packet_description;
             int n = sizeof(packet_description);
-	    for (int i = 4; i < 8; i++) {
+            for (int i = 4; i < 8; i++) {
                 snprintf(p, n, "%2.2x ", (unsigned int) packet[i]);
                 n -= 3;
                 p += 3;
-	    }
+            }
             ntp_timestamp_raw = byteutils_get_long(packet, 8);
             ntp_timestamp_remote = raop_ntp_timestamp_to_nano_seconds(ntp_timestamp_raw, false);
             if (first_packet) {
@@ -345,14 +345,14 @@ raop_rtp_mirror_thread(void *arg)
                 first_packet = false;
             }
 
-	    /* packet[4] + packet[5] identify the payload type:   values seen are:               *
+            /* packet[4] + packet[5] identify the payload type:   values seen are:               *
              * 0x00 0x00: encrypted packet containing a non-IDR  type 1 VCL NAL unit             *
              * 0x00 0x10: encrypted packet containing an IDR type 5 VCL NAL unit                 *
              * 0x01 0x00: unencrypted packet containing a type 7 SPS NAL + a type 8 PPS NAL unit *
              * 0x02 0x00: unencrypted packet (old protocol) no payload, sent once every second   *
              * 0x05 0x00  unencrypted packet with a "streaming report", sent once per second.    */
 
-	    /* packet[6] + packet[7] may list a payload "option":    values seen are:            *
+            /* packet[6] + packet[7] may list a payload "option":    values seen are:            *
              * 0x00 0x00 : encrypted and "streaming report" packets                              *
              * 0x1e 0x00 : old protocol (seen in AirMyPC) no-payload once-per-second packets     *
              * 0x16 0x01 : seen in most unencrypted h264  SPS+PPS packets                        *
@@ -395,7 +395,7 @@ raop_rtp_mirror_thread(void *arg)
                 break;
             }
 
-	    switch (packet[4]) {
+            switch (packet[4]) {
             case  0x00:
                 // Normal video data (VCL NAL)
 
@@ -409,13 +409,13 @@ raop_rtp_mirror_thread(void *arg)
                     uint64_t ntp_now = raop_ntp_get_local_time();
                     int64_t latency = (ntp_timestamp_local ? ((int64_t) ntp_now) - ((int64_t) ntp_timestamp_local) : 0);
                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
-                               "raop_rtp video: now = %8.6f, ntp = %8.6f, latency = %9.6f, ts = %8.6f, %s %s",
+                               "raop_rtp video: now = %8.6f, ntp = %8.6f, latency = %9.6f, ts = %8.6f, %s %s, size: %d",
                                (double) ntp_now / SEC, (double) ntp_timestamp_local / SEC, (double) latency / SEC,
-                               (double) ntp_timestamp_remote / SEC, packet_description, h265_video ? h265 : h264);
+                               (double) ntp_timestamp_remote / SEC, packet_description, (h265_video ? h265 : h264), payload_size);
                 }
 
                 unsigned char* payload_out;
-		unsigned char* payload_decrypted;
+                unsigned char* payload_decrypted;
                 /*
                  * nal_types:1   Coded non-partitioned slice of a non-IDR picture
                  *           5   Coded non-partitioned slice of an IDR picture
@@ -437,7 +437,7 @@ raop_rtp_mirror_thread(void *arg)
                                    "raop_rtp_mirror: prepended sps_pps timestamp does not match timestamp of "
                                    "video payload\n%llu\n%llu , discarding", ntp_timestamp_raw, ntp_timestamp_nal);
                         free (sps_pps);
-		        sps_pps = NULL;
+                        sps_pps = NULL;
                         prepend_sps_pps = false;
                 }
 		
@@ -447,12 +447,12 @@ raop_rtp_mirror_thread(void *arg)
                     payload_decrypted = payload_out + sps_pps_len;
                     memcpy(payload_out, sps_pps, sps_pps_len);
                     free (sps_pps);
-		    sps_pps = NULL;
+                    sps_pps = NULL;
                 } else {
                     payload_out = (unsigned char*)  malloc(payload_size);
                     payload_decrypted = payload_out;
                 }
-                // Decrypt data
+                // Decrypt data: AES-CTR encryption/decryption  does not change the size of the data
                 mirror_buffer_decrypt(raop_rtp_mirror->buffer, payload, payload_decrypted, payload_size);
 
                 // It seems the AirPlay protocol prepends NALs with their size, which we're replacing with the 4-byte
@@ -474,11 +474,11 @@ raop_rtp_mirror_thread(void *arg)
                         valid_data = false;
                         break;
                     }
-		    int nalu_type;
-		    if (h265_video) {
+                    int nalu_type;
+                    if (h265_video) {
                         nalu_type = payload_decrypted[nalu_size] & 0x7e >> 1;;
                         //logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG," h265 video, NALU type %d, size %d", nalu_type, nc_len);
-		    } else {
+                    } else {
                         nalu_type = payload_decrypted[nalu_size] & 0x1f;
                         int ref_idc = (payload_decrypted[nalu_size] >> 5);
                         switch (nalu_type) {
@@ -486,7 +486,7 @@ raop_rtp_mirror_thread(void *arg)
                         case 5:   /*IDR, slice_layer_without_partitioning */
                         case 1:   /*non-IDR, slice_layer_without_partitioning */
                             break;
-	                case 2:   /* slice data partition A */
+                        case 2:   /* slice data partition A */
                         case 3:   /* slice data partition B */
                         case 4:   /* slice data partition C */
                             logger_log(raop_rtp_mirror->logger, LOGGER_INFO,
@@ -526,9 +526,9 @@ raop_rtp_mirror_thread(void *arg)
                                        "unexpected non-VCL NAL unit: nalu_type = %d, ref_idc = %d, nalu_size = %d,"
                                        "processed bytes %d, payloadsize = %d nalus_count = %d",
                                        nalu_type, ref_idc, nc_len, nalu_size, payload_size, nalus_count);
-			    break;
-		        }
-		    }
+                             break;
+                        }
+                    }
                     nalu_size += nc_len;
                 }
                 if (nalu_size != payload_size) valid_data = false;
@@ -540,7 +540,7 @@ raop_rtp_mirror_thread(void *arg)
 		
                 payload_decrypted = NULL;
                 video_decode_struct video_data;
-		video_data.is_h265 = h265_video;
+                video_data.is_h265 = h265_video;
                 video_data.ntp_time_local = ntp_timestamp_local;
                 video_data.ntp_time_remote = ntp_timestamp_remote;
                 video_data.nal_count = nalus_count;   /*nal_count will be the number of nal units in the packet */
@@ -571,13 +571,13 @@ raop_rtp_mirror_thread(void *arg)
                    bytes 56-59 width 
                    bytes 60-63 height 
                    bytes 64-127 all 0x0 
-		*/
+                */
 	      
                 // The information in the payload contains an SPS and a PPS NAL
                 // The sps_pps is not encrypted
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived unencrypted codec packet from client:"
                            " payload_size %d header %s ts_client = %8.6f",
-			   payload_size, packet_description, (double) ntp_timestamp_remote / SEC);
+                           payload_size, packet_description, (double) ntp_timestamp_remote / SEC);
 
                 if (packet[6] == 0x56 || packet[6] == 0x5e) {
                     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "This packet indicates video stream is stopping");
@@ -614,7 +614,7 @@ raop_rtp_mirror_thread(void *arg)
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror width_source = %f height_source = %f width = %f height = %f",
                            width_source, height_source, width, height);
 
-		if (payload_size == 0) {
+                if (payload_size == 0) {
                     logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "raop_rtp_mirror: received type 0x01 packet with no payload:\n"
                                "this indicates non-h264 video but Airplay features bit 42 (SupportsScreenMultiCodec) is not set\n"
                                "use startup option \"-h265\" to set this bit and support h265 (4K) video");
@@ -625,7 +625,7 @@ raop_rtp_mirror_thread(void *arg)
                     free(sps_pps);
                     sps_pps = NULL;
                 }
-		/* test for a H265 VPS/SPS/PPS */
+                /* test for a H265 VPS/SPS/PPS */
                 unsigned char hvc1[] = { 0x68, 0x76, 0x63, 0x31 };
 
                 if (!memcmp(payload + 4, hvc1, 4)) {
@@ -677,7 +677,7 @@ raop_rtp_mirror_thread(void *arg)
                         break;
                     }
                     sps_size = byteutils_get_short_be(ptr, 3);
-		    ptr += 5;
+                    ptr += 5;
                     sps = ptr;
                     if (logger_debug) {
                         char *str = utils_data_to_string(sps, sps_size, 16);
@@ -690,12 +690,12 @@ raop_rtp_mirror_thread(void *arg)
                         raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
                         break;
                     }
-		    pps_size = byteutils_get_short_be(ptr, 3);
+                    pps_size = byteutils_get_short_be(ptr, 3);
                     ptr += 5;
                     pps = ptr;
                     if (logger_debug) {
                         char *str = utils_data_to_string(pps, pps_size, 16);
-		        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 pps size %d\n%s",pps_size, str);
+                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 pps size %d\n%s",pps_size, str);
                         free(str);
                     }
 
@@ -788,6 +788,7 @@ raop_rtp_mirror_thread(void *arg)
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived old-protocol once-per-second packet from client:"
                            " payload_size %d header %s ts_raw = %llu", payload_size, packet_description, ntp_timestamp_raw);
                 /* "old protocol" (used by AirMyPC), rest of 128-byte  packet is empty  */
+                break;
             case 0x05:
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "\nReceived video streaming performance info packet from client:"
                            " payload_size %d header %s ts_raw = %llu", payload_size, packet_description, ntp_timestamp_raw);
@@ -795,14 +796,14 @@ raop_rtp_mirror_thread(void *arg)
                  * Sometimes (e.g, when the client has a locked screen), there is a 25kB trailer attached to the packet.    *
                  * This 25000 Byte trailer with unidentified content seems to be the same data each time it is sent.        */
 
-                if (payload_size && raop_rtp_mirror->show_client_FPS_data) {
+                if (payload_size) {
                     //char *str = utils_data_to_string(packet, 128, 16);
                     //logger_log(raop_rtp_mirror->logger, LOGGER_WARNING, "type 5 video packet header:\n%s", str);
                     //free (str);
 		    
                     int plist_size = payload_size;
                     if (payload_size > 25000) {
-		        plist_size = payload_size - 25000;
+                        plist_size = payload_size - 25000;
                         if (logger_debug) {
                             char *str = utils_data_to_string(payload + plist_size, 16, 16);
                             logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
@@ -815,9 +816,17 @@ raop_rtp_mirror_thread(void *arg)
                         uint32_t plist_len;
                         plist_t root_node = NULL;
                         plist_from_bin((char *) payload, plist_size, &root_node);
-                        plist_to_xml(root_node, &plist_xml, &plist_len);
-                        logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "%s", plist_xml);
-                        free(plist_xml);
+                        if (raop_rtp_mirror->callbacks.mirror_video_activity) {
+                            double txusage = 0.0;
+                            plist_t tx_usage_avg_node = plist_dict_get_item(root_node, "txUsageAvg");
+                            plist_get_real_val(tx_usage_avg_node, &txusage);
+                            raop_rtp_mirror->callbacks.mirror_video_activity(raop_rtp_mirror->callbacks.cls, &txusage);
+                        }
+                        if (raop_rtp_mirror->show_client_FPS_data) {
+                            plist_to_xml(root_node, &plist_xml, &plist_len);
+                            logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "%s", plist_xml);
+                            free(plist_xml);
+                        }
                     }
                 }
                 break;
@@ -848,7 +857,7 @@ raop_rtp_mirror_thread(void *arg)
 
     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror exiting TCP thread");
     if (conn_reset&& raop_rtp_mirror->callbacks.conn_reset) {
-      raop_rtp_mirror->callbacks.conn_reset(raop_rtp_mirror->callbacks.cls, 1);
+        raop_rtp_mirror->callbacks.conn_reset(raop_rtp_mirror->callbacks.cls, 1);
     }
 
     if (unsupported_codec) {

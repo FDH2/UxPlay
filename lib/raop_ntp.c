@@ -352,7 +352,7 @@ raop_ntp_thread(void *arg)
                                (double) t2 / SECOND_IN_NSECS, str); 
                     free(str);
                 }
-		// The iOS client device sends its time in  seconds relative to an arbitrary Epoch (the last boot).
+                // The iOS client device sends its time in  seconds relative to an arbitrary Epoch (the last boot).
                 // For a little bonus confusion, they add SECONDS_FROM_1900_TO_1970.
                 // This means we have to expect some rather huge offset, but its growth or shrink over time should be small.
 

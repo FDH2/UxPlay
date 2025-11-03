@@ -175,7 +175,7 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
         return -1;
     }
     /* before time is synchronized, some empty data packets are sent */
-    if (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4)) {
+    if (datalen == 12 || (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4))) {
         return 0;
     }
     int payload_size = datalen - 12;

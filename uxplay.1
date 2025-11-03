@@ -1,4 +1,4 @@
-.TH UXPLAY "1" "May 2025" "1.72" "User Commands"
+.TH UXPLAY "1" "2025-10-26" "UxPlay 1.72" "User Commands"
 .SH NAME
 uxplay \- start AirPlay server
 .SH SYNOPSIS
@@ -9,7 +9,7 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .SH OPTIONS
 .TP
 .B
-\fB\-n\fR name   Specify the network name of the AirPlay server
+\fB\-n\fR name   Specify the network name of the AirPlay server (UTF-8/ascii)
 .TP
 \fB\-nh\fR       Do \fBNOT\fR append "@\fIhostname\fR" at end of AirPlay server name
 .TP
@@ -18,6 +18,8 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 \fB\-hls\fR      Support HTTP Live Streaming (currently YouTube video only)
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
+.TP
+\fB\-scrsv\fI n\fR  Screensaver override \fIn\fR:0=off 1=on during activity 2=always on.  
 .TP
 \fB\-pin\fI[xxxx]\fRUse a 4-digit pin code to control client access (default: no)
 .IP
@@ -89,10 +91,19 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    choices: ximagesink,xvimagesink,vaapisink,glimagesink,
 .IP
-   gtksink,waylandsink,osxvideosink,kmssink,d3d11videosink,...
+   gtksink,waylandsink,kmssink,fbdevsink,osxvideosink,
+.IP
+   d3d11videosink,d3d12videosink ...
 .PP
 .TP
 \fB\-vs\fR 0     Streamed audio only, with no video display window.
+.TP
+\fB\-vrtp\fI pl\fR  Use rtph26[4,5]pay to send decoded video elsewhere: "pl"
+.IP
+   is the remaining pipeline, starting with rtph26*pay options:
+.IP
+   e.g. "config-interval=1 ! udpsink host=127.0.0.1 port=5000"
+.PP
 .TP
 \fB\-v4l2\fR     Use Video4Linux2 for GPU hardware h264 video decoding.
 .TP
@@ -179,6 +190,10 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    audio packets are dumped. "aud"= unknown format.
 .PP
+.TP
+\fB\-ble\fI [fn]\fR For BluetoothLE beacon: write data to default file ~/.uxplay.ble
+.IP
+   optional: write to file "fn" ("fn" = "off" to cancel)
 .TP
 \fB\-d [n]\fR    Enable debug logging; optional: n=1 to skip normal packet data.
 .TP

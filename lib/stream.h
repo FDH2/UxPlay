@@ -37,7 +37,7 @@ typedef struct {
     int sync_status;
     uint64_t ntp_time_local;
     uint64_t ntp_time_remote;
-    uint64_t rtp_time;
+    uint32_t rtp_time;
     unsigned short seqnum;
 } audio_decode_struct;
 

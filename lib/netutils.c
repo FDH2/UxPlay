@@ -53,7 +53,7 @@ netutils_cleanup()
 }
 
 unsigned char *
-netutils_get_address(void *sockaddr, int *length, unsigned int *zone_id)
+netutils_get_address(void *sockaddr, int *length, unsigned int *zone_id, unsigned short *port)
 {
     unsigned char ipv4_prefix[] = { 0,0,0,0,0,0,0,0,0,0,255,255 };
     struct sockaddr *address = sockaddr;
@@ -66,11 +66,17 @@ netutils_get_address(void *sockaddr, int *length, unsigned int *zone_id)
         *zone_id = 0;
         sin = (struct sockaddr_in *)address;
         *length = sizeof(sin->sin_addr.s_addr);
+        if (port) {
+            *port = ntohs(sin->sin_port);
+        }
         return (unsigned char *)&sin->sin_addr.s_addr;
     } else if (address->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin6;
 
         sin6 = (struct sockaddr_in6 *)address;
+        if (port) {
+            *port = ntohs(sin6->sin6_port);
+        }
         if (!memcmp(sin6->sin6_addr.s6_addr, ipv4_prefix, 12)) {
             /* Actually an embedded IPv4 address */
             *zone_id = 0;

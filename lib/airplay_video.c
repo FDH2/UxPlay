@@ -58,7 +58,7 @@ int airplay_video_service_init(raop_t *raop, unsigned short http_port,
 
     airplay_video_t *airplay_video = deregister_airplay_video(raop);
     if (airplay_video) {
-      airplay_video_service_destroy(airplay_video);
+        airplay_video_service_destroy(airplay_video);
     }
 
     /* calloc guarantees that the 36-character strings apple_session_id and 
@@ -74,11 +74,11 @@ int airplay_video_service_init(raop_t *raop, unsigned short http_port,
     snprintf(ptr, 6, "%-5u", http_port);
     ptr = strstr(airplay_video->local_uri_prefix, " ");
     if (ptr) {
-      *ptr = '\0';
+        *ptr = '\0';
     }
 
     if (!register_airplay_video(raop, airplay_video)) {
-      return -2;
+        return -2;
     }
 
     //printf(" %p %p\n", airplay_video, get_airplay_video(raop));
@@ -118,7 +118,6 @@ airplay_video_service_destroy(airplay_video_t *airplay_video)
         free (airplay_video->master_playlist);
     }
 
-    
     free (airplay_video);
 }
 
@@ -146,19 +145,19 @@ const char *get_playback_uuid(airplay_video_t *airplay_video) {
 }
 
 void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix, int uri_prefix_len) {
-  if (airplay_video->uri_prefix) {
-      free (airplay_video->uri_prefix);
-  }
-  airplay_video->uri_prefix = (char *) calloc(uri_prefix_len + 1, sizeof(char));
-  memcpy(airplay_video->uri_prefix, uri_prefix, uri_prefix_len);
+    if (airplay_video->uri_prefix) {
+        free (airplay_video->uri_prefix);
+    }
+    airplay_video->uri_prefix = (char *) calloc(uri_prefix_len + 1, sizeof(char));
+    memcpy(airplay_video->uri_prefix, uri_prefix, uri_prefix_len);
 }
 
 char *get_uri_prefix(airplay_video_t *airplay_video) {
-  return airplay_video->uri_prefix;
+    return airplay_video->uri_prefix;
 }
 
 char *get_uri_local_prefix(airplay_video_t *airplay_video) {
-  return airplay_video->local_uri_prefix;
+    return airplay_video->local_uri_prefix;
 }
 
 char *get_master_uri(airplay_video_t *airplay_video) {
@@ -198,7 +197,7 @@ void destroy_media_data_store(airplay_video_t *airplay_video) {
     media_item_t *media_data_store = airplay_video->media_data_store; 
     if (media_data_store) {
         for (int i = 0; i < airplay_video->num_uri ; i ++ ) {
-	  if (media_data_store[i].uri) {
+            if (media_data_store[i].uri) {
                 free (media_data_store[i].uri);
             }
             if (media_data_store[i].playlist) {
@@ -336,7 +335,7 @@ char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datale
     while (ptr != NULL) {
         counter++;
         ptr++;
-	ptr = strstr(ptr, uri_prefix);
+        ptr = strstr(ptr, uri_prefix);
     }
 
     size_t len = uri_local_prefix_len - uri_prefix_len;

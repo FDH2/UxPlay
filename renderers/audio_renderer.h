@@ -40,7 +40,7 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
 void audio_renderer_set_volume(double volume);
 void audio_renderer_flush();
 void audio_renderer_destroy();
-
+unsigned int audio_renderer_listen(void *loop, int id);
 #ifdef __cplusplus
 }
 #endif

@@ -312,20 +312,20 @@ char *utils_strip_data_from_plist_xml(char *plist_xml) {
         nchars = eol + 1 - ptr1;
         memcpy(ptr2, ptr1, nchars);
         ptr2 += nchars;
-	ptr1 += nchars;
+        ptr1 += nchars;
         end = strstr(ptr1, "</data>");
-	assert(end);
+        assert(end);
         count = 0;
         do {
             eol_data = eol;
             eol = strchr(eol + 1, '\n');
             count++;
         } while (eol < end);
-	count--;   // last '\n' counted ends the first non-data line (contains "</data>")
-	if (count > 1) {
+        count--;   // last '\n' counted ends the first non-data line (contains "</data>")
+        if (count > 1) {
              snprintf(line, sizeof(line), "        (%d lines data omitted, 64 chars/line)\n", count);
              nchars = strlen(line);
-	     memcpy(ptr2, line, nchars);
+             memcpy(ptr2, line, nchars);
              ptr2 += nchars;
              ptr1 = eol_data + 1;
         } else {

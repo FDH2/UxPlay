@@ -12,7 +12,7 @@
  *  Lesser General Public License for more details.
  *
  *===================================================================
- * modified by fduncanh 2021-23
+ * modified by fduncanh 2021-25
  */
 
 #ifndef RAOP_H
@@ -84,9 +84,10 @@ struct raop_callbacks_s {
     void  (*audio_set_coverart)(void *cls, const void *buffer, int buflen);
     void  (*audio_stop_coverart_rendering) (void* cls);
     void  (*audio_remote_control_id)(void *cls, const char *dacp_id, const char *active_remote_header);
-    void  (*audio_set_progress)(void *cls, unsigned int start, unsigned int curr, unsigned int end);
+    void  (*audio_set_progress)(void *cls, uint32_t *start, uint32_t *curr, uint32_t *end);
     void  (*audio_get_format)(void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat);
     void  (*video_report_size)(void *cls, float *width_source, float *height_source, float *width, float *height);
+    void  (*mirror_video_activity)(void *cls, double *txusage);
     void  (*report_client_request) (void *cls, char *deviceid, char *model, char *name, bool *admit);
     void  (*display_pin) (void *cls, char * pin);
     void  (*register_client) (void *cls, const char *device_id, const char *pk_str, const char *name);
