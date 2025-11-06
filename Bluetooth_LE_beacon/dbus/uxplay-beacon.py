@@ -19,7 +19,8 @@ import dbus.service
 
 ad_manager = None
 airplay_advertisement = None
-server_address = None
+advertised_port = None
+advertised_address = None
 
 BLUEZ_SERVICE_NAME = 'org.bluez'
 LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
@@ -125,15 +126,17 @@ class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
 
 
 def register_ad_cb():
-    global server_address
-    print(f'AirPlay Service_Discovery Advertisement ({server_address}) registered')
+    print(f'AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered')
 
 
 def register_ad_error_cb(error):
     print(f'Failed to register advertisement: {error}')
     global ad_manager
+    global advertised_port
+    global advertised_address
     ad_manager = None
-
+    advertised_port = None
+    advertised_address = None
 
 def find_adapter(bus):
     remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
@@ -150,8 +153,9 @@ def find_adapter(bus):
 def setup_beacon(ipv4_str, port, advmin, advmax, index):
     global ad_manager
     global airplay_advertisement
-    global server_address
-    server_address = f"{ipv4_str}:{port}"
+    global advertised_address
+    advertised_port = port
+    advertised_address = ipv4_str
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)    
     bus = dbus.SystemBus()    
     adapter = find_adapter(bus)
@@ -168,7 +172,6 @@ def setup_beacon(ipv4_str, port, advmin, advmax, index):
     airplay_advertisement = AirPlayAdvertisement(bus, index, ipv4_str, port, advmin, advmax)
     
 def beacon_on():
-    global ad_manager
     global airplay_advertisement
     ad_manager.RegisterAdvertisement(airplay_advertisement.get_path(), {},
                                      reply_handler=register_ad_cb,
@@ -182,13 +185,24 @@ def beacon_on():
 def beacon_off():
     global ad_manager
     global airplay_advertisement
+    global advertised_port
+    global advertised_address
     ad_manager.UnregisterAdvertisement(airplay_advertisement)
     print(f'AirPlay Service-Discovery beacon advertisement unregistered')
     ad_manager = None
     dbus.service.Object.remove_from_connection(airplay_advertisement)
     airplay_advertisement = None
-    
+    advertised_Port = None
+    advertised_address = None
+
+
 #==generic code (non-dbus) below here =============
+
+def check_port(port):
+    if advertised_port is None or port == advertised_port:
+        return True
+    else:
+        return False
 
 import argparse
 import os
@@ -238,7 +252,6 @@ def check_process_name(pid, pname):
         return False
 
 def check_pending():
-    global beacon_is_running
     global beacon_is_pending_on
     global beacon_is_pending_off
     if beacon_is_running:
@@ -254,38 +267,50 @@ def check_pending():
 
 def check_file_exists(file_path):
     global port
-    global beacon_is_running
     global beacon_is_pending_on
     global beacon_is_pending_off
-
-    if os.path.exists(file_path):
-        with open(file_path, 'rb') as file:
-            data = file.read(2)
-            port = struct.unpack('<H', data)[0]
-            data = file.read(4)
-            pid = struct.unpack('<I', data)[0]
-            if not pid_is_running(pid):
-                file.close()
-                test = False
-            else :
-                data = file.read()
-                file.close()
-                pname = data.split(b'\0',1)[0].decode('utf-8')
-                last_element_of_pname = os.path.basename(pname)
-                test = check_process_name(pid, last_element_of_pname)
-            if test == True:
-                if not beacon_is_running:
-                    beacon_is_pending_on = True
+    pname = "process name unread"
+    if os.path.isfile(file_path):
+        test = True
+        try:
+            with open(file_path, 'rb') as file:
+                data = file.read(2)
+                port = struct.unpack('<H', data)[0]
+                data = file.read(4)
+                pid = struct.unpack('<I', data)[0]
+                if not pid_is_running(pid):
+                    file.close()
+                    test = False
+                if test:
+                    data = file.read()
+                    file.close()
+                    pname = data.split(b'\0',1)[0].decode('utf-8')
+                    last_element_of_pname = os.path.basename(pname)
+                    test = check_process_name(pid, last_element_of_pname)
+        except IOError:
+            test = False
+        except FileNotFoundError:
+            test = False
+        if test:
+            if not beacon_is_running:
+                beacon_is_pending_on = True
             else:
-                print(f'orphan beacon file {file_path} exists, but process {pname} (pid {pid}) is no longer active')
-                try:
-                    os.remove(file_path)
-                    print(f'File "{file_path}" deleted successfully.')
-                except FileNotFoundError:
-                    print(f'File "{file_path}" not found.')
-                if beacon_is_running:
+                if not check_port(port):
+                    # uxplay is active, and beacon is running but is advertising a different port, so shut it down
                     beacon_is_pending_off = True
-    else:
+        else:
+            print(f'Orphan beacon file exists, but process pid {pid} ({pname}) is no longer active')
+            try:
+                os.remove(file_path)
+                print(f'Orphan beacon file "{file_path}" deleted successfully.')
+            except FileNotFoundError:
+                print(f'File "{file_path}" not found.')
+            except PermissionError as e:
+                print(f'Permission Errror {e}: cannot delete  "{file_path}".')
+            if beacon_is_running:
+                beacon_is_pending_off = True
+    
+    else:    #BLE file does not exist
         if beacon_is_running:
             beacon_is_pending_off = True
 

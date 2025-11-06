@@ -9,7 +9,7 @@ UxPlay 1.72: Standalone Python Script for Bluetooth LE Service Discovery (DBus).
 .SH OPTIONS
 .TP
 .B
-\fB\--file\fR fn   Specify alternate configuration file
+\fB\--file\fR fn   Specify configuration file (default: ~/.uxplay.beacon)
 .TP
 \fB\--path\fR fn   Specify non-default  Bluetooth LE data file used by uxplay
 .TP
@@ -24,11 +24,9 @@ UxPlay 1.72: Standalone Python Script for Bluetooth LE Service Discovery (DBus).
 \fB \-h, --help\fR Show help text.
 .SH
 FILES
-Options in beacon configuration file ~/.uxplay.beacon
+Options in configuration file are applied first (command-line options may modify them).
 .TP
-are applied first (command-line options may modify them).  Format:
-.TP
-one option per line, with initial  "--"; lines beginning with "#" ignored.
+Format:  one option per line, with initial  "--"; lines beginning with "#" ignored.
 .SH
 AUTHORS
 .TP

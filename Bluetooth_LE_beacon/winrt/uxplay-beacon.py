@@ -36,6 +36,8 @@ import asyncio
 
 #global variables used by winrt.windows.devices.bluetooth.advertisement code
 publisher = None
+advertised_port = None
+advertised_address = None
 
 def on_status_changed(sender, args):
     global publisher
@@ -60,39 +62,55 @@ def create_airplay_service_discovery_advertisement_publisher(ipv4_str, port):
     advertisement = ble_adv.BluetoothLEAdvertisement()
     advertisement.manufacturer_data.append(manufacturer_data)
     global publisher
+    global advertised_port
+    global advertised_address
     publisher = ble_adv.BluetoothLEAdvertisementPublisher(advertisement)
+    advertised_port = port
+    advertised_address = ipv4_str
     publisher.add_status_changed(on_status_changed)
 
 async def publish_advertisement():
+    global advertised_port
+    global advertised_address
     try:
         publisher.start()
-        print(f"Publisher started successfully")
+        print(f"AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered")
 
     except Exception as e:
         print(f"Failed to start Publisher: {e}")
         print(f"Publisher Status: {publisher.status.name}")
+        advertised_address = None
+        advertised_port = None
 
     
 def setup_beacon(ipv4_str, port):
-    #index will be ignored
-    print(f"setup_beacon for {ipv4_str}:{port}")
     create_airplay_service_discovery_advertisement_publisher(ipv4_str, port)
     
 def beacon_on():
-    global publisher
     try:
         asyncio.run( publish_advertisement())
         return True
     except Exception as e:
         print(f"Failed to start publisher: {e}")
+        global publisher
+        publisher = None
         return False
 
     
 def beacon_off():
-    global publisher
     publisher.stop()
-    
+    global advertised_port
+    global advertised_address
+    advertised_port = None
+    advertised_address = None
+
 #==generic code (non-winrt) below here =============
+
+def check_port(port):
+    if advertised_port is None or port == advertised_port:
+        return True
+    else:
+        return False
 
 import argparse
 import os
@@ -112,8 +130,6 @@ ipv4_str = "ipv4_address"
 
 def start_beacon():
     global beacon_is_running
-    global port
-    global ipv4_str
     setup_beacon(ipv4_str, port)
     beacon_is_running = beacon_on()
 
@@ -136,7 +152,6 @@ def check_process_name(pid, pname):
         return False
 
 def check_pending():
-    global beacon_is_running
     global beacon_is_pending_on
     global beacon_is_pending_off
     if beacon_is_running:
@@ -148,41 +163,57 @@ def check_pending():
             start_beacon()
             beacon_is_pending_on = False
     return True
-            
+
 
 def check_file_exists(file_path):
     global port
-    global beacon_is_running
     global beacon_is_pending_on
     global beacon_is_pending_off
-
-    if os.path.exists(file_path):
-        with open(file_path, 'rb') as file:
-            data = file.read(2)
-            port = struct.unpack('<H', data)[0]
-            data = file.read(4)
-            pid = struct.unpack('<I', data)[0]
-            if not pid_is_running(pid):
-                file.close()
-                test = False
+    pname = "process name unread"
+    if os.path.isfile(file_path):
+        test = True
+        try:
+            with open(file_path, 'rb') as file:
+                data = file.read(2)
+                port = struct.unpack('<H', data)[0]
+                data = file.read(4)
+                pid = struct.unpack('<I', data)[0]
+                if not pid_is_running(pid):
+                    file.close()
+                    test = False
+                if test:
+                    data = file.read()
+                    file.close()
+                    pname = data.split(b'\0',1)[0].decode('utf-8')
+                    last_element_of_pname = os.path.basename(pname)
+                    test = check_process_name(pid, last_element_of_pname)
+        except IOError:
+            test = False
+        except FileNotFoundError:
+            test = False
+        if test:
+            if not beacon_is_running:
+                beacon_is_pending_on = True
             else:
-                data = file.read()
-                file.close()
-                pname = data.split(b'\0',1)[0].decode('utf-8')
-                last_element_of_pname = os.path.basename(pname)
-                test = check_process_name(pid, last_element_of_pname)
-            if test == True:
-                if not beacon_is_running:
-                    beacon_is_pending_on = True
-            else:
-                if beacon_is_running:
-                    print(f'orphan beacon file {file_path} exists, but process {pname} (pid {pid}) is no longer active')
-                    # PermissionError prevents deletion of orphan beacon files in Windows systems
+                if not check_port(port):
+                    # uxplay is active, and beacon is running but is advertising a different port, so shut it down
                     beacon_is_pending_off = True
-    else:
+        else:
+            print(f'Orphan beacon file exists, but process pid {pid} ({pname}) is no longer active')
+            try:
+                os.remove(file_path)
+                print(f'Orphan beacon file "{file_path}" deleted successfully.')
+            except FileNotFoundError:
+                print(f'File "{file_path}" not found.')
+            except PermissionError as e:
+                print(f'Permission Errror {e}: cannot delete  "{file_path}".')
+            if beacon_is_running:
+                beacon_is_pending_off = True
+    
+    else:    #BLE file does not exist
         if beacon_is_running:
             beacon_is_pending_off = True
-
+            
 def on_timeout(file_path):
     check_file_exists(file_path)
     return True
