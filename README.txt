@@ -283,12 +283,15 @@ h264 format: gstreamer decoding is plugin agnostic, and uses accelerated
 GPU hardware h264 decoders if available; if not, software decoding is
 used.
 
--   **VAAPI for Intel and AMD integrated graphics, NVIDIA with "Nouveau"
-    open-source driver**
+-   **VA-API for Intel and AMD integrated graphics, NVIDIA with
+    "Nouveau" open-source driver**
 
     With an Intel or AMD GPU, hardware decoding with the open-source
-    VAAPI gstreamer plugin is preferable. The open-source "Nouveau"
-    drivers for NVIDIA graphics are also in principle supported: see
+    VA-API gstreamer plugins is preferable. (Newer "va" versions of
+    these plugins with names like "vah264dec" are recommended instead of
+    older "vaapi" ones named like "vaapih264dec".) The open-source
+    "Nouveau" drivers for NVIDIA graphics are also in principle
+    supported: see
     [here](https://nouveau.freedesktop.org/VideoAcceleration.html), but
     this requires VAAPI to be supplemented with firmware extracted from
     the proprietary NVIDIA drivers.
@@ -513,11 +516,19 @@ OpenGL support (this provides the "-vs glimagesink" videosink, which can
 be very useful in many systems (including Raspberry Pi), and should
 always be used when using h264/h265 decoding by a NVIDIA GPU),
 "**gtk3**" (which provides the "-vs gtksink" videosink), and "**x**" for
-X11 support, although these may already be installed; "**vaapi**" is
-needed for hardware-accelerated h264 video decoding by Intel or AMD
-graphics (but not for use with NVIDIA using proprietary drivers). If
-sound is not working, "**alsa**"","**pulseaudio**", or "**pipewire**"
-plugins may need to be installed, depending on how your audio is set up.
+X11 support, although these may already be installed. If sound is not
+working, "**alsa**"","**pulseaudio**", or "**pipewire**" plugins may
+need to be installed, depending on how your audio is set up.
+
+-   A package "**vaapi**" is available for hardware-accelerated h264
+    video decoding by Intel or AMD graphics (but not for use with NVIDIA
+    using proprietary drivers). However this package contains older
+    drivers (vaapisink, vaapih264dec, etc) that are no longer developed.
+    This package is no longer recommended, and and its contents have
+    been superseded by new VA-API drivers (vah264dec, etc.) that are
+    supplied in "**plugins-bad**"; there is no replacement for
+    vaapisink: use glimagesink or xvimagesink, or just let autovideosink
+    choose for you.
 
 -   Also install "**gstreamer1.0-tools**" to get the utility
     gst-inspect-1.0 for examining the GStreamer installation.
@@ -527,11 +538,13 @@ plugins may need to be installed, depending on how your audio is set up.
 In some cases, because of patent issues, the libav plugin feature
 **avdec_aac** needed for decoding AAC audio in mirror mode is not
 provided in the official distribution: get it from community
-repositories for those distributions.
+repositories for those distributions. \_Note: the "vaapi" packages
+listed below are no longer recommended: newer "va" versions of the
+VA-API plugins for Intel/AMD graphics are provided by \*-plugins-bad\_
 
 -   **Red Hat, or clones like CentOS (now continued as Rocky Linux or
     Alma Linux):** Install gstreamer1-libav gstreamer1-plugins-bad-free
-    (+ gstreamer1-vaapi for Intel/AMD graphics). In recent Fedora,
+    (+gstreamer1-vaapi for Intel/AMD graphics). In recent Fedora,
     gstreamer1-libav is renamed gstreamer1-plugin-libav. **To get
     avdec_aac, install packages from
     [rpmfusion.org](https://rpmfusion.org)**: (get ffmpeg-libs from
@@ -539,7 +552,7 @@ repositories for those distributions.
     gstreamer1-libav from there).
 
 -   **Mageia, PCLinuxOS, OpenMandriva:** Install gstreamer1.0-libav
-    gstreamer1.0-plugins-bad (+ gstreamer1.0-vaapi for Intel/AMD
+    gstreamer1.0-plugins-bad (gstreamer1.0-vaapi for Intel/AMD
     graphics). **On Mageia, to get avdec_aac, install ffmpeg from the
     "tainted" repository**, (which also provides a more complete
     gstreamer1.0-plugins-bad).
@@ -693,10 +706,13 @@ what is available. Some possibilites on Linux/\*BSD are:
 
 -   **kmssink**, **fbdevsink** (console graphics without X11)
 
--   **vaapisink** (for Intel/AMD hardware-accelerated graphics); for
-    NVIDIA hardware graphics (with CUDA) use **glimagesink** combined
-    with "`-vd nvh264dec`" (or "nvh264sldec", a new variant which will
-    become "nvh264dec" in GStreamer-1.24).
+-   **vaapisink** (for Intel/AMD hardware-accelerated graphics) is
+    obsolete: instead use "`-vd vah264dec`" (or "vah265dec") with
+    glimagesink or xvmagesink.
+
+-   for NVIDIA hardware graphics (with CUDA) use **glimagesink**
+    combined with "`-vd nvh264dec`" (or "nvh264sldec", a new variant
+    which will become "nvh264dec" in GStreamer-1.24).
 
 -   If the server is "headless" (no attached monitor, renders audio
     only) use `-vs 0`.
@@ -718,7 +734,7 @@ incorrectly-configured or absent accelerated hardware h264 video
 decoding (e.g., VAAPI). Try "`uxplay -avdec`" to force software video
 decoding; if this works you can then try to fix accelerated hardware
 video decoding if you need it, or just uninstall the GStreamer vaapi
-plugin.**
+plugin if it is installed .**
 
 See [Usage](#usage) for more run-time options.
 
@@ -1249,7 +1265,7 @@ Recommendation: **don't use this option** unless there is some special
 reason to use it.
 
 **-fs** uses fullscreen mode, but currently only works with X11,
-Wayland, VAAPI, kms and D3D11 (Windows).
+Wayland, vaapi, kms and D3D11 (Windows).
 
 **-p** allows you to select the network ports used by UxPlay (these need
 to be opened if the server is behind a firewall). By itself, -p sets
@@ -1273,9 +1289,10 @@ default is h264parse. Using quotes "..." allows options to be added.
 **-vd *decoder*** chooses the GStreamer pipeline's h264 decoder element,
 instead of the default value "decodebin" which chooses it for you.
 Software decoding is done by avdec_h264; various hardware decoders
-include: vaapih264dec, nvdec, nvh264dec, v4l2h264dec (these require that
-the appropriate hardware is available). Using quotes "..." allows some
-parameters to be included with the decoder name.
+include: vah264dec (replacement for vaapih264dec), nvdec, nvh264dec,
+v4l2h264dec (these require that the appropriate hardware is available).
+Using quotes "..." allows some parameters to be included with the
+decoder name.
 
 **-vc *converter*** chooses the GStreamer pipeline's videoconverter
 element, instead of the default value "videoconvert". When using
@@ -1294,7 +1311,8 @@ some parameters to be included with the videosink name. For example,
 obtained using `-vs "vaapisink fullscreen=true"`; this also works with
 `waylandsink`. The syntax of such options is specific to a given plugin
 (see GStreamer documentation), and some choices of videosink might not
-work on your system.
+work on your system. *Note that vaapisink has been labeled "deprecated"
+(obsolete) and is no longer recommended.*
 
 **-vs 0** suppresses display of streamed video. In mirror mode, the
 client's screen is still mirrored at a reduced rate of 1 frame per
@@ -1779,13 +1797,13 @@ which may not work correctly on your system. Try the options "-vs
 ximagesink" or "-vs xvimagesink" to see if using one of these fixes the
 problem.
 
-Other reported problems are connected to the GStreamer VAAPI plugin (for
-hardware-accelerated Intel graphics, but not NVIDIA graphics). Use the
-option "-avdec" to force software h264 video decoding: this should
-prevent autovideosink from selecting the vaapisink videosink.
-Alternatively, find out if the gstreamer1.0-vaapi plugin is installed,
-and if so, uninstall it. (If this does not fix the problem, you can
-reinstall it.)
+Other reported problems are connected to the obsolete GStreamer VAAPI
+plugin (for hardware-accelerated Intel graphics, but not NVIDIA
+graphics). Use the option "-avdec" to force software h264 video
+decoding: this should prevent autovideosink from selecting the vaapisink
+videosink. Alternatively, find out if the gstreamer1.0-vaapi plugin is
+installed, and if so, uninstall it. (If this does not fix the problem,
+you can reinstall it.)
 
 There are some reports of other GStreamer problems with
 hardware-accelerated Intel HD graphics. One user (on Debian) solved this
@@ -1793,11 +1811,14 @@ with "sudo apt install intel-media-va-driver-non-free". This is a driver
 for 8'th (or later) generation "\*-lake" Intel chips, that seems to be
 related to VAAPI accelerated graphics.
 
-If you *do* have Intel HD graphics, and have installed the vaapi plugin,
-but `-vs vaapisink` does not work, check that vaapi is not "blacklisted"
-in your GStreamer installation: run `gst-inspect-1.0 vaapi`, if this
-reports `0 features`, you need to `export GST_VAAPI_ALL_DRIVERS=1`
-before running uxplay, or set this in the default environment.
+If you *do* have Intel HD graphics, and have installed the obsolete
+vaapi plugin, but `-vs vaapisink` does not work, check that vaapi is not
+"blacklisted" in your GStreamer installation: run
+`gst-inspect-1.0 vaapi`, if this reports `0 features`, you need to
+`export GST_VAAPI_ALL_DRIVERS=1` before running uxplay, or set this in
+the default environment. The recommended decoders are the newer "va"
+decoders such as vah264dec, which should be automatically used by
+GStreamer, but can be specified with the `-vd` option.
 
 You can try to fix audio or video problems by using the
 "`-as <audiosink>`" or "`-vs <videosink>`" options to choose the
