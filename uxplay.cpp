@@ -3113,5 +3113,6 @@ static void cleanup() {
         }
         dbus_connection_unref(dbus_connection);
     }
-#endif 
+#endif
+    exit(0);
 }
