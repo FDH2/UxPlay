@@ -9,13 +9,19 @@ import gi
 try:
     from gi.repository import GLib
 except ImportError as e:
-    print(f"ImportError: {e}, failed to import GLib")
-
+    print(f'ImportError: {e}, failed to import GLib from Python GObject Introspection Library ("gi")')
+    printf("install the python3 gi package")
+    raise SystemExit(1)
     
-import dbus
-import dbus.exceptions
-import dbus.mainloop.glib
-import dbus.service
+try:
+    import dbus
+    import dbus.exceptions
+    import dbus.mainloop.glib
+    import dbus.service
+except ImportError as e:
+    print(f"ImportError: {e}, failed to import required dbus components")
+    printf("install the python3 dbus package")
+    raise SystemExit(1)
 
 ad_manager = None
 airplay_advertisement = None
@@ -154,6 +160,7 @@ def setup_beacon(ipv4_str, port, advmin, advmax, index):
     global ad_manager
     global airplay_advertisement
     global advertised_address
+    global advertised_port
     advertised_port = port
     advertised_address = ipv4_str
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)    
@@ -207,10 +214,15 @@ def check_port(port):
 import argparse
 import os
 import sys
-import psutil
 import struct
 import socket
 import time
+try:
+    import psutil
+except ImportError as e:
+    print(f'ImportError {e}: failed to import psutil')
+    print(f' install the python3 psutil package')
+    raise SystemExit(1)
 
 # global variables
 beacon_is_running = False
@@ -365,6 +377,25 @@ def main(file_path, ipv4_str_in, advmin_in, advmax_in, index_in):
         sys.exit(0)
         
 
+def get_ipv4():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ipv4 = s.getsockname()[0]
+        s.close()
+    except socket.error as e:
+        print("socket error {e}, will try to get ipv4 with gethostbyname");
+        ipv4 = None
+    if (ipv4 is not None and ipv4 != "127.0.0.1"):
+        return ipv4
+    ipv4 = socket.gethostbyname(socket.gethostname())
+    if ipv4 == "127.0.1.1": # Debian systems /etc/hosts entry
+        try:
+            ipv4 = socket.gethostbyname(socket.gethostname()+".local")
+        except socket_error:
+            print(f"failed to obtain local ipv4 address: enter it with option --ipv4 ... ")
+            raise SystemExit(1)
+    return ipv4
 
 if __name__ == '__main__':
 
@@ -379,11 +410,12 @@ if __name__ == '__main__':
     )
 
     home_dir = os.path.expanduser("~")
+    default_file = home_dir+"/.uxplay.beacon"  
     # Add arguments
     parser.add_argument(
         '--file',
         type=str,
-        default= home_dir + "/.uxplay.beacon", 
+        default= default_file,
         help='beacon startup file (optional): one entry (key, value) per line, e.g. --ipv4 192.168.1.100, (lines startng with with # are ignored)'
     )
     
@@ -429,8 +461,8 @@ if __name__ == '__main__':
     index = int(0)
     
     if args.file:
-        print(f'Using config file: {args.file}')
         if os.path.exists(args.file):
+            print(f'Using config file: {args.file}')
             with open(args.file, 'r')  as file:
                 for line in file:
                     stripped_line = line.strip()
@@ -466,10 +498,14 @@ if __name__ == '__main__':
                     else:
                         print(f'Unknown key "{key}" in config file {args.file}')
                         raise SystemExit(1)
+        else:
+            if args.file != default_file:
+                print(f"configuration file {args.file} not found")
+                raise SystemExit(1)
 
     if args.ipv4 == "use gethostbyname":
         if (ipv4_str is None):
-            ipv4_str = socket.gethostbyname(socket.gethostname())
+            ipv4_str = get_ipv4()
     else:
         ipv4_str = args.ipv4
 

@@ -9,6 +9,7 @@ try:
     from gi.repository import GLib
 except ImportError:
     print(f"ImportError: failed to import GLib")
+    raise SystemExit(1)
 
 # Import WinRT APIs
 
@@ -17,18 +18,21 @@ try:
 except ImportError:
     print(f"ImportError from winrt-Windows.Foundation.Collections")
     print(f"Install with 'pip install winrt-Windows.Foundation.Collections'")
-    
+    raise SystemExit(1)
+
 try:
     import winrt.windows.devices.bluetooth.advertisement as ble_adv
 except ImportError:
     print(f"ImportError from winrt-Windows.Devices.Bluetooth.Advertisement")
     print(f"Install with 'pip install winrt-Windows.Devices.Bluetooth.Advertisement'")
+    raise SystemExit(1)
 
 try:
     import winrt.windows.storage.streams as streams
 except ImportError:
     print(f"ImportError from winrt-Windows.Storage.Streams")
     print(f"Install with 'pip install winrt-Windows.Storage.Streams'")
+    raise SystemExit(1)
 
 import struct
 import ipaddress
@@ -115,11 +119,17 @@ def check_port(port):
 import argparse
 import os
 import sys
-import psutil
 import struct
 import socket
 import time
 
+try:
+    import psutil
+except ImportError as e:
+    print(f"ImportError {e}: failed to import psutil")
+    print(f'Install *-python-psutil (e.g.,"pacman -S  mingw-w64-ucrt-x86_64-python-psutil")') 
+    raise SystemExit(1)
+    
 # global variables
 beacon_is_running = False
 beacon_is_pending_on = False
@@ -245,12 +255,13 @@ if __name__ == '__main__':
     )
 
     home_dir = os.environ.get("HOME")
+    default_file = home_dir+"/.uxplay.beacon"
     print(f"homedir = {home_dir}")
     # Add arguments
     parser.add_argument(
         '--file',
         type=str,
-        default= home_dir + "/.uxplay.beacon", 
+        default= default_file,
         help='beacon startup file (optional): one entry (key, value) per line, e.g. --ipv4 192.168.1.100, (lines startng with with # are ignored)'
     )
     
@@ -273,8 +284,8 @@ if __name__ == '__main__':
     path = None
     
     if args.file:
-        print(f'Using config file: {args.file}')
         if os.path.exists(args.file):
+            print(f'Using config file: {args.file}')
             with open(args.file, 'r')  as file:
                 for line in file:
                     stripped_line = line.strip()
@@ -292,6 +303,10 @@ if __name__ == '__main__':
                     else:
                         print(f'Unknown key "{key}" in config file {args.file}')
                         raise SystemExit(1)
+        else:
+            if (args.file != default_file):
+                print(f'configuration file {args.file} not found')
+                raise SystemExit(1)
 
     if args.ipv4 == "use gethostbyname":
         if (ipv4_str is None):
