@@ -84,7 +84,7 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     /* initialize the airplay video service */
     const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
 
-    airplay_video_service_init(conn->raop, conn->raop->port, session_id);
+    airplay_video_service_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
 
 }
 
@@ -289,7 +289,7 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
         logger_log(conn->raop->logger, LOGGER_DEBUG, "playback_info not available (finishing)");
         //httpd_remove_known_connections(conn->raop->httpd);
         http_response_set_disconnect(response,1);
-        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);
+        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, true);
         return;
     } else if (playback_info.position == -1.0) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "playback_info not available");
@@ -442,9 +442,9 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
             plist_mem_free (remove_uuid);
         }
-        logger_log(conn->raop->logger, LOGGER_ERR, "FIXME: playlist removal not yet implemented");
         goto finish;
     } else if (playlist_insert) {
+        logger_log(conn->raop->logger, LOGGER_ERR, "FIXME: playlist insertion not yet implemented");
         logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistInsert (add new playback)");
         printf("\n***************FIXME************************\nPlaylist insertion needs more information for it to be implemented:\n"
                "please report following output as an \"Issue\" at http://github.com/FDH2/UxPlay:\n");

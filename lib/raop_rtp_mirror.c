@@ -863,7 +863,7 @@ raop_rtp_mirror_thread(void *arg)
     if (unsupported_codec) {
         closesocket(raop_rtp_mirror->mirror_data_sock);
         raop_rtp_mirror_stop(raop_rtp_mirror);
-        raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls);
+        raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls, false);
     }
 
     return 0;

@@ -15,9 +15,13 @@ UxPlay 1.72: An open\-source AirPlay mirroring (+ audio streaming) server:
 .TP
 \fB\-h265\fR     Support h265 (4K) video (with h265 versions of h264 plugins)
 .TP
-\fB\-hls\fR      Support HTTP Live Streaming (currently YouTube video only)
+\fB\-hls\fR [v]  Support HTTP Live Streaming (HLS), YouTube app video only:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
+.TP
+\fB\-lang\fR xx  HLS language preferences ("fr:es:..", overrides $LANGUAGE)
+.TP
+\fB\-lang\fR    (or -lang 0): play undubbed HLS version (overrides $LANGUAGE)
 .TP
 \fB\-scrsv\fI n\fR  Screensaver override \fIn\fR:0=off 1=on during activity 2=always on.  
 .TP

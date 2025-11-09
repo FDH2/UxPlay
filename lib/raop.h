@@ -69,7 +69,7 @@ struct raop_callbacks_s {
     void  (*video_resume)(void *cls);
     void  (*conn_feedback) (void *cls);
     void  (*conn_reset) (void *cls, int reason);
-    void  (*video_reset) (void *cls);
+    void  (*video_reset) (void *cls, bool hls_shutdown);
   
   
     /* Optional but recommended callback functions (probably not optional, check this)*/
@@ -108,9 +108,9 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-int airplay_video_service_init(raop_t *raop, unsigned short port, const char *session_id);
-
+int airplay_video_service_init(raop_t *raop, unsigned short port, const char *lang, const char *session_id);
 bool register_airplay_video(raop_t *raop, airplay_video_t *airplay_video);
+char *raop_get_lang(raop_t *raop);
 airplay_video_t *get_airplay_video(raop_t *raop);
 airplay_video_t *deregister_airplay_video(raop_t *raop);
 uint64_t get_local_time();
@@ -121,6 +121,7 @@ RAOP_API void raop_set_log_level(raop_t *raop, int level);
 RAOP_API void raop_set_log_callback(raop_t *raop, raop_log_callback_t callback, void *cls);
 RAOP_API int raop_set_plist(raop_t *raop, const char *plist_item, const int value);
 RAOP_API void raop_set_port(raop_t *raop, unsigned short port);
+RAOP_API void raop_set_lang(raop_t *raop, const char *lang);
 RAOP_API void raop_set_udp_ports(raop_t *raop, unsigned short port[3]);
 RAOP_API void raop_set_tcp_ports(raop_t *raop, unsigned short port[2]);
 RAOP_API unsigned short raop_get_port(raop_t *raop);
@@ -131,6 +132,7 @@ RAOP_API void raop_stop_httpd(raop_t *raop);
 RAOP_API void raop_set_dnssd(raop_t *raop, dnssd_t *dnssd);
 RAOP_API void raop_destroy(raop_t *raop);
 RAOP_API void raop_remove_known_connections(raop_t * raop);
+RAOP_API void raop_remove_hls_connections(raop_t * raop);
 RAOP_API void raop_destroy_airplay_video(raop_t *raop);
 
 #ifdef __cplusplus

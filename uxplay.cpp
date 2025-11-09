@@ -175,6 +175,7 @@ static bool h265_support = false;
 static int n_video_renderers = 0;
 static int n_audio_renderers = 0;
 static bool hls_support = false;
+static std::string lang = "";
 static std::string url = "";
 static guint gst_x11_window_id = 0;
 static guint progress_id = 0;
@@ -880,8 +881,10 @@ static void print_info (char *name) {
     printf("-n name   Specify network name of the AirPlay server (UTF-8/ascii)\n");
     printf("-nh       Do not add \"@hostname\" at the end of AirPlay server name\n");
     printf("-h265     Support h265 (4K) video (with h265 versions of h264 plugins)\n");
-    printf("-hls [v]  Support HTTP Live Streaming (currently Youtube video only) \n");
+    printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
+    printf("-lang xx  HLS language preferences (\"fr:es:..\", overrides $LANGUAGE)\n");
+    printf("-lang     (or -lang 0): play undubbed HLS version (overrides $LANGUAGE)\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on during activity 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
@@ -1666,7 +1669,12 @@ static void parse_arguments (int argc, char *argv[]) {
                     exit(1);
                 }
                 playbin_version = (guint) n;
-            } 
+            }
+        } else if (arg == "-lang") {
+            lang.erase();
+            if (i < argc - 1 && *argv[i+1] != '-') {
+                lang = argv[++i];
+            }
         } else if (arg == "-h265") {
             h265_support = true;
         } else if (arg == "-nofreeze") {
@@ -2035,10 +2043,15 @@ static bool check_blocked_client(char *deviceid) {
 
 // Server callbacks
 
-extern "C" void video_reset(void *cls) {
+extern "C" void video_reset(void *cls, bool hls_shutdown) {
     LOGD("video_reset");
     video_renderer_stop();
-    url.erase();
+    if (hls_shutdown) {
+        url.erase();
+        raop_destroy_airplay_video(raop);
+        raop_remove_hls_connections(raop);
+        preserve_connections = true;
+    }
     remote_clock_offset = 0;
     relaunch_video = true;
     reset_loop = true;
@@ -2356,7 +2369,7 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
 
 extern "C" void audio_stop_coverart_rendering(void *cls) {
     if (render_coverart) {
-	video_reset(cls);
+        video_reset(cls, false);
     }
 }
 
@@ -2731,6 +2744,13 @@ int main (int argc, char *argv[]) {
     if (!getenv("AVAHI_COMPAT_NOWARN")) putenv(avahi_compat_nowarn);
 #endif
 
+    /* for HLS video language preferences */
+    char *lang_env = getenv("LANGUAGE");
+    if (lang_env && strlen(lang_env)) {
+        lang.erase();
+        lang = lang_env;
+    }
+    
     char *rcfile = NULL;
     /* see if option -rc was given */
     for (int i = 1; i < argc ; i++) {
@@ -3018,6 +3038,10 @@ int main (int argc, char *argv[]) {
         cleanup();
     }
 
+    if (lang.length() > 1) {
+        raop_set_lang(raop, lang.c_str());
+    }
+    
 #define PID_MAX 4194304 // 2^22
     if (ble_filename.length()) {
 #ifdef _WIN32

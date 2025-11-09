@@ -82,6 +82,9 @@ struct raop_s {
     char *nonce;
     char *random_pw;
     unsigned char auth_fail_count;
+
+  /* used for setting HLS video language choices */
+    char *lang;
 };
 
 struct raop_conn_s {
@@ -233,7 +236,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                 if (httpd_nohold(conn->raop->httpd)) {
                     logger_log(conn->raop->logger, LOGGER_INFO, "\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
                     if (conn->raop->callbacks.video_reset) {
-                        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls);
+                        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, false);
                     }
                     httpd_remove_known_connections(conn->raop->httpd);
                 } else {
@@ -594,6 +597,8 @@ raop_init(raop_callbacks_t *callbacks) {
     raop->hls_support = false;
 
     raop->nonce = NULL;
+
+    raop->lang = NULL;
     return raop;
 }
 
@@ -658,6 +663,10 @@ raop_destroy(raop_t *raop) {
         }
         if (raop->random_pw) {
             free(raop->random_pw);
+        }
+
+        if (raop->lang) {
+            free(raop->lang);
         }
 
         free(raop);
@@ -767,6 +776,22 @@ raop_set_dnssd(raop_t *raop, dnssd_t *dnssd) {
     raop->dnssd = dnssd;
 }
 
+void
+raop_set_lang(raop_t *raop, const char *lang) {
+    if (raop->lang) {
+        free (raop->lang);
+        raop->lang = NULL;
+    }
+    if (lang && strlen(lang)) {
+        raop->lang = (char *) calloc(strlen(lang) + 1, sizeof(char));
+        memcpy(raop->lang, lang, strlen(lang) * sizeof(char));
+    }
+}
+
+char *
+raop_get_lang(raop_t *raop) {
+    return raop->lang;
+}
 
 int
 raop_start_httpd(raop_t *raop, unsigned short *port) {
@@ -783,6 +808,12 @@ raop_stop_httpd(raop_t *raop) {
 
 void raop_remove_known_connections(raop_t * raop) {
     httpd_remove_known_connections(raop->httpd);
+}
+
+void raop_remove_hls_connections(raop_t * raop) {
+    httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_HLS);
+    httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_PTTH);
+    httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_AIRPLAY);
 }
 
 airplay_video_t *deregister_airplay_video(raop_t *raop) {
