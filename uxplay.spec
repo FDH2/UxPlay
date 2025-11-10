@@ -1,5 +1,5 @@
 Name:           uxplay
-Version:        1.72.2
+Version:        1.73
 Release:        1%{?dist}
 
 %global gittag  v%{version}
@@ -136,6 +136,8 @@ cd build
 %{_docdir}/%{name}/llhttp/LICENSE-MIT
 
 %changelog
+* Mon Nov 10 2025 UxPlay maintainer <https://github.com/FDH2/UxPlay>
+  Update for 1.73 release
 * Mon Jul 7 2025 UxPlay maintainer <https://github.com/FDH2/UxPlay>
   Update for 1.72.2 release
 * Fri Nov 15 2024 UxPlay maintainer <https://github.com/FDH2/UxPlay>
