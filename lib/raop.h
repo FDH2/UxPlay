@@ -23,11 +23,7 @@
 #include "raop_ntp.h"
 #include "airplay_video.h"
 
-#if defined (WIN32) && defined(DLL_EXPORT)
-# define RAOP_API __declspec(dllexport)
-#else
 # define RAOP_API
-#endif
 
 #ifdef __cplusplus
 extern "C" {

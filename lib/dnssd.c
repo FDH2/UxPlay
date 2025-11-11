@@ -32,13 +32,13 @@
 #include "config.h"
 #endif
 
-#include "dnssdint.h"
-#include "dnssd.h"
-#include "global.h"
 #include "compat.h"
-#include "utils.h"
-
 #include <dns_sd.h>
+#include "dnssd.h"
+
+#include "dnssdint.h"
+#include "global.h"
+#include "utils.h"
 
 #define MAX_DEVICEID 18
 #define MAX_SERVNAME 256

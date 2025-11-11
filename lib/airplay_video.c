@@ -226,6 +226,8 @@ language_t* master_playlist_process_language(char * data, int *slices, int *lang
         }
         if (!strncmp(ptr - strlen("dubbed-auto") - 2, "dubbed-auto", strlen("dubbed-auto"))) {
             languages[i].type = 'd';
+        } else if (!strncmp(ptr - strlen("dubbed") - 2, "dubbed", strlen("dubbed"))) {
+            languages[i].type = 'd';
         } else if (!strncmp(ptr - strlen("original") - 2, "original", strlen("original"))) {
             languages[i].type = 'o';
         } else {
@@ -271,7 +273,7 @@ language_t* master_playlist_process_language(char * data, int *slices, int *lang
     /* verify expected structure of language choice information */
     for (int i = 1; i <= count; i++) {
         if (i % *language_count) {
-            assert(languages[i].type == 'd');
+            assert(languages[i].type != 'o');
         } else {
             assert(languages[i].type == 'o');
         }
