@@ -1032,11 +1032,15 @@ on certain older Nvidia cards when the image resolution changes, e.g., when the 
 is rotated between portrait and landcape modes: this was a GStreamer issue
 that is apparently now fixed (a workaround is to use d3d11)._
 
--   With Direct3D 11.0 or greater, various options can be set
+-   On Windows, with Direct3D 11.0 or greater, various options can be set
     using  e.g. `-vs "d3d11videosink <options>"` (see the gstreamer videosink
     documentation for these videosinks).
     For convenience, if no `<options>` are set, the option to
     toggle in and out of fullscreen mode with the Alt-Enter key combination is added.
+    **It is recommended that Windows users add a line `-vs d3d12videosink` in their UxPlay
+    startup file, to get this toggle option (autovideosink will usually select d3d12videosink,
+    but will not provide the toggle option**).
+
 
 The executable uxplay.exe can also be run without the MSYS2 environment,
 in the Windows Terminal, with `C:\msys64\ucrt64\bin\uxplay`.

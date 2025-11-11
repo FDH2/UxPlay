@@ -1041,12 +1041,15 @@ image resolution changes, e.g., when the iOS client is rotated between
 portrait and landcape modes: this was a GStreamer issue that is
 apparently now fixed (a workaround is to use d3d11).</em></p>
 <ul>
-<li>With Direct3D 11.0 or greater, various options can be set using
-e.g. <code>-vs "d3d11videosink &lt;options&gt;"</code> (see the
-gstreamer videosink documentation for these videosinks). For
+<li>On Windows, with Direct3D 11.0 or greater, various options can be
+set using e.g. <code>-vs "d3d11videosink &lt;options&gt;"</code> (see
+the gstreamer videosink documentation for these videosinks). For
 convenience, if no <code>&lt;options&gt;</code> are set, the option to
 toggle in and out of fullscreen mode with the Alt-Enter key combination
-is added.</li>
+is added. <strong>It is recommended that Windows users add a line
+<code>-vs d3d12videosink</code> in their UxPlay startup file, to get
+this toggle option (autovideosink will usually select d3d12videosink,
+but will not provide the toggle option</strong>).</li>
 </ul>
 <p>The executable uxplay.exe can also be run without the MSYS2
 environment, in the Windows Terminal, with
