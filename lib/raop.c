@@ -73,8 +73,10 @@ struct raop_s {
     char pk_str[2*ED25519_KEY_SIZE + 1];
 
     /* place to store media_data_store */
-    airplay_video_t *airplay_video;
-
+    airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
+    int current_video;
+    int removed_video;
+  
     /* activate support for HLS live streaming */
     bool hls_support;
 
@@ -94,7 +96,6 @@ struct raop_conn_s {
     raop_rtp_mirror_t *raop_rtp_mirror;
     fairplay_t *fairplay;
     pairing_session_t *session;
-    airplay_video_t *airplay_video;
   
     unsigned char *local;
     int locallen;
@@ -165,7 +166,6 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
 
     conn->connection_type = CONNECTION_TYPE_UNKNOWN;
     conn->client_session_id = NULL;
-    conn->airplay_video = NULL;
 
     conn->authenticated = false;
 
@@ -535,9 +535,6 @@ conn_destroy(void *ptr) {
     if (conn->client_session_id) {
         free(conn->client_session_id);
     }
-    if (conn->airplay_video) {
-        airplay_video_service_destroy(conn->airplay_video);
-    }
 
     free(conn);
 }
@@ -591,6 +588,13 @@ raop_init(raop_callbacks_t *callbacks) {
 
     /* initialize switch for display of client's streaming data records */    
     raop->clientFPSdata = 0;
+
+    /* initialize airplay_video */
+    raop->current_video = -1;
+    raop->removed_video = -1;
+    for (int i= 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        raop->airplay_video[i] = NULL;
+    }
 
     raop->audio_delay_micros = 250000;
 
@@ -816,28 +820,12 @@ void raop_remove_hls_connections(raop_t * raop) {
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_AIRPLAY);
 }
 
-airplay_video_t *deregister_airplay_video(raop_t *raop) {
-    airplay_video_t *airplay_video = raop->airplay_video;
-    raop->airplay_video = NULL;
-    return airplay_video;
-}
-
-bool register_airplay_video(raop_t *raop, airplay_video_t *airplay_video) {
-    if (raop->airplay_video) {
-        return false;
-    }
-    raop->airplay_video = airplay_video;
-    return true;
-}
-
-airplay_video_t * get_airplay_video(raop_t *raop) {
-    return raop->airplay_video;
-}
-
 void raop_destroy_airplay_video(raop_t *raop) {
-    if (raop->airplay_video) {
-        airplay_video_service_destroy(raop->airplay_video);
-        raop->airplay_video = NULL;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (raop->airplay_video[i]) {
+            airplay_video_service_destroy(raop->airplay_video[i]);
+            raop->airplay_video[i] = NULL;
+        }
     }
 }
 

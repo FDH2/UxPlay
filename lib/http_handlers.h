@@ -84,8 +84,28 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     /* initialize the airplay video service */
     const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
 
-    airplay_video_service_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
+    int id = -1;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (conn->raop->airplay_video[i]) {
+            continue;
+        }
+        id = i;
+        break;
+    }
+    if (id == -1) {
+        logger_log(conn->raop->logger, LOGGER_ERR, "no unused airplay_video structures are available"
+                  " MAX_AIRPLAY_VIDEO = %d\n", MAX_AIRPLAY_VIDEO);
+        exit(1);
+    }
 
+    airplay_video_t *airplay_video = airplay_video_service_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
+    if (airplay_video) {
+        conn->raop->current_video = id;
+        conn->raop->airplay_video[id] = airplay_video;
+    } else {
+        logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
+        exit(-1);
+    }
 }
 
 static void
@@ -123,7 +143,7 @@ http_handler_rate(raop_conn_t *conn, http_request_t *request, http_response_t *r
         float value = strtof(rate, &end);
         if (end && end != rate) {
             rate_value =  value;
-            logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_rate: got rate = %.6f", rate_value);	  
+            logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_rate: got rate = %.6f", rate_value);
         }
     }
     conn->raop->callbacks.on_video_rate(conn->raop->callbacks.cls, rate_value);
@@ -360,6 +380,7 @@ static void
 http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                     char **response_data, int *response_datalen) {
 
+    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     bool data_is_plist = false;
     plist_t req_root_node = NULL;
     uint64_t uint_val;
@@ -372,7 +393,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         logger_log(conn->raop->logger, LOGGER_ERR, "Play request had no X-Apple-Session-ID");
         goto post_action_error;
     }    
-    const char *apple_session_id = get_apple_session_id(conn->raop->airplay_video);
+    const char *apple_session_id = get_apple_session_id(airplay_video);
     if (strcmp(session_id, apple_session_id)){
         logger_log(conn->raop->logger, LOGGER_ERR, "X-Apple-Session-ID has changed:\n  was:\"%s\"\n  now:\"%s\"",
                    apple_session_id, session_id);
@@ -433,7 +454,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
             char* remove_uuid = NULL;
             plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
-            const char *playback_uuid = get_playback_uuid(conn->raop->airplay_video);
+            const char *playback_uuid = get_playback_uuid(airplay_video);
             if (strcmp(remove_uuid, playback_uuid)) {
                 logger_log(conn->raop->logger, LOGGER_ERR, "uuid of playlist removal action request did not match current playlist:\n"
                            "   current: %s\n   remove: %s", playback_uuid, remove_uuid);
@@ -557,25 +578,25 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     char *ptr = strstr(fcup_response_url, "/master.m3u8");
     if (ptr) {
       	/* this is a master playlist */
-        char *uri_prefix = get_uri_prefix(conn->raop->airplay_video);
+        char *uri_prefix = get_uri_prefix(airplay_video);
         char ** media_data_store = NULL;
         int num_uri = 0;
 
-        char *uri_local_prefix = get_uri_local_prefix(conn->raop->airplay_video);
+        char *uri_local_prefix = get_uri_local_prefix(airplay_video);
         char *new_master = adjust_master_playlist (fcup_response_data, fcup_response_datalen,  uri_prefix, uri_local_prefix);
-        store_master_playlist(conn->raop->airplay_video, new_master);
+        store_master_playlist(airplay_video, new_master);
         create_media_uri_table(uri_prefix, fcup_response_data, fcup_response_datalen, &media_data_store, &num_uri);	
-        create_media_data_store(conn->raop->airplay_video, media_data_store, num_uri);  
-        num_uri =  get_num_media_uri(conn->raop->airplay_video);
-        set_next_media_uri_id(conn->raop->airplay_video, 0);
+        create_media_data_store(airplay_video, media_data_store, num_uri);  
+        num_uri =  get_num_media_uri(airplay_video);
+        set_next_media_uri_id(airplay_video, 0);
     } else {
         /* this is a media playlist */
         assert(fcup_response_data);
         char *playlist = (char *) calloc(fcup_response_datalen + 1, sizeof(char));
         memcpy(playlist, fcup_response_data, fcup_response_datalen);
-        int uri_num = get_next_media_uri_id(conn->raop->airplay_video);
+        int uri_num = get_next_media_uri_id(airplay_video);
         --uri_num;    // (next num is current num + 1)
-        store_media_playlist(conn->raop->airplay_video, playlist, uri_num);
+        store_media_playlist(airplay_video, playlist, uri_num);
         float duration = 0.0f;
         int count = analyze_media_playlist(playlist, &duration);
         if (count) {
@@ -590,18 +611,18 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     }
     plist_mem_free(fcup_response_url);
 
-    int num_uri = get_num_media_uri(conn->raop->airplay_video);
-    int uri_num = get_next_media_uri_id(conn->raop->airplay_video);
+    int num_uri = get_num_media_uri(airplay_video);
+    int uri_num = get_next_media_uri_id(airplay_video);
     if (uri_num <  num_uri) {
-        fcup_request((void *) conn, get_media_uri_by_num(conn->raop->airplay_video, uri_num),
-                                                  apple_session_id,
-                                                  get_next_FCUP_RequestID(conn->raop->airplay_video));
-        set_next_media_uri_id(conn->raop->airplay_video, ++uri_num);
+        fcup_request((void *) conn, get_media_uri_by_num(airplay_video, uri_num),
+                                                         apple_session_id,
+                                                         get_next_FCUP_RequestID(airplay_video));
+        set_next_media_uri_id(airplay_video, ++uri_num);
     } else {
-        char * uri_local_prefix = get_uri_local_prefix(conn->raop->airplay_video);
+        char * uri_local_prefix = get_uri_local_prefix(airplay_video);
         conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
-					    strcat(uri_local_prefix, "/master.m3u8"),
-                                            get_start_position_seconds(conn->raop->airplay_video));
+                                            strcat(uri_local_prefix, "/master.m3u8"),
+                                            get_start_position_seconds(airplay_video));
     }
 
  finish:
@@ -626,6 +647,7 @@ static void
 http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen) {
 
+    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     char* playback_location = NULL;
     char* client_proc_name = NULL;
     plist_t req_root_node = NULL;
@@ -642,7 +664,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         logger_log(conn->raop->logger, LOGGER_ERR, "Play request had no X-Apple-Session-ID");
         goto play_error;
     }
-    const char *apple_session_id = get_apple_session_id(conn->raop->airplay_video);
+    const char *apple_session_id = get_apple_session_id(airplay_video);
     if (strcmp(session_id, apple_session_id)){
         logger_log(conn->raop->logger, LOGGER_ERR, "X-Apple-Session-ID has changed:\n  was:\"%s\"\n  now:\"%s\"",
                    apple_session_id, session_id);
@@ -684,7 +706,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         } else {
             char* playback_uuid = NULL;
             plist_get_string_val(req_uuid_node, &playback_uuid);
-            set_playback_uuid(conn->raop->airplay_video, playback_uuid);
+            set_playback_uuid(airplay_video, playback_uuid);
             plist_mem_free (playback_uuid);
         }
 
@@ -715,7 +737,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
              plist_get_real_val(req_start_position_seconds_node, &start_position);
              start_position_seconds = (float) start_position;
         }
-        set_start_position_seconds(conn->raop->airplay_video, (float) start_position_seconds);
+        set_start_position_seconds(airplay_video, (float) start_position_seconds);
     }
 
     char *ptr = strstr(playback_location, "/master.m3u8");
@@ -724,9 +746,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         goto play_error;
     }
     int prefix_len =  (int) (ptr - playback_location);
-    set_uri_prefix(conn->raop->airplay_video, playback_location, prefix_len);
-    set_next_media_uri_id(conn->raop->airplay_video, 0);
-    fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(conn->raop->airplay_video));
+    set_uri_prefix(airplay_video, playback_location, prefix_len);
+    set_next_media_uri_id(airplay_video, 0);
+    fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
     plist_mem_free(playback_location);
 
@@ -757,6 +779,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 static void
 http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *response,
                  char **response_data, int *response_datalen) {
+    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     const char *method = http_request_get_method(request);
     assert (!strcmp(method, "GET"));
     const char *url = http_request_get_url(request);    
@@ -772,7 +795,7 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
     }
 
     if (!strcmp(url, "/master.m3u8")){
-        char * master_playlist  = get_master_playlist(conn->raop->airplay_video);
+        char * master_playlist  = get_master_playlist(airplay_video);
         if (master_playlist) {
             size_t len = strlen(master_playlist);
             char * data = (char *) malloc(len + 1);
@@ -786,7 +809,7 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         }
 
     } else {
-        char *media_playlist = get_media_playlist(conn->raop->airplay_video, url);
+        char *media_playlist = get_media_playlist(airplay_video, url);
         if (media_playlist) {
             char *data  = adjust_yt_condensed_playlist(media_playlist);
             *response_data = data;

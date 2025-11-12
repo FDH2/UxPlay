@@ -52,21 +52,17 @@ struct airplay_video_s {
 };
 
 //  initialize airplay_video service.
-int airplay_video_service_init(raop_t *raop, unsigned short http_port,
+airplay_video_t *airplay_video_service_init(raop_t *raop, unsigned short http_port,
                                const char *lang, const char *session_id) {
     char uri[] = "http://localhost:xxxxx";
     assert(raop);
 
-    airplay_video_t *airplay_video = deregister_airplay_video(raop);
-    if (airplay_video) {
-        airplay_video_service_destroy(airplay_video);
-    }
-
     /* calloc guarantees that the 36-character strings apple_session_id and 
        playback_uuid are null-terminated */
-    airplay_video =  (airplay_video_t *) calloc(1, sizeof(airplay_video_t));
+    airplay_video_t *airplay_video =  (airplay_video_t *) calloc(1, sizeof(airplay_video_t));
+
     if (!airplay_video) {
-        return -1;
+        return NULL;
     }
 
     airplay_video->lang = lang;
@@ -77,10 +73,6 @@ int airplay_video_service_init(raop_t *raop, unsigned short http_port,
     ptr = strstr(airplay_video->local_uri_prefix, " ");
     if (ptr) {
         *ptr = '\0';
-    }
-
-    if (!register_airplay_video(raop, airplay_video)) {
-        return -2;
     }
 
     //printf(" %p %p\n", airplay_video, get_airplay_video(raop));
@@ -99,7 +91,7 @@ int airplay_video_service_init(raop_t *raop, unsigned short http_port,
     airplay_video->master_playlist = NULL;
     airplay_video->num_uri = 0;
     airplay_video->next_uri = 0;
-    return 0;
+    return airplay_video;
 }
 
 // destroy the airplay_video service

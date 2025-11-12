@@ -23,7 +23,8 @@
 #include "raop_ntp.h"
 #include "airplay_video.h"
 
-# define RAOP_API
+#define RAOP_API
+#define MAX_AIRPLAY_VIDEO 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -104,11 +105,8 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-int airplay_video_service_init(raop_t *raop, unsigned short port, const char *lang, const char *session_id);
-bool register_airplay_video(raop_t *raop, airplay_video_t *airplay_video);
+airplay_video_t *airplay_video_service_init(raop_t *raop, unsigned short port, const char *lang, const char *session_id);
 char *raop_get_lang(raop_t *raop);
-airplay_video_t *get_airplay_video(raop_t *raop);
-airplay_video_t *deregister_airplay_video(raop_t *raop);
 uint64_t get_local_time();
 
 RAOP_API raop_t *raop_init(raop_callbacks_t *callbacks);
