@@ -52,7 +52,7 @@ char *get_media_playlist(airplay_video_t *airplay_video, const char *uri);
 void destroy_media_data_store(airplay_video_t *airplay_video);
 void create_media_data_store(airplay_video_t * airplay_video, char ** media_data_store, int num_uri);
 
-void airplay_video_service_destroy(airplay_video_t *airplay_video);
+void airplay_video_destroy(airplay_video_t *airplay_video);
 
 //  C wrappers for c++ class MediaDataStore
 //create the media_data_store, return a pointer to it.

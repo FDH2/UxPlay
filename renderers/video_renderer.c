@@ -23,6 +23,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
+#include "../lib/raop.h"
 
 #define SECOND_IN_NSECS 1000000000UL
 #define SECOND_IN_MICROSECS 1000000
@@ -76,6 +77,7 @@ typedef enum {
 } GstPlayFlags;
 
 #define NCODECS  3   /* renderers for h264,h265, and jpeg images */
+static raop_t * raop = NULL;
 
 struct video_renderer_s {
     GstElement *appsrc, *pipeline;
@@ -229,6 +231,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
     hls_video = (uri != NULL);
+    raop = NULL;
     /* videosink choices that are auto */
     auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
 
@@ -310,7 +313,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             flags |= GST_PLAY_FLAG_DOWNLOAD;
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
-            g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
+            //g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
         } else {
             bool jpeg_pipeline = false;
             if (i == type_264) {
@@ -472,10 +475,12 @@ void video_renderer_resume() {
     }
 }
 
-void video_renderer_start() {
+void video_renderer_start( void * opaque, const char * uri) {
     GstState state;
     const gchar *state_name;
     if (hls_video) {
+        raop = (raop_t *) opaque;
+        g_object_set (G_OBJECT (renderer->pipeline), "uri", uri, NULL);
         gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
 	gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
 	state_name = gst_element_state_get_name(state);
@@ -483,6 +488,7 @@ void video_renderer_start() {
         return;
     } 
     /* when not hls, start both h264 and h265 pipelines; will shut down the "wrong" one when we know the codec */
+    raop = NULL;
     for (int i = 0; i < n_renderers; i++) {
         gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_PAUSED);
         gst_element_get_state(renderer_type[i]->pipeline, &state, NULL, 1000 * GST_MSECOND);

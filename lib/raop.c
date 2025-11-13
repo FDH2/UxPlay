@@ -657,7 +657,7 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
 void
 raop_destroy(raop_t *raop) {
     if (raop) {
-        raop_destroy_airplay_video(raop);
+        raop_destroy_airplay_video(raop, -1);
         raop_stop_httpd(raop);
         pairing_destroy(raop->pairing);
         httpd_destroy(raop->httpd);
@@ -820,10 +820,14 @@ void raop_remove_hls_connections(raop_t * raop) {
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_AIRPLAY);
 }
 
-void raop_destroy_airplay_video(raop_t *raop) {
+void raop_destroy_airplay_video(raop_t *raop, int id) {
+    assert (id < MAX_AIRPLAY_VIDEO);
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (id >= 0 && id != i) {
+            continue;
+        }
         if (raop->airplay_video[i]) {
-            airplay_video_service_destroy(raop->airplay_video[i]);
+            airplay_video_destroy(raop->airplay_video[i]);
             raop->airplay_video[i] = NULL;
         }
     }

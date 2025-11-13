@@ -52,7 +52,7 @@ struct airplay_video_s {
 };
 
 //  initialize airplay_video service.
-airplay_video_t *airplay_video_service_init(raop_t *raop, unsigned short http_port,
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
                                const char *lang, const char *session_id) {
     char uri[] = "http://localhost:xxxxx";
     assert(raop);
@@ -96,7 +96,7 @@ airplay_video_t *airplay_video_service_init(raop_t *raop, unsigned short http_po
 
 // destroy the airplay_video service
 void
-airplay_video_service_destroy(airplay_video_t *airplay_video)
+airplay_video_destroy(airplay_video_t *airplay_video)
 {
 
     if (airplay_video->uri_prefix) {

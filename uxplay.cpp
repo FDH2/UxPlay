@@ -2048,7 +2048,7 @@ extern "C" void video_reset(void *cls, bool hls_shutdown) {
     video_renderer_stop();
     if (hls_shutdown) {
         url.erase();
-        raop_destroy_airplay_video(raop);
+        raop_destroy_airplay_video(raop, -1);
         raop_remove_hls_connections(raop);
         preserve_connections = true;
     }
@@ -2978,11 +2978,11 @@ int main (int argc, char *argv[]) {
         LOGI("audio_disabled");
     }
     if (use_video) {
-      video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
+        video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
                             render_coverart, playbin_version, NULL);
-        video_renderer_start();
+        video_renderer_start(NULL, NULL);
 #ifdef __OpenBSD__
     } else {
         if (pledge("stdio rpath wpath cpath inet unix prot_exec", NULL) == -1) {
@@ -3075,7 +3075,7 @@ int main (int argc, char *argv[]) {
         if (use_video && (close_window || preserve_connections)) {
             video_renderer_destroy();
             if (!preserve_connections) {
-                raop_destroy_airplay_video(raop);
+                raop_destroy_airplay_video(raop, -1);
                 url.erase();
                 raop_remove_known_connections(raop);
             }
@@ -3084,7 +3084,7 @@ int main (int argc, char *argv[]) {
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
-            video_renderer_start();
+            video_renderer_start((void *) raop, uri);
         }
         if (reset_httpd) {
             unsigned short port = raop_get_port(raop);

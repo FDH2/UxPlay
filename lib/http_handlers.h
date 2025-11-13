@@ -98,7 +98,7 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
         exit(1);
     }
 
-    airplay_video_t *airplay_video = airplay_video_service_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
+    airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
     if (airplay_video) {
         conn->raop->current_video = id;
         conn->raop->airplay_video[id] = airplay_video;
