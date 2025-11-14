@@ -443,8 +443,7 @@ char * get_media_uri_by_num(airplay_video_t *airplay_video, int num) {
     return NULL;
 }
 
-#if 0
-int analyze_media_playlist_old(char *playlist, float *duration) {
+int analyze_media_playlist(char *playlist, float *duration) {
     float next;
     int count = 0;
     char *ptr = strstr(playlist, "#EXTINF:");
@@ -456,34 +455,6 @@ int analyze_media_playlist_old(char *playlist, float *duration) {
         *duration += next;
         count++;
         ptr = strstr(end, "#EXTINF:");
-    }
-    return count;
-}
-#endif
-
-int analyze_media_playlist(char *playlist, float *duration) {
-    *duration = 0.0f;;
-    int count = 0;
-    int len_playlist = strlen(playlist);
-    char target[] = "#EXTINF:";
-    int len_target = strlen(target);
-    int len = len_playlist -  len_target;
-    char *ptr = playlist;
-    int i = 0;
-    while (i < len) {
-        char *endptr;
-        float next;
-        if (strncmp(ptr, target, len_target)) {
-            i++;
-	    ptr++;
-	    continue;
-        }
-        i +=  len_target;
-        ptr += len_target;
-        next = strtof(ptr, &endptr);
-        assert(endptr > ptr);
-        *duration += next;
-        count++;	    
     }
     return count;
 }
