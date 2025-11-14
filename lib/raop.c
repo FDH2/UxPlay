@@ -33,6 +33,18 @@
 #include "raop_rtp_mirror.h"
 #include "raop_ntp.h"
 
+static void
+plist_mem_free_wrapper(char * plist_ptr) {
+    /* wrapper for plist_mem_free, only available since libplist 2.3.0 */
+    if (plist_ptr) {
+#ifdef PLIST_230
+        plist_mem_free (plst_ptr);
+#else
+        free (plist_ptr);
+#endif
+    }
+}
+
 struct raop_s {
     /* Callbacks for audio and video */
     raop_callbacks_t callbacks;

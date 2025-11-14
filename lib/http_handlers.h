@@ -376,19 +376,6 @@ http_handler_reverse(raop_conn_t *conn, http_request_t *request, http_response_t
  listed in the Master Playlist.     The POST /action request contains the playlist requested by the Server in
  the preceding "FCUP Request".   The FCUP Request sequence  continues until all Media Playlists have been obtained by the Server */ 
 
-
-static void
-plist_mem_free_wrapper(char * plist_ptr) {
-    /* wrapper for plist_mem_free, only available since libplist 2.3.0 */
-    if (plist_ptr) {
-#ifdef PLIST_230
-        plist_mem_free (plst_ptr);
-#else
-        free (plist_ptr);
-#endif
-    }
-}
-
 static void
 http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                     char **response_data, int *response_datalen) {
@@ -504,7 +491,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
             if (plist_xml) {
 #ifdef PLIST_230
-                plist_mem_free(plist_xml);
+                plist_mem_free_wrapper(plist_xml);
 #else
                 plist_to_xml_free(plist_xml);
 #endif
@@ -570,52 +557,55 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     plist_get_data_val(req_params_fcup_response_data_node, &fcup_response_data, &uint_val);
     fcup_response_datalen = (int) uint_val;
 
+    char *playlist = NULL;
     if (!fcup_response_data) {
 	goto post_action_error;
-    } 
-
-    if (logger_debug) {
-        logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response datalen =  %d", fcup_response_datalen);
-        char *data = malloc(fcup_response_datalen + 1);
-        memcpy(data, fcup_response_data, fcup_response_datalen);
-        data[fcup_response_datalen] = '\0';
-        logger_log(conn->raop->logger, LOGGER_DEBUG, "begin FCUP Response data:\n%s\nend FCUP Response data",data);
-        free (data);
+    } else {
+      playlist = (char *) malloc(fcup_response_datalen + 1);
+      playlist[fcup_response_datalen] = '\0';
+      memcpy(playlist, fcup_response_data, fcup_response_datalen);
+      plist_mem_free_wrapper(fcup_response_data);
     }
-
+    assert(playlist);
+    int playlist_len = strlen(playlist);
+    
+    if (logger_debug) {
+        logger_log(conn->raop->logger, LOGGER_DEBUG, "begin FCUP Response data:\n%s\nend FCUP Response data", playlist);
+    }
 
     char *ptr = strstr(fcup_response_url, "/master.m3u8");
     if (ptr) {
       	/* this is a master playlist */
         char *uri_prefix = get_uri_prefix(airplay_video);
-        char ** media_data_store = NULL;
+        char ** uri_list = NULL;
         int num_uri = 0;
-
         char *uri_local_prefix = get_uri_local_prefix(airplay_video);
-        char *new_master = adjust_master_playlist (fcup_response_data, fcup_response_datalen,  uri_prefix, uri_local_prefix);
+	playlist = select_master_playlist_language(airplay_video, playlist);
+	playlist_len = strlen(playlist);
+        create_media_uri_table(uri_prefix, playlist, playlist_len, &uri_list, &num_uri);	
+        char *new_master = adjust_master_playlist (playlist, playlist_len,  uri_prefix, uri_local_prefix);
+        free(playlist);
         store_master_playlist(airplay_video, new_master);
-        create_media_uri_table(uri_prefix, fcup_response_data, fcup_response_datalen, &media_data_store, &num_uri);	
-        create_media_data_store(airplay_video, media_data_store, num_uri);  
+        create_media_data_store(airplay_video, uri_list, num_uri);
+        free (uri_list);
         num_uri =  get_num_media_uri(airplay_video);
         set_next_media_uri_id(airplay_video, 0);
     } else {
         /* this is a media playlist */
-        assert(fcup_response_data);
-        char *playlist = (char *) calloc(fcup_response_datalen + 1, sizeof(char));
-        memcpy(playlist, fcup_response_data, fcup_response_datalen);
-        int uri_num = get_next_media_uri_id(airplay_video);
-        --uri_num;    // (next num is current num + 1)
-        store_media_playlist(airplay_video, playlist, uri_num);
         float duration = 0.0f;
         int count = analyze_media_playlist(playlist, &duration);
-        if (count) {
-        logger_log(conn->raop->logger, LOGGER_DEBUG,
-                   "\n%s:\nreceived media playlist has %5d chunks, total duration %9.3f secs\n",
-                    fcup_response_url, count, duration);
+	int uri_num = get_next_media_uri_id(airplay_video);
+        --uri_num;    // (next num is current num + 1)
+        int ret = store_media_playlist(airplay_video, playlist, &count, &duration, uri_num);
+	if (ret == 1) {
+            logger_log(conn->raop->logger, LOGGER_DEBUG,"media_playlist is a duplicate: do not store");
+        } else if (count) {
+            logger_log(conn->raop->logger, LOGGER_DEBUG,
+                       "\n%s:\nreceived media playlist has %5d chunks, total duration %9.3f secs\n",
+                        fcup_response_url, count, duration);
         }
     }
 
-    plist_mem_free_wrapper(fcup_response_data);
     plist_mem_free_wrapper(fcup_response_url);
 
     int num_uri = get_num_media_uri(airplay_video);
@@ -715,7 +705,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
             char* playback_uuid = NULL;
             plist_get_string_val(req_uuid_node, &playback_uuid);
             set_playback_uuid(airplay_video, playback_uuid);
-            plist_mem_free (playback_uuid);
+            plist_mem_free_wrapper (playback_uuid);
         }
 
         plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
@@ -734,7 +724,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
                 logger_log(conn->raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
                            client_proc_name, supported_hls_proc_names);
             }
-	    plist_mem_free(client_proc_name);
+	    plist_mem_free_wrapper(client_proc_name);
         }
 	
         plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
@@ -758,7 +748,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     set_next_media_uri_id(airplay_video, 0);
     fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
-    plist_mem_free(playback_location);
+    plist_mem_free_wrapper(playback_location);
 
     if (req_root_node) {
         plist_free(req_root_node);
@@ -766,7 +756,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     return;
 
  play_error:;
-    plist_mem_free(playback_location);
+    plist_mem_free_wrapper(playback_location);
     if (req_root_node) {
         plist_free(req_root_node);
     }
@@ -817,19 +807,20 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         }
 
     } else {
-        char *media_playlist = get_media_playlist(airplay_video, url);
+        int chunks;
+        float duration;
+        char *media_playlist = get_media_playlist(airplay_video, &chunks, &duration, url);
         if (media_playlist) {
             char *data  = adjust_yt_condensed_playlist(media_playlist);
             *response_data = data;
             *response_datalen = strlen(data);
-            float duration = 0.0f;
-            int chunks = analyze_media_playlist(data, &duration);
             logger_log(conn->raop->logger, LOGGER_INFO,
                        "Requested media_playlist %s has %5d chunks, total duration %9.3f secs", url, chunks, duration); 
         } else {
             logger_log(conn->raop->logger, LOGGER_ERR,"requested media playlist %s not found", url); 
             *response_datalen = 0;
         }
+	    
     }
 
     http_response_add_header(response, "Access-Control-Allow-Headers", "Content-type");

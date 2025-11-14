@@ -30,6 +30,8 @@ struct media_item_s {
   char *uri;
   char *playlist;
   int num;
+  int count;
+  float duration;
 };
 
 struct airplay_video_s {
@@ -170,6 +172,13 @@ int get_next_media_uri_id(airplay_video_t *airplay_video) {
     return airplay_video->next_uri;
 }
 
+void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist) {
+    if (airplay_video->master_playlist) {
+        free (airplay_video->master_playlist);
+    }
+    airplay_video->master_playlist = master_playlist;
+}
+
 typedef struct language_s {
     char *start;
     int len;
@@ -277,16 +286,12 @@ language_t* master_playlist_process_language(char * data, int *slices, int *lang
     return languages;
 }
 
-void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist) {
+char * select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist) {
     int language_count, slices;  
-    if (airplay_video->master_playlist) {
-        free (airplay_video->master_playlist);
-    }
-    airplay_video->master_playlist = master_playlist;
     language_t *languages;
-    if (!(languages = master_playlist_process_language(airplay_video->master_playlist,
+    if (!(languages = master_playlist_process_language(master_playlist,
                                                        &slices, &language_count))) {
-        return;
+        return master_playlist;
     }
     /* audio is offered in multiple languages */ 
     char *str = calloc(6 * language_count, sizeof(char));
@@ -342,8 +347,8 @@ void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist
             len += languages[i].len;	
         }
     }
-    airplay_video->master_playlist = (char *) calloc(len + 1, sizeof(char));
-    ptr = airplay_video->master_playlist;
+    char *new_master_playlist = (char *) calloc(len + 1, sizeof(char));
+    ptr = new_master_playlist;
     for (int i = 0; i < slices; i++) {
         if (strlen(languages[i].code) == 0 || !strcmp(languages[i].code, lang)) {
             strncpy(ptr, languages[i].start, languages[i].len);
@@ -352,6 +357,7 @@ void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist
     }
     free (languages);
     free(master_playlist);
+    return new_master_playlist;
 }
 
 char *get_master_playlist(airplay_video_t *airplay_video) {
@@ -392,13 +398,14 @@ void create_media_data_store(airplay_video_t * airplay_video, char ** uri_list, 
     airplay_video->num_uri = num_uri;
 }
 
-int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, int num) {
+int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, int *count, float *duration, int num) {
     media_item_t *media_data_store = airplay_video->media_data_store;
     if ( num < 0 ||  num >= airplay_video->num_uri) {
         return -1;
     } else if (media_data_store[num].playlist) {
         return -2;
     }
+    /* dont store duplicate media paylists */
     for (int i = 0; i < num ; i++) {
         if (strcmp(media_data_store[i].uri, media_data_store[num].uri) == 0) {
             assert(strcmp(media_data_store[i].playlist, media_playlist) == 0);
@@ -408,16 +415,20 @@ int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, 
         }
     }
     media_data_store[num].playlist = media_playlist;
+    media_data_store[num].count = *count;
+    media_data_store[num].duration = *duration;
     return 0;
 }
 
-char * get_media_playlist(airplay_video_t *airplay_video, const char *uri) {
+char * get_media_playlist(airplay_video_t *airplay_video, int *count, float *duration, const char *uri) {
     media_item_t *media_data_store = airplay_video->media_data_store;
     if (media_data_store == NULL) {
         return NULL;
     }
     for (int i = 0; i < airplay_video->num_uri; i++) {
         if (strstr(media_data_store[i].uri, uri)) {
+            *count = media_data_store[media_data_store[i].num].count;
+            *duration = media_data_store[media_data_store[i].num].duration;
             return media_data_store[media_data_store[i].num].playlist;
         }
     }
@@ -432,7 +443,8 @@ char * get_media_uri_by_num(airplay_video_t *airplay_video, int num) {
     return NULL;
 }
 
-int analyze_media_playlist(char *playlist, float *duration) {
+#if 0
+int analyze_media_playlist_old(char *playlist, float *duration) {
     float next;
     int count = 0;
     char *ptr = strstr(playlist, "#EXTINF:");
@@ -444,6 +456,34 @@ int analyze_media_playlist(char *playlist, float *duration) {
         *duration += next;
         count++;
         ptr = strstr(end, "#EXTINF:");
+    }
+    return count;
+}
+#endif
+
+int analyze_media_playlist(char *playlist, float *duration) {
+    *duration = 0.0f;;
+    int count = 0;
+    int len_playlist = strlen(playlist);
+    char target[] = "#EXTINF:";
+    int len_target = strlen(target);
+    int len = len_playlist -  len_target;
+    char *ptr = playlist;
+    int i = 0;
+    while (i < len) {
+        char *endptr;
+        float next;
+        if (strncmp(ptr, target, len_target)) {
+            i++;
+	    ptr++;
+	    continue;
+        }
+        i +=  len_target;
+        ptr += len_target;
+        next = strtof(ptr, &endptr);
+        assert(endptr > ptr);
+        *duration += next;
+        count++;	    
     }
     return count;
 }
