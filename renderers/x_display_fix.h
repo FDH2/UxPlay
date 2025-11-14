@@ -48,15 +48,23 @@ static void get_X11_Display(X11_Window_t * X11, char *display_name) {
     X11->window = (Window) NULL;
 }
 
+static int free_X11_Display(X11_Window_t *X11) {
+    XCloseDisplay(X11->display);
+}
+
+  
 static Window enum_windows(const char * str, Display * display, Window window, int depth) {
     int i;
-    XTextProperty text;
-    XGetWMName(display, window, &text);
     char* name = NULL;
     XFetchName(display, window, &name);
-    if (name != 0 &&  strcmp(str, name) == 0) {
-        return window;
+    if (name) {
+        if (strcmp(str, name) == 0) {
+            XFree(name);
+            return window;
+        }
+        XFree(name);
     }
+
     Window _root, parent;
     Window* children = NULL;
     unsigned int n;
@@ -64,7 +72,10 @@ static Window enum_windows(const char * str, Display * display, Window window, i
     if (children != NULL) {
         for (i = 0; i < n; i++) {
             Window w = enum_windows(str, display, children[i], depth + 1);
-            if (w) return w;
+            if (w) {
+                XFree(children);
+                return w;
+            }
         }
         XFree(children);
     }

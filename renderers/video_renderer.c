@@ -670,7 +670,8 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         gst_object_unref(renderer->bus);
         gst_object_unref(renderer->pipeline);
 #ifdef X_DISPLAY_FIX
-        if (renderer->gst_window) {
+        if (renderer->gst_window){
+            free_X11_Display(renderer->gst_window);
             free(renderer->gst_window);
             renderer->gst_window = NULL;
         }
