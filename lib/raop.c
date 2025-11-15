@@ -33,17 +33,15 @@
 #include "raop_rtp_mirror.h"
 #include "raop_ntp.h"
 
-static void
-plist_mem_free_wrapper(char * plist_ptr) {
-    /* wrapper for plist_mem_free, only available since libplist 2.3.0 */
-    if (plist_ptr) {
-#ifdef PLIST_230
-        plist_mem_free (plist_ptr);
-#else
-        free (plist_ptr);
-#endif
+
+/* libplist-2.3.0  API change */
+#ifndef PLIST_230
+static void plist_mem_free(void *ptr) {
+    if (ptr) {
+        free (ptr);
     }
 }
+#endif
 
 struct raop_s {
     /* Callbacks for audio and video */
@@ -351,11 +349,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                         free(stripped_xml);
                     }
                     if (plist_xml) {
-#ifdef PLIST_230
                         plist_mem_free(plist_xml);
-#else
-                        plist_to_xml_free(plist_xml);
-#endif
                     }
                     plist_free(req_root_node);
                 } else if (data_is_text) {
@@ -499,11 +493,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                     free(stripped_xml);
                 }
                 if (plist_xml) {
-#ifdef PLIST_230
                     plist_mem_free(plist_xml);
-#else
-                    plist_to_xml_free(plist_xml);
-#endif
                 }
                 plist_free(res_root_node);
             } else if (data_is_text) {

@@ -80,7 +80,7 @@ raop_handler_info(raop_conn_t *conn,
             } else if (!strcmp(qualifier_string, txtRAOP)) {
                 add_txt_raop = true;
             }
-            plist_mem_free_wrapper(qualifier_string);
+            plist_mem_free(qualifier_string);
         }
         plist_free(req_root_node);
     }
@@ -321,7 +321,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
 	    plist_free (req_root_node);
             return;
         }
-        plist_mem_free_wrapper(method);
+        plist_mem_free(method);
         method = NULL;
         plist_get_string_val(req_user_node, &user);
         logger_log(conn->raop->logger, LOGGER_INFO, "pair-setup-pin:  device_id = %s", user);
@@ -331,7 +331,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         }
         int ret = srp_new_user(conn->session, conn->raop->pairing, (const char *) user,
                                (const char *) pin, &salt, &len_salt, &pk, &len_pk);
-        plist_mem_free_wrapper(user);
+        plist_mem_free(user);
         user = NULL;
         plist_free(req_root_node);
         if (ret < 0) {
@@ -754,11 +754,11 @@ raop_handler_setup(raop_conn_t *conn,
                 free (client_pk);
             }
         }
-        plist_mem_free_wrapper(deviceID);
+        plist_mem_free(deviceID);
         deviceID = NULL;
-        plist_mem_free_wrapper(model);
+        plist_mem_free(model);
         model = NULL;
-        plist_mem_free_wrapper(name);
+        plist_mem_free(name);
         name = NULL;
         if (admit_client == false) {
             /* client is not authorized to connect */
@@ -871,7 +871,7 @@ raop_handler_setup(raop_conn_t *conn,
                  logger_log(conn->raop->logger, LOGGER_ERR, "Client specified timingProtocol=%s,"
                             " but timingProtocol= NTP is required here", timing_protocol);
              }
-             plist_mem_free_wrapper (timing_protocol);
+             plist_mem_free (timing_protocol);
              timing_protocol = NULL;
         } else {
             logger_log(conn->raop->logger, LOGGER_DEBUG, "Client did not specify timingProtocol,"
@@ -1170,7 +1170,7 @@ raop_handler_audiomode(raop_conn_t *conn,
     /* not sure what should be done with this request: usually audioMode requested is "default" */
     int log_level = (strstr(audiomode, "default") ? LOGGER_DEBUG : LOGGER_INFO);
     logger_log(conn->raop->logger, log_level, "Unhandled RTSP request \"audioMode: %s\"", audiomode);
-    plist_mem_free_wrapper(audiomode);
+    plist_mem_free(audiomode);
     plist_free(req_root_node);
 }
 

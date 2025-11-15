@@ -434,7 +434,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     bool unhandled_url_response = strstr(type, "unhandledURLResponse");
     bool playlist_remove = strstr(type, "playlistRemove");
     bool playlist_insert = strstr(type, "playlistInsert");
-    plist_mem_free_wrapper(type);
+    plist_mem_free(type);
     if (unhandled_url_response) {
         goto unhandledURLResponse;      
     } else if (playlist_remove) {
@@ -460,7 +460,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             } else {
                 logger_log(conn->raop->logger, LOGGER_DEBUG, "removal_uuid matches playback_uuid\n");
             }
-            plist_mem_free_wrapper (remove_uuid);
+            plist_mem_free (remove_uuid);
         }
         goto finish;
     } else if (playlist_insert) {
@@ -490,7 +490,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
             if (plist_xml) {
 #ifdef PLIST_230
-                plist_mem_free_wrapper(plist_xml);
+                plist_mem_free(plist_xml);
 #else
                 plist_to_xml_free(plist_xml);
 #endif
@@ -563,7 +563,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
       playlist = (char *) malloc(fcup_response_datalen + 1);
       playlist[fcup_response_datalen] = '\0';
       memcpy(playlist, fcup_response_data, fcup_response_datalen);
-      plist_mem_free_wrapper(fcup_response_data);
+      plist_mem_free(fcup_response_data);
     }
     assert(playlist);
     int playlist_len = strlen(playlist);
@@ -605,7 +605,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         }
     }
 
-    plist_mem_free_wrapper(fcup_response_url);
+    plist_mem_free(fcup_response_url);
 
     int num_uri = get_num_media_uri(airplay_video);
     int uri_num = get_next_media_uri_id(airplay_video);
@@ -626,7 +626,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     return;
 
  post_action_error:;
-    plist_mem_free_wrapper(fcup_response_url);
+    plist_mem_free(fcup_response_url);
     http_response_init(response, "HTTP/1.1", 400, "Bad Request");
 
     if (req_root_node)  {
@@ -704,7 +704,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
             char* playback_uuid = NULL;
             plist_get_string_val(req_uuid_node, &playback_uuid);
             set_playback_uuid(airplay_video, playback_uuid);
-            plist_mem_free_wrapper (playback_uuid);
+            plist_mem_free (playback_uuid);
         }
 
         plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
@@ -723,7 +723,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
                 logger_log(conn->raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
                            client_proc_name, supported_hls_proc_names);
             }
-	    plist_mem_free_wrapper(client_proc_name);
+	    plist_mem_free(client_proc_name);
         }
 	
         plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
@@ -747,7 +747,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     set_next_media_uri_id(airplay_video, 0);
     fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
-    plist_mem_free_wrapper(playback_location);
+    plist_mem_free(playback_location);
 
     if (req_root_node) {
         plist_free(req_root_node);
@@ -755,7 +755,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     return;
 
  play_error:;
-    plist_mem_free_wrapper(playback_location);
+    plist_mem_free(playback_location);
     if (req_root_node) {
         plist_free(req_root_node);
     }
