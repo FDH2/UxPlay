@@ -293,7 +293,6 @@ static void
 http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                            char **response_data, int *response_datalen)
 {
-    logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_playback_info");
     //const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
     playback_info_t playback_info;
 

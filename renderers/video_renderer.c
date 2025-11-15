@@ -1047,8 +1047,8 @@ bool video_get_playback_info(double *duration, double *position, float *rate, bo
         }
     }
 
-    logger_log(logger, LOGGER_DEBUG, "********* video_get_playback_info: position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s *********",
-               GST_TIME_ARGS (pos), GST_TIME_ARGS (hls_duration), gst_element_state_get_name(state));
+    logger_log(logger, LOGGER_DEBUG, "******* video_get_playback_info: position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s rate %f *****",
+               GST_TIME_ARGS (pos), GST_TIME_ARGS (hls_duration), gst_element_state_get_name(state), *rate);
 
     return true;
 }

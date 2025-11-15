@@ -198,6 +198,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     bool hls_request = false;
     logger_log(conn->raop->logger, LOGGER_DEBUG, "conn_request");
     bool logger_debug = (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG);
+    bool logger_debug_data = (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG_DATA);
 
     /* 
     All requests arriving here have been parsed by llhttp to obtain 
@@ -322,16 +323,19 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     }
 
     logger_log(conn->raop->logger, LOGGER_DEBUG, "\n%s %s %s", method, url, protocol);
+    if (!strcmp(url,"/playback-info")) {
+        logger_debug = logger_debug_data;
+    }
     char *header_str= NULL; 
     http_request_get_header_string(request, &header_str);
-    if (header_str) {
+    if (header_str && logger_debug) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", header_str);
         bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
         bool data_is_text = (strstr(header_str,"text/") != NULL);
         free(header_str);
         int request_datalen;
         const char *request_data = http_request_get_data(request, &request_datalen);
-        if (request_data && logger_debug) {
+        if (request_data) {
             if (request_datalen > 0) {
                 /* logger has a buffer limit of 4096 */
                 if (data_is_plist) {
@@ -469,11 +473,15 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         len -= 2;
     }
     header_str =  utils_data_to_text(data, len);
-    logger_log(conn->raop->logger, LOGGER_DEBUG, "\n%s", header_str);
-    
     bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
     bool data_is_text = (strstr(header_str,"text/") != NULL ||
                          strstr(header_str, "x-mpegURL") != NULL);
+
+    if (!logger_debug) {
+        char *ptr = strchr(header_str, '\n');
+        *(++ptr) = '\0';
+    }
+    logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", header_str);
     free(header_str);
     if (response_data) {
         if (response_datalen > 0 && logger_debug) {
