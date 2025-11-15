@@ -635,6 +635,19 @@ uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *n
 void video_renderer_flush() {
 }
 
+void video_renderer_hls_ready() {
+    GstState state;
+    GstStateChangeReturn ret;
+    if (renderer && hls_video) {
+        logger_log(logger, LOGGER_DEBUG,"video_renderer_hls_ready");
+        ret = gst_element_set_state (renderer->pipeline, GST_STATE_READY);
+        logger_log(logger, LOGGER_DEBUG,"pipeline_state_change_return: %s",
+                   gst_element_state_change_return_get_name(ret));
+        gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
+        logger_log(logger, LOGGER_DEBUG,"pipeline state is %s", gst_element_state_get_name(state));
+    }
+}
+
 void video_renderer_stop() {
     if (renderer) {
         logger_log(logger, LOGGER_DEBUG,"video_renderer_stop");

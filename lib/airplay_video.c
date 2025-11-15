@@ -44,6 +44,7 @@ struct airplay_video_s {
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
+    float resume_position_seconds;
     playback_info_t *playback_info;
     // The local port of the airplay server on the AirPlay server
     unsigned short airplay_port;
@@ -125,10 +126,18 @@ float get_start_position_seconds(airplay_video_t *airplay_video) {
     return airplay_video->start_position_seconds;
 }
 
+float get_resume_position_seconds(airplay_video_t *airplay_video) {
+    return airplay_video->resume_position_seconds;
+}
+
 void set_start_position_seconds(airplay_video_t *airplay_video, float start_position_seconds) {
     airplay_video->start_position_seconds = start_position_seconds;
 }
-  
+
+void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_position_seconds) {
+    airplay_video->resume_position_seconds = resume_position_seconds;
+}
+
 void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid) {
     size_t len = strlen(playback_uuid);
     assert(len == 36);

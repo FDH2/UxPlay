@@ -54,6 +54,7 @@ typedef struct video_renderer_s video_renderer_t;
 void video_renderer_start (void *raop, const char *uri);
 void video_renderer_stop ();
 void video_renderer_pause ();
+void video_renderer_hls_ready ();
 void video_renderer_seek(float position);
 void video_renderer_set_start(float position);
 void video_renderer_resume ();

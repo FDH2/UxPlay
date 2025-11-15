@@ -2485,9 +2485,22 @@ extern "C" void on_video_rate(void *cls, const float rate) {
     }
 }
 
-extern "C" void on_video_stop(void *cls) {
-    LOGI("on_video_stop\n");
+
+
+extern "C" void on_video_playlist_remove (void *cls, void *airplay_video) {
+    double duration, position;
+    float rate;
+    bool buffer_empty, buffer_full;
+    LOGI("************************* on_video_playlist_remove\n");
+    video_renderer_pause();
+    video_get_playback_info(&duration, &position, &rate, &buffer_empty, &buffer_full);
+    raop_playlist_remove(raop, airplay_video, (float) position);
 }
+
+ extern "C" void on_video_stop(void *cls) {
+    LOGI("**************************on_video_stop\n");
+    video_renderer_hls_ready();
+ }
 
 extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *playback_info) {
     int buffering_level;
@@ -2562,6 +2575,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.on_video_scrub = on_video_scrub;
     raop_cbs.on_video_rate = on_video_rate;
     raop_cbs.on_video_stop = on_video_stop;
+    raop_cbs.on_video_playlist_remove = on_video_playlist_remove;
     raop_cbs.on_video_acquire_playback_info = on_video_acquire_playback_info;
 
     raop = raop_init(&raop_cbs);

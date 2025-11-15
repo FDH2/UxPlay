@@ -28,7 +28,9 @@ typedef struct media_item_s media_item_t;
 
 const char *get_apple_session_id(airplay_video_t *airplay_video);
 void set_start_position_seconds(airplay_video_t *airplay_video, float start_position_seconds);
+void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_position_seconds);
 float get_start_position_seconds(airplay_video_t *airplay_video);
+float get_resume_position_seconds(airplay_video_t *airplay_video);
 void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid);
 const char *get_playback_uuid(airplay_video_t *airplay_video);
 void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix, int uri_prefix_len);

@@ -852,6 +852,38 @@ void raop_destroy_airplay_video(raop_t *raop, int id) {
         }
     }
 }
+void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
+    airplay_video_t *airplay_video = (airplay_video_t *) opaque;
+
+    int id = -1;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (airplay_video == raop->airplay_video[i]) {
+            id  = i;
+            break;
+        }
+    }
+    if (id >= 0) {
+        set_resume_position_seconds(airplay_video, position_seconds);
+        raop->current_video = -1;
+        float pos = get_resume_position_seconds(airplay_video);
+        assert(pos == position_seconds);
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "raop_playlist_remove: failed to identify removed_video");
+	exit(0);
+    }
+}
+
+int raop_current_playlist_delete(raop_t *raop) {
+    int current_video = raop->current_video;
+    assert (current_video < MAX_AIRPLAY_VIDEO);
+    if (current_video >= 0) {
+        raop_destroy_airplay_video(raop, current_video);
+        raop->current_video = -1;
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "raop_current_playlist_delete: failed to identify current_playlist");
+    }
+    return current_video;
+}
 
 uint64_t get_local_time() {
     return raop_ntp_get_local_time();
