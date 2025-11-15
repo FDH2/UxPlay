@@ -38,7 +38,7 @@ plist_mem_free_wrapper(char * plist_ptr) {
     /* wrapper for plist_mem_free, only available since libplist 2.3.0 */
     if (plist_ptr) {
 #ifdef PLIST_230
-        plist_mem_free (plst_ptr);
+        plist_mem_free (plist_ptr);
 #else
         free (plist_ptr);
 #endif
