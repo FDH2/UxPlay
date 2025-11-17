@@ -39,6 +39,8 @@ struct airplay_video_s {
     char apple_session_id[37];
     char playback_uuid[37];
     char *uri_prefix;
+    char *language_name;
+    char *language_code;
     const char *lang;
     char local_uri_prefix[23];
     int next_uri;
@@ -88,6 +90,10 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
         
     airplay_video->start_position_seconds = 0.0f;
 
+    airplay_video->uri_prefix = NULL;
+    airplay_video->language_code = NULL;
+    airplay_video->language_name = NULL;
+    
     airplay_video->media_data_store = NULL;
     airplay_video->master_playlist = NULL;
     airplay_video->num_uri = 0;
@@ -102,6 +108,12 @@ airplay_video_destroy(airplay_video_t *airplay_video)
 
     if (airplay_video->uri_prefix) {
         free(airplay_video->uri_prefix);
+    }
+    if (airplay_video->language_name) {
+        free(airplay_video->language_name);
+    }
+    if (airplay_video->language_code) {
+       free(airplay_video->language_code);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -152,7 +164,29 @@ void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix) {
 }
 
 const char *get_uri_prefix(airplay_video_t *airplay_video) {
-    return airplay_video->uri_prefix;
+  return (const char *) airplay_video->uri_prefix;
+}
+
+void set_language_name(airplay_video_t *airplay_video, char *language_name) {
+    if (airplay_video->language_name) {
+        free (airplay_video->language_name);
+    }
+    airplay_video->language_name = language_name;
+}
+
+const char *get_language_name(airplay_video_t *airplay_video) {
+  return (const char *)airplay_video->language_name;
+}
+
+void set_language_code(airplay_video_t *airplay_video, char *language_code) {
+    if (airplay_video->language_code) {
+        free (airplay_video->language_code);
+    }
+    airplay_video->language_code = language_code;
+}
+
+const char *get_language_code(airplay_video_t *airplay_video) {
+  return (const char *) airplay_video->language_code;
 }
 
 char *get_uri_local_prefix(airplay_video_t *airplay_video) {

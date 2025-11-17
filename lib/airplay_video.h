@@ -36,6 +36,10 @@ const char *get_playback_uuid(airplay_video_t *airplay_video);
 void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix);
 const char *get_uri_prefix(airplay_video_t *airplay_video);
 char *get_uri_local_prefix(airplay_video_t *airplay_video);
+void set_language_code(airplay_video_t *airplay_video, char *language_code);
+const char *get_language_code(airplay_video_t *airplay_video);
+void set_language_name(airplay_video_t *airplay_video, char *language_name);
+const char *get_language_name(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    
 void set_next_media_uri_id(airplay_video_t *airplay_video, int id);
