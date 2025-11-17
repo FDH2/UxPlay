@@ -330,7 +330,6 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", header_str);
         bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
         bool data_is_text = (strstr(header_str,"text/") != NULL);
-        free(header_str);
         int request_datalen;
         const char *request_data = http_request_get_data(request, &request_datalen);
         if (request_data) {
@@ -364,7 +363,10 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             }
         }
     }
-
+    if (header_str) {
+        free(header_str);
+    }
+    
     if (client_session_id) {
         assert(!strcmp(client_session_id, conn->client_session_id));
     }
