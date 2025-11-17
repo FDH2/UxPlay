@@ -756,6 +756,9 @@ raop_rtp_set_metadata(raop_rtp_t *raop_rtp, const char *data, int datalen)
 
     /* Set metadata in thread instead */
     MUTEX_LOCK(raop_rtp->run_mutex);
+    if (raop_rtp->metadata) {
+       free (raop_rtp->metadata);
+    }
     raop_rtp->metadata = metadata;
     raop_rtp->metadata_len = datalen;
     MUTEX_UNLOCK(raop_rtp->run_mutex);
