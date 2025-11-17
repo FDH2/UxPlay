@@ -33,8 +33,8 @@ float get_start_position_seconds(airplay_video_t *airplay_video);
 float get_resume_position_seconds(airplay_video_t *airplay_video);
 void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid);
 const char *get_playback_uuid(airplay_video_t *airplay_video);
-void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix, int uri_prefix_len);
-char *get_uri_prefix(airplay_video_t *airplay_video);
+void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix);
+const char *get_uri_prefix(airplay_video_t *airplay_video);
 char *get_uri_local_prefix(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    
@@ -67,7 +67,7 @@ void media_data_store_destroy(void *media_data_store);
 // called by the POST /action handler:
 char *process_media_data(void *media_data_store, const char *url, const char *data, int datalen);
 char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datalen,
-                              char *uri_prefix, char *uri_local_prefix);
+                              const char *uri_prefix, char *uri_local_prefix);
 char *adjust_yt_condensed_playlist(const char *media_playlist);
 
 //called by the POST /play handler

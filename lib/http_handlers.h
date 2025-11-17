@@ -575,7 +575,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     char *ptr = strstr(fcup_response_url, "/master.m3u8");
     if (ptr) {
       	/* this is a master playlist */
-        char *uri_prefix = get_uri_prefix(airplay_video);
+        const char *uri_prefix = get_uri_prefix(airplay_video);
         char ** uri_list = NULL;
         int num_uri = 0;
         char *uri_local_prefix = get_uri_local_prefix(airplay_video);
@@ -741,9 +741,12 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     if (!ptr) {
         logger_log(conn->raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
         goto play_error;
+    } else {
+        int prefix_len =  (int) (ptr - playback_location);
+        char *uri_prefix = (char *) calloc(prefix_len + 1, sizeof(char));
+        memcpy(uri_prefix, playback_location, prefix_len);
+        set_uri_prefix(airplay_video, uri_prefix);
     }
-    int prefix_len =  (int) (ptr - playback_location);
-    set_uri_prefix(airplay_video, playback_location, prefix_len);
     set_next_media_uri_id(airplay_video, 0);
     fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 

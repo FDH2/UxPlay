@@ -144,15 +144,14 @@ const char *get_playback_uuid(airplay_video_t *airplay_video) {
     return (const char *) airplay_video->playback_uuid; 
 }
 
-void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix, int uri_prefix_len) {
+void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix) {
     if (airplay_video->uri_prefix) {
         free (airplay_video->uri_prefix);
     }
-    airplay_video->uri_prefix = (char *) calloc(uri_prefix_len + 1, sizeof(char));
-    memcpy(airplay_video->uri_prefix, uri_prefix, uri_prefix_len);
+    airplay_video->uri_prefix = uri_prefix;
 }
 
-char *get_uri_prefix(airplay_video_t *airplay_video) {
+const char *get_uri_prefix(airplay_video_t *airplay_video) {
     return airplay_video->uri_prefix;
 }
 
@@ -509,7 +508,7 @@ int create_media_uri_table(const char *url_prefix, const char *master_playlist_d
 
 /* Adjust uri prefixes in the Master Playlist, for sending to the Media Player */
 char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datalen,
-                              char *uri_prefix, char *uri_local_prefix) {
+                              const char *uri_prefix, char *uri_local_prefix) {
     size_t uri_prefix_len = strlen(uri_prefix);
     size_t uri_local_prefix_len = strlen(uri_local_prefix);
     int counter = 0;
