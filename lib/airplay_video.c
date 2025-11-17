@@ -105,7 +105,6 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
 void
 airplay_video_destroy(airplay_video_t *airplay_video)
 {
-
     if (airplay_video->uri_prefix) {
         free(airplay_video->uri_prefix);
     }
@@ -118,10 +117,9 @@ airplay_video_destroy(airplay_video_t *airplay_video)
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
     }
-    if (airplay_video->master_playlist) {
+    if (airplay_video->master_playlist){
         free (airplay_video->master_playlist);
     }
-
     free (airplay_video);
 }
 
@@ -178,7 +176,7 @@ const char *get_language_name(airplay_video_t *airplay_video) {
   return (const char *)airplay_video->language_name;
 }
 
-void set_language_code(airplay_video_t *airplay_video, char *language_code) {
+void set_language_code(airplay_video_t *airplay_video, char *language_code) {;
     if (airplay_video->language_code) {
         free (airplay_video->language_code);
     }
@@ -213,16 +211,17 @@ void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist
 }
 
 typedef struct language_s {
-    char *start;
+    const char *start;
     int len;
-    char type;
+    bool is_default;
     char code[6];
+    char *name;
 } language_t;
 
-language_t* master_playlist_process_language(char * data, int *slices, int *language_count) {
+language_t* master_playlist_process_language(const char * data, int *slices, int *language_count) {
     *language_count = 0;
-    char *ptr = data;
-    int count = 0, count1 = 0, count2 = 0, count3 = 0;
+    const char *ptr = data;
+    int count = 0, count1 = 0;
     while (ptr) {
         ptr = strstr(ptr,"#EXT-X-MEDIA:URI=");
         if(!ptr) {
@@ -242,76 +241,80 @@ language_t* master_playlist_process_language(char * data, int *slices, int *lang
         return NULL;
     }
     language_t *languages = (language_t *) calloc(count + 2, sizeof(language_t));
-    languages[0].start = data;
+    size_t length = 0;
     ptr = data;
     for (int i = 1; i <= count; i++) {
         char *end;
+	int len_name;
         if (!(ptr = strstr(ptr, "#EXT-X-MEDIA"))) {
             break;
         }
-        count1++;
         if (i == 1) {
-            languages[0].len = (int) (ptr - data);
-            languages[0].type = ' ';
+            length = (int) (ptr - data);
+            languages[0].start = data;
+            languages[0].len = length;
+            *languages[0].code = '\0';
+            languages[0].name = NULL;
         }
         languages[i].start = ptr;
-        if (!(ptr = strstr(ptr, "LANGUAGE="))) {
+
+	if (!(ptr = strstr(ptr, "DEFAULT="))) {
             break;
         }
-        if (!strncmp(ptr - strlen("dubbed-auto") - 2, "dubbed-auto", strlen("dubbed-auto"))) {
-            languages[i].type = 'd';
-        } else if (!strncmp(ptr - strlen("dubbed") - 2, "dubbed", strlen("dubbed"))) {
-            languages[i].type = 'd';
-        } else if (!strncmp(ptr - strlen("original") - 2, "original", strlen("original"))) {
-            languages[i].type = 'o';
-        } else {
-            languages[i].type = 'u';
+	ptr += strlen("DEFAULT=");
+	languages[i].is_default = !strncmp(ptr, "YES", strlen("YES"));
+	if (!(ptr = strstr(ptr, "NAME="))) {
+            break;
         }
-        count2++;
+	ptr += strlen("NAME=");
+	end = strchr(++ptr,'"');
+	if (!end) {
+            break;
+        }
+	len_name = end - ptr;
+	languages[i].name = (char *) calloc(len_name + 1, sizeof(char));
+	memcpy(languages[i].name, ptr, len_name *sizeof(char));
+	if (!(ptr = strstr(ptr, "LANGUAGE="))) {
+            break;
+        }
         if (!(ptr = strchr(ptr,'"'))) {
             break;
         }
-        ptr++;
-        if (!(end = strchr(ptr,'"'))) {
+        if (!(end = strchr(++ptr,'"'))) {
             break;
-	}
+        }
         strncpy(languages[i].code, ptr, end - ptr);
         if (!(ptr = strchr(ptr,'\n'))) {
             break;
         }
-        count3++;
+        count1++;
         languages[i].len = (int) (ptr + 1 - languages[i].start);
+	length += languages[i].len;
     }
-    assert (count1 == count && count2 == count && count3 == count);
+    assert (count1 == count);
+    
     languages[count + 1].start = ++ptr;
     languages[count + 1].len = strlen(ptr);
-    languages[count + 1].type = ' ';
+    *languages[count + 1].code = '\0';
+    languages[count + 1].name = NULL;
+
+    length += languages[count + 1].len;
+    assert(length == strlen(data));
     *slices = count + 2;
-    int len = 0;
+
     int copies = 0;
-    for (int i = 0; i < *slices; i++) {
+    for (int i = 1; i < count; i++) {
         if (!strcmp(languages[i].code, languages[1].code)) {
             copies++;
         }
-        len += languages[i].len;
      }
-    if (copies == count) {
-        /* only one language is offered, nothing to do */
-        free (languages);
-        return NULL;
-    }
 
     *language_count = count/copies;
     assert(count == *language_count * copies);
-    assert(len == (int) strlen(data));
+
     /* verify expected structure of language choice information */
     for (int i = 1; i <= count; i++) {
-        if (i % *language_count) {
-            assert(languages[i].type != 'o');
-        } else {
-            assert(languages[i].type == 'o');
-        }
-	int j = i - *language_count;
+  	int j = i - *language_count;
         if (j > 0) {
             assert (!strcmp(languages[i].code, languages[j].code));
         }
@@ -322,38 +325,49 @@ language_t* master_playlist_process_language(char * data, int *slices, int *lang
 char * select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist) {
     int language_count, slices;  
     language_t *languages;
+    assert(master_playlist);
     if (!(languages = master_playlist_process_language(master_playlist,
                                                        &slices, &language_count))) {
         return master_playlist;
     }
-    /* audio is offered in multiple languages */ 
-    char *str = calloc(6 * language_count, sizeof(char));
-    int i;
-    char *ptr = str;
-    for (i = 0;  i <  language_count; i++) {
-        sprintf(ptr,"%s ", languages[i + 1].code);
-        ptr += strlen(languages[i + 1].code);
-        ptr++;
-        if ( i % 16 == 15) {
-            sprintf(ptr++,"\n");
-        }
-    }
-    if (i % 16 != 15) {
-        sprintf(ptr++,"\n");
-    }
-    printf("%d available languages: %s", language_count, str);
-    free(str);
 
-    const char *ptrc = airplay_video->lang;
-    char *lang = NULL;
-    while (ptrc) {
+    /* audio is offered in multiple languages */ 
+
+    char *code = NULL;
+    char *name = NULL;
+
+    assert(airplay_video);
+    printf("%d available languages:\n\n", language_count);
+    int i_default = -1;
+    
+    const char *language_name = get_language_name(airplay_video);
+    for (int i = 1; i <= language_count; i ++) {
+        if (language_name) {
+            if (!strcmp(language_name, languages[i].name)) {
+                i_default = i;
+            }
+        } else if (languages[i].is_default) {
+            i_default = i;
+        }
+        printf("%2d %-5.5s \"%s\" %s\n",i, languages[i].code, languages[i].name, (languages[i].is_default ? "(DEFAULT)" : ""));
+    }
+    printf("\n");
+    assert(i_default >= 0);
+
+    const char *ptrc = airplay_video->lang;;
+    code = NULL;
+    name = NULL;
+    while (ptrc){
         for (int i = 1; i <= language_count; i++) {
             if (!strncmp(languages[i].code, ptrc, 2)) {
-                lang = languages[i].code;
+                code = languages[i].code;
+                name = languages[i].name;
+                printf("language choice: %s \"%s\" (based on prefered languages list %s)\n\n",
+                       code, name,  airplay_video->lang);
                 break;
             }
         }
-        if (lang) {
+        if (code) {
             break;
         }
         ptrc = strchr(ptrc,':');
@@ -364,32 +378,54 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
             }
         }
     }
-    if (lang) {
-        printf("language choice: %s (based on prefered languages list %s)\n\n",
-               lang, airplay_video->lang);
-    } else {
+
+    if (!code) {
+        code = languages[i_default].code;
+        name = languages[i_default].name; 
         if (airplay_video->lang) {
             printf("no match with prefered language list %s\n", airplay_video->lang);
         }
-        lang = languages[language_count].code;
-        printf("default language choice: %s\n\n", lang);
+        if (language_name) {
+            printf("using HLS-specified language choice: %s \"%s\"\n\n", code, name); 
+        } else {
+            printf("using default language choice: %s \"%s\"\n\n", code, name);
+        }
+    } 
+
+    /* update stored language code, name if changed */
+    if (name != language_name) {   /* compare addresses */
+        int len = strlen(name);
+        char *new_language_name = (char *) calloc(len + 1, sizeof(char));
+        memcpy(new_language_name, name, len);
+        set_language_name(airplay_video, new_language_name);
+        len = strlen(code);
+        char *new_language_code = (char *) calloc(len + 1, sizeof(char));
+        memcpy(new_language_code, code, len);
+        set_language_code(airplay_video, new_language_code);
     }
+    
     int len = 0;
     for (int i = 0; i < slices; i++) {
-        if (strlen(languages[i].code) == 0 || !strcmp(languages[i].code, lang)) {
+        if (strlen(languages[i].code) == 0 || !strcmp(languages[i].code, code)) {
             len += languages[i].len;	
         }
     }
     char *new_master_playlist = (char *) calloc(len + 1, sizeof(char));
-    ptr = new_master_playlist;
+
+    char *ptr = new_master_playlist;
     for (int i = 0; i < slices; i++) {
-        if (strlen(languages[i].code) == 0 || !strcmp(languages[i].code, lang)) {
+        if (strlen(languages[i].code) == 0 || !strcmp(languages[i].code, code)) {
             strncpy(ptr, languages[i].start, languages[i].len);
             ptr += languages[i].len;
         }
     }
+
+    for (int i = 1; i <= slices - 2 ; i++) {
+        free (languages[i].name);
+    }
     free (languages);
-    free(master_playlist);
+    free (master_playlist);
+    
     return new_master_playlist;
 }
 
