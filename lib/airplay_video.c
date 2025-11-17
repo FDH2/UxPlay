@@ -48,7 +48,6 @@ struct airplay_video_s {
     playback_info_t *playback_info;
     // The local port of the airplay server on the AirPlay server
     unsigned short airplay_port;
-    char *master_uri;
     char *master_playlist;
     media_item_t *media_data_store;
     int num_uri;
@@ -89,7 +88,6 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
         
     airplay_video->start_position_seconds = 0.0f;
 
-    airplay_video->master_uri = NULL;
     airplay_video->media_data_store = NULL;
     airplay_video->master_playlist = NULL;
     airplay_video->num_uri = 0;
@@ -104,9 +102,6 @@ airplay_video_destroy(airplay_video_t *airplay_video)
 
     if (airplay_video->uri_prefix) {
         free(airplay_video->uri_prefix);
-    }
-    if (airplay_video->master_uri) {
-        free (airplay_video->master_uri);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -163,10 +158,6 @@ char *get_uri_prefix(airplay_video_t *airplay_video) {
 
 char *get_uri_local_prefix(airplay_video_t *airplay_video) {
     return airplay_video->local_uri_prefix;
-}
-
-char *get_master_uri(airplay_video_t *airplay_video) {
-    return airplay_video->master_uri;
 }
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video) {    
