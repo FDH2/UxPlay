@@ -501,36 +501,39 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     if (!PLIST_IS_STRING(req_type_node)) {
         goto post_action_error;
     }
-
-    plist_t req_params_node = NULL;
     
-    /* three possible types are known */
+    /* three possible types are known: 
+       playlistRemove
+       playlistAdd
+       unhandledURLRespone
+*/
     char *type = NULL;
     plist_get_string_val(req_type_node, &type);
+    if (!type) {
+        goto post_action_error;
+    }
     logger_log(conn->raop->logger, LOGGER_DEBUG, "action type is %s", type);
-    bool unhandled_url_response = strstr(type, "unhandledURLResponse");
-    bool playlist_remove = strstr(type, "playlistRemove");
-    bool playlist_insert = strstr(type, "playlistInsert");
-    plist_mem_free(type);
-    if (unhandled_url_response) {
-        goto unhandledURLResponse;      
-    } else if (playlist_remove) {
+
+    /* check that plist structure is as expected*/
+    plist_t req_params_node = NULL;
+    if (PLIST_IS_DICT (req_root_node)) {
+        req_params_node = plist_dict_get_item(req_root_node, "params");
+    }
+    if (strcmp(type,"playlistInsert") && !PLIST_IS_DICT (req_params_node)) {   //bypass if type=playlistInsert until we have see its plist
+        goto post_action_error;
+    }
+    
+    if (!strcmp(type,"playlistRemove")) {
         logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistRemove (stop playback)");
-        req_params_node = plist_dict_get_item(req_root_node, "params");    
-        if (!req_params_node || !PLIST_IS_DICT (req_params_node)) {
+        plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
+        if (!req_params_item_node || !PLIST_IS_DICT (req_params_item_node)) {
             goto post_action_error;
         }
-        plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
-        if (!req_params_item_node) {
-            goto post_action_error;
-        } else {
-            if (!PLIST_IS_DICT (req_params_item_node)) {
-                goto post_action_error;
-            }
-            plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
-            char* remove_uuid = NULL;
-            plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
-            const char *playback_uuid = get_playback_uuid(airplay_video);
+        plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
+        char* remove_uuid = NULL;
+        plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
+        const char *playback_uuid = get_playback_uuid(airplay_video);
+        if (remove_uuid) {
             if (strcmp(remove_uuid, playback_uuid)) {
                 logger_log(conn->raop->logger, LOGGER_ERR, "uuid of playlist removal action request did not match current playlist:\n"
                            "   current: %s\n   remove: %s", playback_uuid, remove_uuid);
@@ -539,10 +542,11 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
             plist_mem_free (remove_uuid);
         }
-        goto finish;
-    } else if (playlist_insert) {
+
+    } else if (!strcmp(type, "playlistInsert")) {
         logger_log(conn->raop->logger, LOGGER_ERR, "FIXME: playlist insertion not yet implemented");
         logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistInsert (add new playback)");
+
         printf("\n***************FIXME************************\nPlaylist insertion needs more information for it to be implemented:\n"
                "please report following output as an \"Issue\" at http://github.com/FDH2/UxPlay:\n");
         char *header_str = NULL;
@@ -556,156 +560,139 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             plist_t req_root_node = NULL;
             plist_from_bin(request_data, request_datalen, &req_root_node);
             char *plist_xml = NULL;
-            char *stripped_xml = NULL;
             uint32_t plist_len = 0;
             plist_to_xml(req_root_node, &plist_xml, &plist_len);
             printf("plist_len = %u\n", plist_len);
-            stripped_xml = utils_strip_data_from_plist_xml(plist_xml);
-            printf("%s", stripped_xml ? stripped_xml : plist_xml);
-            if (stripped_xml) {
-                free(stripped_xml);
-            }
-            if (plist_xml) {
-#ifdef PLIST_230
-                plist_mem_free(plist_xml);
-#else
-                plist_to_xml_free(plist_xml);
-#endif
-            }
-            plist_free(req_root_node);
+            printf("%s\n", plist_xml);
+            plist_mem_free(plist_xml);
+            exit(0);
         }
-        assert(0);
+
+    } else if (!strcmp(type, "unhandledURLResponse")) {   
+        /* handling type "unhandledURLResponse" (case 1)*/
+        uint_val = 0;
+        int fcup_response_datalen = 0;
+
+        if  (logger_debug) {
+            plist_t req_params_fcup_response_statuscode_node = plist_dict_get_item(req_params_node,
+                                                                      "FCUP_Response_StatusCode");
+            if (req_params_fcup_response_statuscode_node) {
+                plist_get_uint_val(req_params_fcup_response_statuscode_node, &uint_val);
+                fcup_response_statuscode = (int) uint_val;
+                uint_val = 0;
+                logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_StatusCode = %d",
+                           fcup_response_statuscode);
+            }
+
+            plist_t req_params_fcup_response_requestid_node = plist_dict_get_item(req_params_node,
+                                                                     "FCUP_Response_RequestID");
+            if (req_params_fcup_response_requestid_node) {
+                plist_get_uint_val(req_params_fcup_response_requestid_node, &uint_val);
+                request_id = (int) uint_val;
+                uint_val = 0;
+                logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_RequestID =  %d", request_id);
+            }
+        }
+
+        plist_t req_params_fcup_response_url_node = plist_dict_get_item(req_params_node, "FCUP_Response_URL");
+        if (!PLIST_IS_STRING(req_params_fcup_response_url_node)) {
+            goto post_action_error;
+        }
+        char *fcup_response_url = NULL;
+        plist_get_string_val(req_params_fcup_response_url_node, &fcup_response_url);
+        if (!fcup_response_url) {
+            goto post_action_error;
+        }
+        logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_URL =  %s", fcup_response_url);
+	
+        plist_t req_params_fcup_response_data_node = plist_dict_get_item(req_params_node, "FCUP_Response_Data");
+        if (!PLIST_IS_DATA(req_params_fcup_response_data_node)){
+            plist_mem_free(fcup_response_url);
+            goto post_action_error;
+        }
+
+        uint_val = 0;
+        char *fcup_response_data = NULL;    
+        plist_get_data_val(req_params_fcup_response_data_node, &fcup_response_data, &uint_val);
+        fcup_response_datalen = (int) uint_val;
+
+        char *playlist = NULL;
+        if (!fcup_response_data) {
+            plist_mem_free(fcup_response_url);
+            goto post_action_error;
+        } else {
+            playlist = (char *) malloc(fcup_response_datalen + 1);
+            playlist[fcup_response_datalen] = '\0';
+            memcpy(playlist, fcup_response_data, fcup_response_datalen);
+            plist_mem_free(fcup_response_data);
+        }
+        assert(playlist);
+        int playlist_len = strlen(playlist);
+    
+        if (logger_debug) {
+            logger_log(conn->raop->logger, LOGGER_DEBUG, "begin FCUP Response data:\n%s\nend FCUP Response data", playlist);
+        }
+
+        char *ptr = strstr(fcup_response_url, "/master.m3u8");
+        if (ptr) {
+            /* this is a master playlist */
+            const char *uri_prefix = get_uri_prefix(airplay_video);
+            char ** uri_list = NULL;
+            int num_uri = 0;
+            char *uri_local_prefix = get_uri_local_prefix(airplay_video);
+            playlist = select_master_playlist_language(airplay_video, playlist);
+            playlist_len = strlen(playlist);
+            create_media_uri_table(uri_prefix, playlist, playlist_len, &uri_list, &num_uri);	
+            char *new_master = adjust_master_playlist (playlist, playlist_len,  uri_prefix, uri_local_prefix);
+            free(playlist);
+            store_master_playlist(airplay_video, new_master);
+            create_media_data_store(airplay_video, uri_list, num_uri);
+            free (uri_list);
+            num_uri =  get_num_media_uri(airplay_video);
+            set_next_media_uri_id(airplay_video, 0);
+        } else {
+            /* this is a media playlist */
+            float duration = 0.0f;
+            int count = analyze_media_playlist(playlist, &duration);
+            int uri_num = get_next_media_uri_id(airplay_video);
+            --uri_num;    // (next num is current num + 1)
+            int ret = store_media_playlist(airplay_video, playlist, &count, &duration, uri_num);
+            if (ret == 1) {
+                logger_log(conn->raop->logger, LOGGER_DEBUG,"media_playlist is a duplicate: do not store");
+            } else if (count) {
+                logger_log(conn->raop->logger, LOGGER_DEBUG,
+                           "\n%s:\nreceived media playlist has %5d chunks, total duration %9.3f secs\n",
+                            fcup_response_url, count, duration);
+            }
+        }
+
+        plist_mem_free(fcup_response_url);
+
+        int num_uri = get_num_media_uri(airplay_video);
+        int uri_num = get_next_media_uri_id(airplay_video);
+        if (uri_num <  num_uri) {
+            fcup_request((void *) conn, get_media_uri_by_num(airplay_video, uri_num),
+                                                             apple_session_id,
+                                                             get_next_FCUP_RequestID(airplay_video));
+            set_next_media_uri_id(airplay_video, ++uri_num);
+        } else {
+            char * uri_local_prefix = get_uri_local_prefix(airplay_video);
+            conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
+                                                strcat(uri_local_prefix, "/master.m3u8"),
+                                                get_start_position_seconds(airplay_video));
+        }
+
+
     } else {
         logger_log(conn->raop->logger, LOGGER_INFO, "unknown action type (unhandled)"); 
-        goto finish;
     }
-
- unhandledURLResponse:;
-
-    req_params_node = plist_dict_get_item(req_root_node, "params");
-    if (!PLIST_IS_DICT (req_params_node)) {
-        goto post_action_error;
-    }
-    
-    /* handling type "unhandledURLResponse" (case 1)*/
-    uint_val = 0;
-    int fcup_response_datalen = 0;
-
-    if  (logger_debug) {
-        plist_t req_params_fcup_response_statuscode_node = plist_dict_get_item(req_params_node,
-                                                                      "FCUP_Response_StatusCode");
-        if (req_params_fcup_response_statuscode_node) {
-            plist_get_uint_val(req_params_fcup_response_statuscode_node, &uint_val);
-            fcup_response_statuscode = (int) uint_val;
-            uint_val = 0;
-            logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_StatusCode = %d",
-                       fcup_response_statuscode);
-        }
-
-        plist_t req_params_fcup_response_requestid_node = plist_dict_get_item(req_params_node,
-                                                                     "FCUP_Response_RequestID");
-        if (req_params_fcup_response_requestid_node) {
-            plist_get_uint_val(req_params_fcup_response_requestid_node, &uint_val);
-            request_id = (int) uint_val;
-            uint_val = 0;
-            logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_RequestID =  %d", request_id);
-        }
-    }
-
-    plist_t req_params_fcup_response_url_node = plist_dict_get_item(req_params_node, "FCUP_Response_URL");
-    if (!PLIST_IS_STRING(req_params_fcup_response_url_node)) {
-        goto post_action_error;
-    }
-    char *fcup_response_url = NULL;
-    plist_get_string_val(req_params_fcup_response_url_node, &fcup_response_url);
-    if (!fcup_response_url) {
-        goto post_action_error;
-    }
-    logger_log(conn->raop->logger, LOGGER_DEBUG, "FCUP_Response_URL =  %s", fcup_response_url);
-	
-    plist_t req_params_fcup_response_data_node = plist_dict_get_item(req_params_node, "FCUP_Response_Data");
-    if (!PLIST_IS_DATA(req_params_fcup_response_data_node)){
-        goto post_action_error;
-    }
-
-    uint_val = 0;
-    char *fcup_response_data = NULL;    
-    plist_get_data_val(req_params_fcup_response_data_node, &fcup_response_data, &uint_val);
-    fcup_response_datalen = (int) uint_val;
-
-    char *playlist = NULL;
-    if (!fcup_response_data) {
-	goto post_action_error;
-    } else {
-      playlist = (char *) malloc(fcup_response_datalen + 1);
-      playlist[fcup_response_datalen] = '\0';
-      memcpy(playlist, fcup_response_data, fcup_response_datalen);
-      plist_mem_free(fcup_response_data);
-    }
-    assert(playlist);
-    int playlist_len = strlen(playlist);
-    
-    if (logger_debug) {
-        logger_log(conn->raop->logger, LOGGER_DEBUG, "begin FCUP Response data:\n%s\nend FCUP Response data", playlist);
-    }
-
-    char *ptr = strstr(fcup_response_url, "/master.m3u8");
-    if (ptr) {
-      	/* this is a master playlist */
-        const char *uri_prefix = get_uri_prefix(airplay_video);
-        char ** uri_list = NULL;
-        int num_uri = 0;
-        char *uri_local_prefix = get_uri_local_prefix(airplay_video);
-	playlist = select_master_playlist_language(airplay_video, playlist);
-	playlist_len = strlen(playlist);
-        create_media_uri_table(uri_prefix, playlist, playlist_len, &uri_list, &num_uri);	
-        char *new_master = adjust_master_playlist (playlist, playlist_len,  uri_prefix, uri_local_prefix);
-        free(playlist);
-        store_master_playlist(airplay_video, new_master);
-        create_media_data_store(airplay_video, uri_list, num_uri);
-        free (uri_list);
-        num_uri =  get_num_media_uri(airplay_video);
-        set_next_media_uri_id(airplay_video, 0);
-    } else {
-        /* this is a media playlist */
-        float duration = 0.0f;
-        int count = analyze_media_playlist(playlist, &duration);
-	int uri_num = get_next_media_uri_id(airplay_video);
-        --uri_num;    // (next num is current num + 1)
-        int ret = store_media_playlist(airplay_video, playlist, &count, &duration, uri_num);
-	if (ret == 1) {
-            logger_log(conn->raop->logger, LOGGER_DEBUG,"media_playlist is a duplicate: do not store");
-        } else if (count) {
-            logger_log(conn->raop->logger, LOGGER_DEBUG,
-                       "\n%s:\nreceived media playlist has %5d chunks, total duration %9.3f secs\n",
-                        fcup_response_url, count, duration);
-        }
-    }
-
-    plist_mem_free(fcup_response_url);
-
-    int num_uri = get_num_media_uri(airplay_video);
-    int uri_num = get_next_media_uri_id(airplay_video);
-    if (uri_num <  num_uri) {
-        fcup_request((void *) conn, get_media_uri_by_num(airplay_video, uri_num),
-                                                         apple_session_id,
-                                                         get_next_FCUP_RequestID(airplay_video));
-        set_next_media_uri_id(airplay_video, ++uri_num);
-    } else {
-        char * uri_local_prefix = get_uri_local_prefix(airplay_video);
-        conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
-                                            strcat(uri_local_prefix, "/master.m3u8"),
-                                            get_start_position_seconds(airplay_video));
-    }
-
- finish:
+    plist_mem_free(type);
     plist_free(req_root_node);
     return;
 
  post_action_error:;
-    plist_mem_free(fcup_response_url);
     http_response_init(response, "HTTP/1.1", 400, "Bad Request");
-
+    plist_mem_free(type);
     if (req_root_node)  {
         plist_free(req_root_node);
     }
