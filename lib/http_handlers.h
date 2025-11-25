@@ -519,7 +519,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     if (PLIST_IS_DICT (req_root_node)) {
         req_params_node = plist_dict_get_item(req_root_node, "params");
     }
-    if (strcmp(type,"playlistInsert") && !PLIST_IS_DICT (req_params_node)) {   //bypass if type=playlistInsert until we have see its plist
+    if (!PLIST_IS_DICT (req_params_node)) {
         goto post_action_error;
     }
     
@@ -544,29 +544,20 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         }
 
     } else if (!strcmp(type, "playlistInsert")) {
-        logger_log(conn->raop->logger, LOGGER_ERR, "FIXME: playlist insertion not yet implemented");
         logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistInsert (add new playback)");
-
-        printf("\n***************FIXME************************\nPlaylist insertion needs more information for it to be implemented:\n"
-               "please report following output as an \"Issue\" at http://github.com/FDH2/UxPlay:\n");
-        char *header_str = NULL;
-        http_request_get_header_string(request, &header_str);
-        printf("\n\n%s\n", header_str);
-        bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
-        free(header_str);
-        if (data_is_plist) {
-            int request_datalen;
-            const char *request_data = http_request_get_data(request, &request_datalen);
-            plist_t req_root_node = NULL;
-            plist_from_bin(request_data, request_datalen, &req_root_node);
-            char *plist_xml = NULL;
-            uint32_t plist_len = 0;
-            plist_to_xml(req_root_node, &plist_xml, &plist_len);
-            printf("plist_len = %u\n", plist_len);
-            printf("%s\n", plist_xml);
-            plist_mem_free(plist_xml);
-            exit(0);
+        plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
+        if (!req_params_item_node || !PLIST_IS_DICT (req_params_item_node)) {
+            goto post_action_error;
         }
+        plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
+        char* insert_uuid = NULL;
+        plist_get_string_val(req_params_item_uuid_node, &insert_uuid);
+        plist_t req_params_item_content_location_node = plist_dict_get_item(req_params_item_node, "Content-Location");
+        char* content_location = NULL;
+        plist_get_string_val(req_params_item_content_location_node, &content_location);	
+        logger_log(conn->raop->logger, LOGGER_INFO, "playlistInsert (***UNHANDLED***): uuid %s\nlocation %s", insert_uuid, content_location);
+        plist_mem_free(insert_uuid);
+        plist_mem_free(content_location);
 
     } else if (!strcmp(type, "unhandledURLResponse")) {   
         /* handling type "unhandledURLResponse" (case 1)*/
