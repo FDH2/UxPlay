@@ -86,6 +86,7 @@ struct raop_s {
     airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
     int current_video;
     int removed_video;
+    int inserted_video;
   
     /* activate support for HLS live streaming */
     bool hls_support;
@@ -875,6 +876,15 @@ int raop_current_playlist_delete(raop_t *raop) {
         logger_log(raop->logger, LOGGER_ERR, "raop_current_playlist_delete: failed to identify current_playlist");
     }
     return current_video;
+}
+
+int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
+    for (int i = 0 ;i < MAX_AIRPLAY_VIDEO; i++) {
+        if (!strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 uint64_t get_local_time() {

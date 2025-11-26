@@ -552,10 +552,15 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
         char* insert_uuid = NULL;
         plist_get_string_val(req_params_item_uuid_node, &insert_uuid);
+        conn->raop->inserted_video = -1;
+        if (insert_uuid) {
+            conn->raop->inserted_video =  get_playlist_by_uuid(conn->raop, insert_uuid);
+        }
         plist_t req_params_item_content_location_node = plist_dict_get_item(req_params_item_node, "Content-Location");
         char* content_location = NULL;
         plist_get_string_val(req_params_item_content_location_node, &content_location);	
-        logger_log(conn->raop->logger, LOGGER_INFO, "playlistInsert (***UNHANDLED***): uuid %s\nlocation %s", insert_uuid, content_location);
+        logger_log(conn->raop->logger, LOGGER_INFO, "playlistInsert (***UNHANDLED***): uuid %s (%d)\nlocation %s", insert_uuid,
+                   conn->raop->inserted_video, content_location);
         plist_mem_free(insert_uuid);
         plist_mem_free(content_location);
 
