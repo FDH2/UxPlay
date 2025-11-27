@@ -99,6 +99,7 @@ struct raop_callbacks_s {
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
     void  (*on_video_playlist_remove) (void *cls, void *airplay_video);
+    void  (*on_video_playlist_insert) (void *cls, void *airplay_video, const char *location);
 };
 
 typedef struct raop_callbacks_s raop_callbacks_t;
@@ -132,6 +133,7 @@ RAOP_API void raop_remove_hls_connections(raop_t * raop);
 RAOP_API void raop_destroy_airplay_video(raop_t *raop, int id);
 RAOP_API int raop_current_playlist_delete(raop_t *raop);
 RAOP_API void raop_playlist_remove(raop_t *raop, void *airplay_video, float position);
+RAOP_API void raop_playlist_insert(raop_t *raop, void *airplay_video, const char *location);
   
 #ifdef __cplusplus
 }

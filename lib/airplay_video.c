@@ -89,6 +89,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
     strncpy(airplay_video->apple_session_id, session_id, len);
         
     airplay_video->start_position_seconds = 0.0f;
+    airplay_video->resume_position_seconds = 0.0f;
 
     airplay_video->uri_prefix = NULL;
     airplay_video->language_code = NULL;

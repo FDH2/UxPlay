@@ -2485,8 +2485,6 @@ extern "C" void on_video_rate(void *cls, const float rate) {
     }
 }
 
-
-
 extern "C" void on_video_playlist_remove (void *cls, void *airplay_video) {
     double duration, position;
     float rate;
@@ -2495,6 +2493,17 @@ extern "C" void on_video_playlist_remove (void *cls, void *airplay_video) {
     video_renderer_pause();
     video_get_playback_info(&duration, &position, &rate, &buffer_empty, &buffer_full);
     raop_playlist_remove(raop, airplay_video, (float) position);
+}
+
+extern "C" void on_video_playlist_insert (void *cls, void *airplay_video, const char *location) {
+    LOGI("************************* on_video_playlist_insert\n");
+    video_renderer_hls_ready();
+    if (airplay_video) {
+        raop_playlist_insert(raop, airplay_video, location);
+    } else {
+        LOGE("playlistInsert by location only is not supported\nrequestion location was %s\n",location);
+        exit(1);
+    }
 }
 
  extern "C" void on_video_stop(void *cls) {
@@ -2576,6 +2585,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.on_video_rate = on_video_rate;
     raop_cbs.on_video_stop = on_video_stop;
     raop_cbs.on_video_playlist_remove = on_video_playlist_remove;
+    raop_cbs.on_video_playlist_insert = on_video_playlist_insert;
     raop_cbs.on_video_acquire_playback_info = on_video_acquire_playback_info;
 
     raop = raop_init(&raop_cbs);

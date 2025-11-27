@@ -550,7 +550,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     }
     
     if (!strcmp(type,"playlistRemove")) {
-        logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistRemove (stop playback)");
         plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
         if (!req_params_item_node || !PLIST_IS_DICT (req_params_item_node)) {
             goto post_action_error;
@@ -558,19 +557,17 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
         char* remove_uuid = NULL;
         plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
-        const char *playback_uuid = get_playback_uuid(airplay_video);
-        if (remove_uuid) {
-            if (strcmp(remove_uuid, playback_uuid)) {
-                logger_log(conn->raop->logger, LOGGER_ERR, "uuid of playlist removal action request did not match current playlist:\n"
-                           "   current: %s\n   remove: %s", playback_uuid, remove_uuid);
-            } else {
-                logger_log(conn->raop->logger, LOGGER_DEBUG, "removal_uuid matches playback_uuid\n");
-            }
-            plist_mem_free (remove_uuid);
+        assert (remove_uuid);
+        int id  =  get_playlist_by_uuid(conn->raop, remove_uuid);
+        if (id >= 0) {
+            conn->raop->callbacks.on_video_playlist_remove(conn->raop->callbacks.cls,
+                                                           (void *) conn->raop->airplay_video[id]);
+        } else {
+            logger_log(conn->raop->logger, LOGGER_WARNING, "playlistRemove uuid %s does not match any stored playlist\n", remove_uuid);
         }
+        plist_mem_free (remove_uuid);
 
     } else if (!strcmp(type, "playlistInsert")) {
-        logger_log(conn->raop->logger, LOGGER_INFO, "unhandled action type playlistInsert (add new playback)");
         plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
         if (!req_params_item_node || !PLIST_IS_DICT (req_params_item_node)) {
             goto post_action_error;
@@ -578,15 +575,18 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
         char* insert_uuid = NULL;
         plist_get_string_val(req_params_item_uuid_node, &insert_uuid);
-        conn->raop->inserted_video = -1;
-        if (insert_uuid) {
-            conn->raop->inserted_video =  get_playlist_by_uuid(conn->raop, insert_uuid);
+        assert (insert_uuid);
+        int id  =  get_playlist_by_uuid(conn->raop, insert_uuid);
+        void * playlist = NULL;
+        if (id == -1) {	    
+            logger_log(conn->raop->logger, LOGGER_INFO, "playlistInsert uuid %s does not match any stored playlist\n", insert_uuid);
+        } else {
+            playlist = (void *) conn->raop->airplay_video[id];
         }
         plist_t req_params_item_content_location_node = plist_dict_get_item(req_params_item_node, "Content-Location");
         char* content_location = NULL;
         plist_get_string_val(req_params_item_content_location_node, &content_location);	
-        logger_log(conn->raop->logger, LOGGER_INFO, "playlistInsert (***UNHANDLED***): uuid %s (%d)\nlocation %s", insert_uuid,
-                   conn->raop->inserted_video, content_location);
+        conn->raop->callbacks.on_video_playlist_insert(conn->raop->callbacks.cls, playlist, content_location);
         plist_mem_free(insert_uuid);
         plist_mem_free(content_location);
 

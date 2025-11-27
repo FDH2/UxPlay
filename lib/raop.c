@@ -85,8 +85,6 @@ struct raop_s {
     /* place to store media_data_store */
     airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
     int current_video;
-    int removed_video;
-    int inserted_video;
   
     /* activate support for HLS live streaming */
     bool hls_support;
@@ -604,7 +602,6 @@ raop_init(raop_callbacks_t *callbacks) {
 
     /* initialize airplay_video */
     raop->current_video = -1;
-    raop->removed_video = -1;
     for (int i= 0; i < MAX_AIRPLAY_VIDEO; i++) {
         raop->airplay_video[i] = NULL;
     }
@@ -847,7 +844,16 @@ void raop_destroy_airplay_video(raop_t *raop, int id) {
 }
 void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
     airplay_video_t *airplay_video = (airplay_video_t *) opaque;
+    if (airplay_video != raop->airplay_video[raop->current_video]) {
+        logger_log(raop->logger, LOGGER_ERR, "raop__playlist_remove: video scheduled for removal is not current video");
+        exit(1);
+    }
+    set_resume_position_seconds(airplay_video, position_seconds);
+    raop->current_video = -1;
+}
 
+void raop_playlist_insert(raop_t *raop, void *opaque, const char *location) {
+    airplay_video_t *airplay_video = (airplay_video_t *) opaque;
     int id = -1;
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (airplay_video == raop->airplay_video[i]) {
@@ -855,15 +861,14 @@ void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
             break;
         }
     }
-    if (id >= 0) {
-        set_resume_position_seconds(airplay_video, position_seconds);
-        raop->current_video = -1;
-        float pos = get_resume_position_seconds(airplay_video);
-        assert(pos == position_seconds);
-    } else {
-        logger_log(raop->logger, LOGGER_ERR, "raop_playlist_remove: failed to identify removed_video");
-	exit(0);
-    }
+    assert (id >= 0);
+    printf("*************raop_playlist_insert: old location %s\n", location);
+    char *uri_local_prefix = get_uri_local_prefix(airplay_video);
+    printf("*************raop_playlist_insert: new location %s/master.m3u8\n", uri_local_prefix);
+    raop->current_video  = id;
+    raop->callbacks.on_video_play(raop->callbacks.cls,
+                                  strcat(uri_local_prefix, "/master.m3u8"),
+                                  get_resume_position_seconds(airplay_video));
 }
 
 int raop_current_playlist_delete(raop_t *raop) {
