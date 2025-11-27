@@ -255,17 +255,16 @@ http_handler_set_property(raop_conn_t *conn,
         !strcmp(property, "forwardEndTime") ||
         !strcmp(property, "actionAtItemEnd")) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "property %s is known but unhandled", property);
-
-        plist_t errResponse = plist_new_dict();
-        plist_t errCode = plist_new_uint(0);
-        plist_dict_set_item(errResponse, "errorCode", errCode);
-        plist_to_xml(errResponse, response_data, (uint32_t *) response_datalen);
-        plist_free(errResponse);
-        http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     } else {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "property %s is unknown, unhandled", property);      
         goto post_error;
     }
+    plist_t res_root_node = plist_new_dict();
+    plist_t errCode = plist_new_uint(0);
+    plist_dict_set_item(res_root_node, "errorCode", errCode);
+    plist_to_xml(res_root_node, response_data, (uint32_t *) response_datalen);
+    plist_free(res_root_node);
+    http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     return;
  post_error:
     http_response_add_header(response, "Content-Length", "0");
@@ -276,9 +275,27 @@ http_handler_set_property(raop_conn_t *conn,
 static void
 http_handler_get_property(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                           char **response_data, int *response_datalen) {
+    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
+    const char *guid = get_playback_uuid(airplay_video);
     const char *url = http_request_get_url(request);
-    const char *property = url + strlen("getProperty?");
+    const char *property = url + strlen("/getProperty?");
     logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_get_property: %s (unhandled)", property);
+    plist_t res_root_node = plist_new_dict();
+    plist_t errCode = plist_new_uint(0);
+    plist_dict_set_item(res_root_node, "errorCode", errCode);
+    if (!strcmp(property, "playbackAccessLog")) {
+        plist_t value_node = plist_new_array();
+        plist_t values_node = plist_new_dict();
+        plist_t guid_node = plist_new_string(guid);
+        plist_dict_set_item(values_node, "cs-guid", guid_node);
+        plist_array_append_item(value_node, values_node);
+        plist_dict_set_item(res_root_node,"value",value_node);
+    } else if (!strcmp(property, "playbackErrorLog")) {
+	/* don't have example for model  */
+    }
+    plist_to_xml(res_root_node, response_data, (uint32_t *) response_datalen);
+    plist_free(res_root_node);
+    http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
 }
 
 /* this request (for a variant FairPlay decryption)  cannot be handled  by UxPlay */
