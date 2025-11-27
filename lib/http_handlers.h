@@ -96,8 +96,16 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
         logger_log(conn->raop->logger, LOGGER_ERR, "no unused airplay_video structures are available"
                   " MAX_AIRPLAY_VIDEO = %d\n", MAX_AIRPLAY_VIDEO);
         exit(1);
+    } else {
+        /* remove oldest stored playlist, so there is always room to add one to the list */
+        int next = (id + 1) % MAX_AIRPLAY_VIDEO;
+        if (conn->raop->airplay_video[next]) {
+            raop_destroy_airplay_video(conn->raop, next);
+            conn->raop->airplay_video[next] = NULL;
+        }
     }
 
+    
     airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
     if (airplay_video) {
         conn->raop->current_video = id;
@@ -287,11 +295,12 @@ http_handler_get_property(raop_conn_t *conn, http_request_t *request, http_respo
         plist_t value_node = plist_new_array();
         plist_t values_node = plist_new_dict();
         plist_t guid_node = plist_new_string(guid);
-        plist_dict_set_item(values_node, "cs-guid", guid_node);
+        /* can add more entries below here: see https://openairplay.github.io/airplay-spec/video/http_requests.html#get-getproperty */
+        plist_dict_set_item(values_node, "cs-guid", guid_node);   // c = client, s = server  cs = both ?
         plist_array_append_item(value_node, values_node);
         plist_dict_set_item(res_root_node,"value",value_node);
     } else if (!strcmp(property, "playbackErrorLog")) {
-	/* don't have example for model  */
+	/* don't have example of playbackErrorLog as a  model  */
     }
     plist_to_xml(res_root_node, response_data, (uint32_t *) response_datalen);
     plist_free(res_root_node);
