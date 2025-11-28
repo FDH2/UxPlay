@@ -885,7 +885,7 @@ int raop_current_playlist_delete(raop_t *raop) {
 
 int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
     for (int i = 0 ;i < MAX_AIRPLAY_VIDEO; i++) {
-        if (!strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
+        if (raop->airplay_video[i] && !strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
             return i;
         }
     }
