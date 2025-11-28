@@ -857,10 +857,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (renderer_type[type]->appsrc) {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer_type[type]->appsrc));
         }
-        gst_bus_set_flushing(bus, TRUE);
-        gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-        renderer_type[type]->terminate = TRUE;
-        g_main_loop_quit( (GMainLoop *) loop);
+        if (!hls_video) {
+            gst_bus_set_flushing(bus, TRUE);
+            gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
+            renderer_type[type]->terminate = TRUE;
+            g_main_loop_quit( (GMainLoop *) loop);
+        }
         break;
     }
     case GST_MESSAGE_EOS:

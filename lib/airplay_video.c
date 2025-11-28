@@ -36,8 +36,8 @@ struct media_item_s {
 
 struct airplay_video_s {
     raop_t *raop;
-    char apple_session_id[37];
-    char playback_uuid[37];
+    char *apple_session_id;
+    char *playback_uuid;
     char *uri_prefix;
     char *language_name;
     char *language_code;
@@ -84,13 +84,12 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
     airplay_video->raop = raop;
     airplay_video->FCUP_RequestID = 0;
 
-    size_t len = strlen(session_id);
-    assert(len == 36);
-    strncpy(airplay_video->apple_session_id, session_id, len);
-        
     airplay_video->start_position_seconds = 0.0f;
     airplay_video->resume_position_seconds = 0.0f;
 
+    airplay_video->apple_session_id = (char *) calloc(strlen(session_id) + 1, sizeof(char));
+    memcpy(airplay_video->apple_session_id, session_id, strlen(session_id));
+    airplay_video->playback_uuid = NULL;
     airplay_video->uri_prefix = NULL;
     airplay_video->language_code = NULL;
     airplay_video->language_name = NULL;
@@ -106,14 +105,21 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
 void
 airplay_video_destroy(airplay_video_t *airplay_video)
 {
+
     if (airplay_video->uri_prefix) {
-        free(airplay_video->uri_prefix);
+        free (airplay_video->uri_prefix);
+    }
+    if (airplay_video->playback_uuid) {
+        free (airplay_video->playback_uuid);
+    }
+    if (airplay_video->apple_session_id) {
+        free (airplay_video->apple_session_id);
     }
     if (airplay_video->language_name) {
-        free(airplay_video->language_name);
+        free (airplay_video->language_name);
     }
     if (airplay_video->language_code) {
-       free(airplay_video->language_code);
+       free (airplay_video->language_code);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -145,10 +151,11 @@ void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_po
 }
 
 void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid) {
-    size_t len = strlen(playback_uuid);
-    assert(len == 36);
-    memcpy(airplay_video->playback_uuid, playback_uuid, len);
-    (airplay_video->playback_uuid)[len] = '\0';
+    if (airplay_video->playback_uuid) {
+        free (airplay_video->playback_uuid);
+    }
+    airplay_video->playback_uuid = (char *) calloc(strlen(playback_uuid) + 1, sizeof(char));
+    memcpy(airplay_video->playback_uuid, playback_uuid, strlen(playback_uuid));
 }
 
 const char *get_playback_uuid(airplay_video_t *airplay_video) {

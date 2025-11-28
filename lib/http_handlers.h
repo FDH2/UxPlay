@@ -81,7 +81,7 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     free(hw_addr);
     
-    /* initialize the airplay video service */
+    /* initialize the airplay video structure that will hold the new playlist */
     const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
 
     int id = -1;
@@ -110,6 +110,8 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     if (airplay_video) {
         conn->raop->current_video = id;
         conn->raop->airplay_video[id] = airplay_video;
+        conn->raop->current_video = id;
+        logger_log(conn->raop->logger, LOGGER_DEBUG, "initialized airplay_video[%d] %p\n", id, conn->raop->airplay_video[id]);
     } else {
         logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
         exit(-1);
