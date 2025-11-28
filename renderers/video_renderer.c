@@ -46,7 +46,6 @@ static bool hls_video = false;
 static bool use_x11 = false;
 #endif
 static bool logger_debug = false;
-static bool video_terminate = false;
 static gint64 hls_requested_start_position = 0;
 static gint64 hls_seek_start = 0;
 static gint64 hls_seek_end = 0;
@@ -85,7 +84,6 @@ struct video_renderer_s {
     const char *codec;
     bool autovideo;
     int id;
-    gboolean terminate;
     gint64 duration;
     gint buffering_level;
 #ifdef  X_DISPLAY_FIX
@@ -237,7 +235,6 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
 
     logger = render_logger;
     logger_debug = (logger_get_level(logger) >= LOGGER_DEBUG);
-    video_terminate = false;
     hls_seek_enabled = FALSE;
     hls_playing = FALSE;
     hls_seek_start = -1;
@@ -860,7 +857,6 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (!hls_video) {
             gst_bus_set_flushing(bus, TRUE);
             gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-            renderer_type[type]->terminate = TRUE;
             g_main_loop_quit( (GMainLoop *) loop);
         }
         break;
@@ -871,7 +867,6 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (hls_video) {
             gst_bus_set_flushing(bus, TRUE);
             gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-            renderer_type[type]->terminate = TRUE;
             g_main_loop_quit( (GMainLoop *) loop);
         }
         break;
@@ -1012,20 +1007,6 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
         }
     }
     return 0;
-}
-
-unsigned int video_reset_callback(void * loop) {
-    if (video_terminate) {
-        video_terminate = false;
-        if (renderer->appsrc) {
-            gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
-        }
-	gboolean flushing = TRUE;
-        gst_bus_set_flushing(renderer->bus, flushing);
-        gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-        g_main_loop_quit( (GMainLoop *) loop);
-    }
-    return (unsigned  int) TRUE;
 }
 
 bool video_get_playback_info(double *duration, double *position, float *rate, bool *buffer_empty, bool *buffer_full) {

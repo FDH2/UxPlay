@@ -685,7 +685,6 @@ static void main_loop()  {
     missed_feedback = 0;
     guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
     guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
-    guint video_reset_watch_id = g_timeout_add(100, (GSourceFunc) video_reset_callback, (gpointer) loop);
 
 #ifdef _WIN32
     gmainloop = loop;
@@ -719,7 +718,6 @@ static void main_loop()  {
     if (gst_x11_window_id > 0) g_source_remove(gst_x11_window_id);
     if (reset_watch_id > 0) g_source_remove(reset_watch_id);
     if (progress_id > 0) g_source_remove(progress_id);
-    if (video_reset_watch_id > 0) g_source_remove(video_reset_watch_id);
     if (feedback_watch_id > 0) g_source_remove(feedback_watch_id);
     g_main_loop_unref(loop);
 }    
