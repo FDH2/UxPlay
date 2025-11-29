@@ -42,7 +42,7 @@ struct airplay_video_s {
     char *language_name;
     char *language_code;
     const char *lang;
-    char local_uri_prefix[23];
+    char *local_uri_prefix;
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -58,7 +58,8 @@ struct airplay_video_s {
 //  initialize airplay_video service.
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
                                const char *lang, const char *session_id) {
-    char uri[] = "http://localhost:xxxxx";
+    char uri[] = "http://localhost:";
+    char port[6] = { '\0' };
     assert(raop);
 
     /* calloc guarantees that the 36-character strings apple_session_id and 
@@ -70,17 +71,12 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
     }
 
     airplay_video->lang = lang;
-     /* create local_uri_prefix string */
-    strncpy(airplay_video->local_uri_prefix, uri, sizeof(airplay_video->local_uri_prefix));
-    char *ptr  = strstr(airplay_video->local_uri_prefix, "xxxxx");
-    snprintf(ptr, 6, "%-5u", http_port);
-    ptr = strstr(airplay_video->local_uri_prefix, " ");
-    if (ptr) {
-        *ptr = '\0';
-    }
 
-    //printf(" %p %p\n", airplay_video, get_airplay_video(raop));
-
+    snprintf(port, 6, "%u", http_port);
+    airplay_video->local_uri_prefix = (char *) calloc(strlen(uri) + strlen(port) + 1, sizeof(char));
+    memcpy(airplay_video->local_uri_prefix, uri, strlen(uri));
+    memcpy(airplay_video->local_uri_prefix + strlen(uri), port, strlen(port));
+    
     airplay_video->raop = raop;
     airplay_video->FCUP_RequestID = 0;
 
@@ -108,6 +104,9 @@ airplay_video_destroy(airplay_video_t *airplay_video)
 
     if (airplay_video->uri_prefix) {
         free (airplay_video->uri_prefix);
+    }
+    if (airplay_video->local_uri_prefix) {
+        free (airplay_video->local_uri_prefix);
     }
     if (airplay_video->playback_uuid) {
         free (airplay_video->playback_uuid);
