@@ -38,11 +38,12 @@ struct airplay_video_s {
     raop_t *raop;
     char *apple_session_id;
     char *playback_uuid;
+    char *playback_location;
     char *uri_prefix;
+    char *local_uri_prefix;
     char *language_name;
     char *language_code;
     const char *lang;
-    char *local_uri_prefix;
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -86,6 +87,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
     airplay_video->apple_session_id = (char *) calloc(strlen(session_id) + 1, sizeof(char));
     memcpy(airplay_video->apple_session_id, session_id, strlen(session_id));
     airplay_video->playback_uuid = NULL;
+    airplay_video->playback_location = NULL;
     airplay_video->uri_prefix = NULL;
     airplay_video->language_code = NULL;
     airplay_video->language_name = NULL;
@@ -111,6 +113,9 @@ airplay_video_destroy(airplay_video_t *airplay_video)
     if (airplay_video->playback_uuid) {
         free (airplay_video->playback_uuid);
     }
+    if (airplay_video->playback_location) {
+        free (airplay_video->playback_location);
+    }
     if (airplay_video->apple_session_id) {
         free (airplay_video->apple_session_id);
     }
@@ -127,6 +132,14 @@ airplay_video_destroy(airplay_video_t *airplay_video)
         free (airplay_video->master_playlist);
     }
     free (airplay_video);
+}
+
+void set_apple_session_id(airplay_video_t *airplay_video, const char *session_id) {
+    if (airplay_video->apple_session_id) {
+        free (airplay_video->apple_session_id);
+    }
+    airplay_video->apple_session_id = (char *) calloc(strlen(session_id) + 1, sizeof(char));
+    memcpy(airplay_video->apple_session_id, session_id, strlen(session_id));
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
@@ -159,6 +172,18 @@ void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid
 
 const char *get_playback_uuid(airplay_video_t *airplay_video) {
     return (const char *) airplay_video->playback_uuid; 
+}
+
+void set_playback_location(airplay_video_t *airplay_video, const char *playback_location) {
+    if (airplay_video->playback_location) {
+        free (airplay_video->playback_location);
+    }
+    airplay_video->playback_location = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
+    memcpy(airplay_video->playback_location, playback_location, strlen(playback_location));
+}
+
+const char *get_playback_location(airplay_video_t *airplay_video) {
+    return (const char *) airplay_video->playback_location; 
 }
 
 void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix) {
