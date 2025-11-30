@@ -80,33 +80,7 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     plist_free(r_node);
     http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     free(hw_addr);
-    
-    /* initialize the airplay video service */
-    const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
-
-    int id = -1;
-    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
-        if (conn->raop->airplay_video[i]) {
-            continue;
-        }
-        id = i;
-        break;
-    }
-    if (id == -1) {
-        logger_log(conn->raop->logger, LOGGER_ERR, "no unused airplay_video structures are available"
-                  " MAX_AIRPLAY_VIDEO = %d\n", MAX_AIRPLAY_VIDEO);
-        exit(1);
-    }
-
-    airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, session_id);
-    if (airplay_video) {
-        conn->raop->current_video = id;
-        conn->raop->airplay_video[id] = airplay_video;
-    } else {
-        logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
-        exit(-1);
-    }
-}
+}    
 
 static void
 http_handler_scrub(raop_conn_t *conn, http_request_t *request, http_response_t *response,
@@ -708,27 +682,18 @@ static void
 http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen) {
 
-    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     char* playback_location = NULL;
     char* client_proc_name = NULL;
     plist_t req_root_node = NULL;
     float start_position_seconds = 0.0f;
     bool data_is_binary_plist = false;
-    bool data_is_text = false;
-    bool data_is_octet = false;
     char supported_hls_proc_names[] = "YouTube;";
 
     logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_play");
 
-    const char* session_id = http_request_get_header(request, "X-Apple-Session-ID");
-    if (!session_id) {
+    const char* apple_session_id = http_request_get_header(request, "X-Apple-Session-ID");
+    if (!apple_session_id) {
         logger_log(conn->raop->logger, LOGGER_ERR, "Play request had no X-Apple-Session-ID");
-        goto play_error;
-    }
-    const char *apple_session_id = get_apple_session_id(airplay_video);
-    if (strcmp(session_id, apple_session_id)){
-        logger_log(conn->raop->logger, LOGGER_ERR, "X-Apple-Session-ID has changed:\n  was:\"%s\"\n  now:\"%s\"",
-                   apple_session_id, session_id);
         goto play_error;
     }
 
@@ -740,66 +705,79 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         http_request_get_header_string(request, &header_str);
         logger_log(conn->raop->logger, LOGGER_DEBUG, "request header:\n%s", header_str);
         data_is_binary_plist = (strstr(header_str, "x-apple-binary-plist") != NULL);
-        data_is_text = (strstr(header_str, "text/parameters") != NULL);
-        data_is_octet = (strstr(header_str, "octet-stream") != NULL);
         free (header_str);
     }
-    if (!data_is_text && !data_is_octet && !data_is_binary_plist) {
-        goto play_error;
-    }
 
-    if (data_is_text) {
-         logger_log(conn->raop->logger, LOGGER_ERR, "Play request Content is text (unsupported)");
+    if (!data_is_binary_plist) {
+         logger_log(conn->raop->logger, LOGGER_ERR, "Play request Content is not binary_plist (unsupported)");
          goto play_error;
     }
 
-    if (data_is_octet) {
-         logger_log(conn->raop->logger, LOGGER_ERR, "Play request Content is octet-stream (unsupported)");
-         goto play_error;
+    plist_from_bin(request_data, request_datalen, &req_root_node);
+
+    /* initialize the airplay video service */
+    int id = -1;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (conn->raop->airplay_video[i]) {
+            continue;
+        }
+        id = i;
+        break;
+    }
+    if (id == -1) {
+        logger_log(conn->raop->logger, LOGGER_ERR, "no unused airplay_video structures are available"
+                  " MAX_AIRPLAY_VIDEO = %d\n", MAX_AIRPLAY_VIDEO);
+        exit(1);
     }
 
-    if (data_is_binary_plist) {
-        plist_from_bin(request_data, request_datalen, &req_root_node);
-
-        plist_t req_uuid_node = plist_dict_get_item(req_root_node, "uuid");
-        if (!req_uuid_node) {
-            goto play_error;
-        } else {
-            char* playback_uuid = NULL;
-            plist_get_string_val(req_uuid_node, &playback_uuid);
-            set_playback_uuid(airplay_video, playback_uuid);
-            plist_mem_free (playback_uuid);
-        }
-
-        plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
-        if (!req_content_location_node) {
-            goto play_error;
-        } else {
-            plist_get_string_val(req_content_location_node, &playback_location);
-        }
-
-        plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
-        if (!req_client_proc_name_node) {
-            goto play_error;
-        } else {
-            plist_get_string_val(req_client_proc_name_node, &client_proc_name);
-            if (!strstr(supported_hls_proc_names, client_proc_name)){
-                logger_log(conn->raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
-                           client_proc_name, supported_hls_proc_names);
-            }
-	    plist_mem_free(client_proc_name);
-        }
+    /* initialize new airplay_video structure to hold playlist */
+    airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, apple_session_id);
+    if (airplay_video) {
+        conn->raop->current_video = id;
+        conn->raop->airplay_video[id] = airplay_video;
+    } else {
+        logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
+        exit(-1);
+    }
 	
-        plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
-        if (!req_start_position_seconds_node) {
-            logger_log(conn->raop->logger, LOGGER_INFO, "No Start-Position-Seconds in Play request");	    
-        } else {
-             double start_position = 0.0;
-             plist_get_real_val(req_start_position_seconds_node, &start_position);
-             start_position_seconds = (float) start_position;
-        }
-        set_start_position_seconds(airplay_video, (float) start_position_seconds);
+    plist_t req_uuid_node = plist_dict_get_item(req_root_node, "uuid");
+    if (!req_uuid_node) {
+       goto play_error;
+    } else {
+        char* playback_uuid = NULL;
+        plist_get_string_val(req_uuid_node, &playback_uuid);
+        set_playback_uuid(airplay_video, playback_uuid);
+        plist_mem_free (playback_uuid);
     }
+
+    plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
+    if (!req_content_location_node) {
+        goto play_error;
+    } else {
+        plist_get_string_val(req_content_location_node, &playback_location);
+    }
+
+    plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
+    if (!req_client_proc_name_node) {
+        goto play_error;
+    } else {
+        plist_get_string_val(req_client_proc_name_node, &client_proc_name);
+        if (!strstr(supported_hls_proc_names, client_proc_name)){
+            logger_log(conn->raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
+                       client_proc_name, supported_hls_proc_names);
+        }
+        plist_mem_free(client_proc_name);
+    }
+
+    plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
+    if (!req_start_position_seconds_node) {
+        logger_log(conn->raop->logger, LOGGER_INFO, "No Start-Position-Seconds in Play request");	    
+    } else {
+         double start_position = 0.0;
+         plist_get_real_val(req_start_position_seconds_node, &start_position);
+         start_position_seconds = (float) start_position;
+    }
+    set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
     char *ptr = strstr(playback_location, "/master.m3u8");
     if (!ptr) {
