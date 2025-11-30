@@ -85,6 +85,7 @@ struct video_renderer_s {
     const char *codec;
     bool autovideo;
     int id;
+    char *uri;
     gboolean terminate;
     gint64 duration;
     gint buffering_level;
@@ -282,7 +283,10 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         renderer_type[i]->id = i;
         renderer_type[i]->bus = NULL;
         renderer_type[i]->appsrc = NULL;
+        renderer_type[i]->uri = NULL;
         if (hls_video) {
+            renderer_type[i]->uri = (char *) calloc(strlen(uri) + 1, sizeof(char));
+            memcpy(renderer_type[i]->uri, uri, strlen(uri));
             /* use playbin3 to play HLS video: replace "playbin3" by "playbin" to use playbin2 */
             switch (playbin_version)  {
             case 2:
@@ -475,12 +479,12 @@ void video_renderer_resume() {
     }
 }
 
-void video_renderer_start( void * opaque, const char * uri) {
+void video_renderer_start( void * opaque) {
     GstState state;
     const gchar *state_name;
     if (hls_video) {
         raop = (raop_t *) opaque;
-        g_object_set (G_OBJECT (renderer->pipeline), "uri", uri, NULL);
+        g_object_set (G_OBJECT (renderer->pipeline), "uri", renderer->uri, NULL);
         gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
 	gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
 	state_name = gst_element_state_get_name(state);
@@ -689,6 +693,9 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
             renderer->gst_window = NULL;
         }
 #endif
+        if (renderer->uri) {
+            free(renderer->uri);
+        }
         free (renderer);
         renderer = NULL;
         logger_log(logger, LOGGER_DEBUG,"renderer destroyed\n");	
@@ -857,10 +864,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (renderer_type[type]->appsrc) {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer_type[type]->appsrc));
         }
-        gst_bus_set_flushing(bus, TRUE);
-        gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-        renderer_type[type]->terminate = TRUE;
-        g_main_loop_quit( (GMainLoop *) loop);
+        if (!hls_video) {
+            gst_bus_set_flushing(bus, TRUE);
+            gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
+            renderer_type[type]->terminate = TRUE;
+            g_main_loop_quit( (GMainLoop *) loop);
+        }
         break;
     }
     case GST_MESSAGE_EOS:

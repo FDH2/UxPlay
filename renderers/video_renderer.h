@@ -51,7 +51,7 @@ typedef struct video_renderer_s video_renderer_t;
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options,
                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support,
                           guint playbin_version,  const char *uri);
-void video_renderer_start (void *raop, const char *uri);
+void video_renderer_start (void *raop);
 void video_renderer_stop ();
 void video_renderer_pause ();
 void video_renderer_hls_ready ();

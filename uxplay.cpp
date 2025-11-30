@@ -2994,7 +2994,7 @@ int main (int argc, char *argv[]) {
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
                             render_coverart, playbin_version, NULL);
-        video_renderer_start(NULL, NULL);
+        video_renderer_start(NULL);
 #ifdef __OpenBSD__
     } else {
         if (pledge("stdio rpath wpath cpath inet unix prot_exec", NULL) == -1) {
@@ -3096,7 +3096,7 @@ int main (int argc, char *argv[]) {
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
-            video_renderer_start((void *) raop, uri);
+            video_renderer_start((void *) raop);
         }
         if (reset_httpd) {
             unsigned short port = raop_get_port(raop);
