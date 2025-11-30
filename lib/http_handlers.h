@@ -715,7 +715,15 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     plist_from_bin(request_data, request_datalen, &req_root_node);
 
-    /* initialize the airplay video service */
+    plist_t req_uuid_node = plist_dict_get_item(req_root_node, "uuid");
+    if (!req_uuid_node) {
+       goto play_error;
+    }
+    char* playback_uuid = NULL;
+    plist_get_string_val(req_uuid_node, &playback_uuid);
+
+    /* initialize new airplay_video structure to hold playlist */
+
     int id = -1;
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (conn->raop->airplay_video[i]) {
@@ -730,7 +738,23 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         exit(1);
     }
 
-    /* initialize new airplay_video structure to hold playlist */
+    /* ensure that space will always be available */
+    int count = 1;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (conn->raop->airplay_video[i]) {
+            if (get_duration(conn->raop->airplay_video[i]) < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { 
+                airplay_video_destroy(conn->raop->airplay_video[i]);
+            } else {
+                count++;
+            }
+        }
+    }
+    assert (count <= MAX_AIRPLAY_VIDEO);
+    if (count == MAX_AIRPLAY_VIDEO) {
+        int next = (id + 1) % (int) MAX_AIRPLAY_VIDEO;
+        airplay_video_destroy(conn->raop->airplay_video[next]);
+    }
+
     airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, apple_session_id);
     if (airplay_video) {
         conn->raop->current_video = id;
@@ -740,15 +764,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         exit(-1);
     }
 	
-    plist_t req_uuid_node = plist_dict_get_item(req_root_node, "uuid");
-    if (!req_uuid_node) {
-       goto play_error;
-    } else {
-        char* playback_uuid = NULL;
-        plist_get_string_val(req_uuid_node, &playback_uuid);
-        set_playback_uuid(airplay_video, playback_uuid);
-        plist_mem_free (playback_uuid);
-    }
+    set_playback_uuid(airplay_video, playback_uuid);
+    plist_mem_free (playback_uuid);
+
 
     plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
     if (!req_content_location_node) {

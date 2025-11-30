@@ -127,6 +127,10 @@ const char *get_apple_session_id(airplay_video_t *airplay_video) {
     return airplay_video->apple_session_id;
 }
 
+float get_duration(airplay_video_t *airplay_video) {
+    return airplay_video->media_data_store->duration;
+}
+
 float get_start_position_seconds(airplay_video_t *airplay_video) {
     return airplay_video->start_position_seconds;
 }
