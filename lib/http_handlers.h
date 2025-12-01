@@ -688,7 +688,8 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     float start_position_seconds = 0.0f;
     bool data_is_binary_plist = false;
     char supported_hls_proc_names[] = "YouTube;";
-
+    airplay_video_t *airplay_video = NULL;
+    
     logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_play");
 
     const char* apple_session_id = http_request_get_header(request, "X-Apple-Session-ID");
@@ -722,9 +723,52 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     char* playback_uuid = NULL;
     plist_get_string_val(req_uuid_node, &playback_uuid);
 
-    /* initialize new airplay_video structure to hold playlist */
+    /* check if playlist is already dowloaded and stored (may have been interruoted by advertisements ) */
+#if 0
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        printf("old: airplay_video[%d] %p %s %f\n", i, conn->raop->airplay_video[i],
+	       get_playback_uuid(conn->raop->airplay_video[i]),
+	       get_duration(conn->raop->airplay_video[i]));
+    }
+    printf("\n");
+    printf("new playback_uuid %s\n\n", playback_uuid);
+#endif
 
     int id = -1;
+    id = get_playlist_by_uuid(conn->raop, playback_uuid);
+    if (id >= 0) {
+        printf("use: airplay_video[%d] %p %s %s\n", id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
+        airplay_video = conn->raop->airplay_video[id];
+        assert(airplay_video);
+        set_apple_session_id(airplay_video, apple_session_id);      
+        char * uri_local_prefix = get_uri_local_prefix(airplay_video);
+        conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
+                                            strcat(uri_local_prefix, "/master.m3u8"),
+                                            get_start_position_seconds(airplay_video));
+        plist_mem_free(playback_uuid);
+        plist_free(req_root_node);
+        return;
+    }
+
+    /* remove short stort playlists (probably advertisements */
+    int count = 0;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (conn->raop->airplay_video[i]) {
+            float duration = get_duration(conn->raop->airplay_video[i]);
+                if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) {
+                    logger_log(conn->raop->logger, LOGGER_INFO,
+                              "deleting playlist playback_uuid %s duration (seconds) %f",
+                    get_playback_uuid(conn->raop->airplay_video[i]), duration);
+                    airplay_video_destroy(conn->raop->airplay_video[i]);
+                    conn->raop->airplay_video[i] = NULL;
+                } else {
+                count++;
+                //printf(" %d %d duration %f : keep\n", i, count,  duration);
+            }
+        }
+    }
+
+    /* initialize new airplay_video structure to hold playlist */
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (conn->raop->airplay_video[i]) {
             continue;
@@ -738,36 +782,39 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         exit(1);
     }
 
-    /* ensure that space will always be available */
-    int count = 1;
-    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
-        if (conn->raop->airplay_video[i]) {
-            if (get_duration(conn->raop->airplay_video[i]) < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { 
-                airplay_video_destroy(conn->raop->airplay_video[i]);
-            } else {
-                count++;
-            }
-        }
-    }
-    assert (count <= MAX_AIRPLAY_VIDEO);
-    if (count == MAX_AIRPLAY_VIDEO) {
-        int next = (id + 1) % (int) MAX_AIRPLAY_VIDEO;
-        airplay_video_destroy(conn->raop->airplay_video[next]);
-    }
-
-    airplay_video_t *airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang, apple_session_id);
+    airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang);
     if (airplay_video) {
+        set_playback_uuid(airplay_video, playback_uuid);
+        plist_mem_free (playback_uuid);
         conn->raop->current_video = id;
         conn->raop->airplay_video[id] = airplay_video;
+        count++;
+        //printf("created new airplay_video %p %s\n\n", airplay_video, get_playback_uuid(airplay_video));
     } else {
         logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
         exit(-1);
     }
-	
-    set_playback_uuid(airplay_video, playback_uuid);
-    plist_mem_free (playback_uuid);
 
+    /* ensure that space will always be available for adding future playlists */
 
+    if (count == MAX_AIRPLAY_VIDEO) {
+        int next = (id + 1) % (int) MAX_AIRPLAY_VIDEO;
+        logger_log(conn->raop->logger, LOGGER_INFO,
+                   "deleting playlist playback_uuid %s duration (seconds) %f",
+                   get_playback_uuid(conn->raop->airplay_video[next]),
+                   get_duration(conn->raop->airplay_video[next]));
+        airplay_video_destroy(conn->raop->airplay_video[next]);
+        conn->raop->airplay_video[next] = NULL;
+    }
+#if 0    
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        printf("new: airplay_video[%d] %p %s %f\n", i, conn->raop->airplay_video[i],
+	       get_playback_uuid(conn->raop->airplay_video[i]),
+	       get_duration(conn->raop->airplay_video[i]));
+    }
+#endif
+    set_apple_session_id(airplay_video, apple_session_id);
+	   
     plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
     if (!req_content_location_node) {
         goto play_error;
@@ -808,6 +855,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         set_uri_prefix(airplay_video, uri_prefix);
     }
     set_next_media_uri_id(airplay_video, 0);
+    printf("FCUP REQUEST\n");
     fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
     plist_mem_free(playback_location);

@@ -107,7 +107,8 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang, const char *session_id);
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang);
+int get_playlist_by_uuid(raop_t *raop, const char *uuid);
 char *raop_get_lang(raop_t *raop);
 uint64_t get_local_time();
 

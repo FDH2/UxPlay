@@ -877,6 +877,16 @@ int raop_current_playlist_delete(raop_t *raop) {
     return current_video;
 }
 
+int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
+    for (int i = 0 ;i < MAX_AIRPLAY_VIDEO && raop->airplay_video[i]; i++) {
+        if (!strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 uint64_t get_local_time() {
     return raop_ntp_get_local_time();
 }
+

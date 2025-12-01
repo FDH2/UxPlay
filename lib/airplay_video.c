@@ -36,7 +36,7 @@ struct media_item_s {
 
 struct airplay_video_s {
     raop_t *raop;
-    char apple_session_id[37];
+    char *apple_session_id;
     char playback_uuid[37];
     char *uri_prefix;
     char *language_name;
@@ -56,8 +56,7 @@ struct airplay_video_s {
 };
 
 //  initialize airplay_video service.
-airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
-                               const char *lang, const char *session_id) {
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, const char *lang) {
     char uri[] = "http://localhost:xxxxx";
     assert(raop);
 
@@ -84,9 +83,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
     airplay_video->raop = raop;
     airplay_video->FCUP_RequestID = 0;
 
-    size_t len = strlen(session_id);
-    assert(len == 36);
-    strncpy(airplay_video->apple_session_id, session_id, len);
+    airplay_video->apple_session_id = NULL;
         
     airplay_video->start_position_seconds = 0.0f;
 
@@ -103,8 +100,10 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port,
 
 // destroy the airplay_video service
 void
-airplay_video_destroy(airplay_video_t *airplay_video)
-{
+airplay_video_destroy(airplay_video_t *airplay_video) {
+    if (airplay_video->apple_session_id) {
+        free(airplay_video->apple_session_id);
+    }
     if (airplay_video->uri_prefix) {
         free(airplay_video->uri_prefix);
     }
@@ -121,13 +120,28 @@ airplay_video_destroy(airplay_video_t *airplay_video)
         free (airplay_video->master_playlist);
     }
     free (airplay_video);
+    airplay_video = NULL;
+}
+
+void set_apple_session_id(airplay_video_t *airplay_video, const char * apple_session_id) {
+    if (airplay_video->apple_session_id) {
+        free (airplay_video->apple_session_id);
+    }
+    airplay_video->apple_session_id = (char *) calloc(strlen(apple_session_id) + 1, sizeof(char));
+    memcpy(airplay_video->apple_session_id, apple_session_id, strlen(apple_session_id));
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
+    if (!airplay_video || !airplay_video->apple_session_id) {
+        return NULL;
+    }
     return airplay_video->apple_session_id;
 }
 
 float get_duration(airplay_video_t *airplay_video) {
+    if (!airplay_video || !airplay_video->media_data_store || !airplay_video->media_data_store->duration) {
+        return 0.0f;
+    }
     return airplay_video->media_data_store->duration;
 }
 
@@ -155,7 +169,7 @@ void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid
 }
 
 const char *get_playback_uuid(airplay_video_t *airplay_video) {
-    return (const char *) airplay_video->playback_uuid; 
+    return (const char *) (!airplay_video ? NULL : airplay_video->playback_uuid); 
 }
 
 void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix) {
