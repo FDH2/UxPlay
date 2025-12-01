@@ -23,7 +23,6 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
-#include "../lib/raop.h"
 
 #define SECOND_IN_NSECS 1000000000UL
 #define SECOND_IN_MICROSECS 1000000
@@ -46,7 +45,6 @@ static bool hls_video = false;
 static bool use_x11 = false;
 #endif
 static bool logger_debug = false;
-static bool video_terminate = false;
 static gint64 hls_requested_start_position = 0;
 static gint64 hls_seek_start = 0;
 static gint64 hls_seek_end = 0;
@@ -77,7 +75,6 @@ typedef enum {
 } GstPlayFlags;
 
 #define NCODECS  3   /* renderers for h264,h265, and jpeg images */
-static raop_t * raop = NULL;
 
 struct video_renderer_s {
     GstElement *appsrc, *pipeline;
@@ -86,7 +83,7 @@ struct video_renderer_s {
     bool autovideo;
     int id;
     char *uri;
-    gboolean terminate;
+    gboolean eos;
     gint64 duration;
     gint buffering_level;
 #ifdef  X_DISPLAY_FIX
@@ -232,13 +229,11 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
     hls_video = (uri != NULL);
-    raop = NULL;
     /* videosink choices that are auto */
     auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
 
     logger = render_logger;
     logger_debug = (logger_get_level(logger) >= LOGGER_DEBUG);
-    video_terminate = false;
     hls_seek_enabled = FALSE;
     hls_playing = FALSE;
     hls_seek_start = -1;
@@ -284,6 +279,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         renderer_type[i]->bus = NULL;
         renderer_type[i]->appsrc = NULL;
         renderer_type[i]->uri = NULL;
+        renderer_type[i]->eos = FALSE;
         if (hls_video) {
             renderer_type[i]->uri = (char *) calloc(strlen(uri) + 1, sizeof(char));
             memcpy(renderer_type[i]->uri, uri, strlen(uri));
@@ -479,11 +475,10 @@ void video_renderer_resume() {
     }
 }
 
-void video_renderer_start( void * opaque) {
+void video_renderer_start() {
     GstState state;
     const gchar *state_name;
     if (hls_video) {
-        raop = (raop_t *) opaque;
         g_object_set (G_OBJECT (renderer->pipeline), "uri", renderer->uri, NULL);
         gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
 	gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
@@ -492,7 +487,6 @@ void video_renderer_start( void * opaque) {
         return;
     } 
     /* when not hls, start both h264 and h265 pipelines; will shut down the "wrong" one when we know the codec */
-    raop = NULL;
     for (int i = 0; i < n_renderers; i++) {
         gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_PAUSED);
         gst_element_get_state(renderer_type[i]->pipeline, &state, NULL, 1000 * GST_MSECOND);
@@ -867,7 +861,6 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (!hls_video) {
             gst_bus_set_flushing(bus, TRUE);
             gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-            renderer_type[type]->terminate = TRUE;
             g_main_loop_quit( (GMainLoop *) loop);
         }
         break;
@@ -878,8 +871,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (hls_video) {
             gst_bus_set_flushing(bus, TRUE);
             gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-            renderer_type[type]->terminate = TRUE;
-            g_main_loop_quit( (GMainLoop *) loop);
+            renderer_type[type]->eos = TRUE;
         }
         break;
     case GST_MESSAGE_STATE_CHANGED:
@@ -1021,20 +1013,6 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
     return 0;
 }
 
-unsigned int video_reset_callback(void * loop) {
-    if (video_terminate) {
-        video_terminate = false;
-        if (renderer->appsrc) {
-            gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
-        }
-	gboolean flushing = TRUE;
-        gst_bus_set_flushing(renderer->bus, flushing);
-        gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-        g_main_loop_quit( (GMainLoop *) loop);
-    }
-    return (unsigned  int) TRUE;
-}
-
 bool video_get_playback_info(double *duration, double *position, float *rate, bool *buffer_empty, bool *buffer_full) {
     gint64 pos = 0;
     GstState state;
@@ -1106,4 +1084,12 @@ unsigned int video_renderer_listen(void *loop, int id) {
     g_assert(id >= 0 && id < n_renderers);
     return (unsigned int) gst_bus_add_watch(renderer_type[id]->bus,(GstBusFunc)
                                             gstreamer_video_pipeline_bus_callback, (gpointer) loop);    
+}
+
+bool video_renderer_eos_watch() {
+    if (hls_video && renderer->eos) {
+        renderer->eos = FALSE;
+	return true;
+    }
+    return false; 
 }

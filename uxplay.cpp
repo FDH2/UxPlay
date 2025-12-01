@@ -178,6 +178,7 @@ static bool hls_support = false;
 static std::string lang = "";
 static std::string url = "";
 static guint gst_x11_window_id = 0;
+static guint video_eos_watch_id = 0;
 static guint progress_id = 0;
 static guint gst_hls_position_id = 0;
 static bool preserve_connections = false;
@@ -633,6 +634,14 @@ static gboolean progress_callback (gpointer loop) {
     }
 }
 
+static gboolean video_eos_watch_callback (gpointer loop) {
+    if (video_renderer_eos_watch()) {
+        /* HLS video has sent EOS */
+	LOGI("hls video has sent EOS");
+    }
+    return TRUE;
+}
+
 #define MAX_VIDEO_RENDERERS 3
 #define MAX_AUDIO_RENDERERS 2
 static void main_loop()  {
@@ -657,10 +666,12 @@ static void main_loop()  {
                 n_video_renderers++;
             }
             /* renderer[0] : h264 video; followed by  h265 video (optional) and jpeg (optional)  */
-            gst_x11_window_id = 0;           
+            gst_x11_window_id = 0;
+	    video_eos_watch_id = 0;
         } else {
             /* hls video will be rendered: renderer[0] : hls  */
             url.erase();
+            video_eos_watch_id = g_timeout_add(100, (GSourceFunc) video_eos_watch_callback, (gpointer) loop);
             gst_x11_window_id = g_timeout_add(100, (GSourceFunc) x11_window_callback, (gpointer) loop);
         }
         g_assert(n_video_renderers <= MAX_VIDEO_RENDERERS);
@@ -685,7 +696,6 @@ static void main_loop()  {
     missed_feedback = 0;
     guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
     guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
-    guint video_reset_watch_id = g_timeout_add(100, (GSourceFunc) video_reset_callback, (gpointer) loop);
 
 #ifdef _WIN32
     gmainloop = loop;
@@ -717,9 +727,10 @@ static void main_loop()  {
         if (gst_audio_bus_watch_id[i] > 0) g_source_remove(gst_audio_bus_watch_id[i]);
     }
     if (gst_x11_window_id > 0) g_source_remove(gst_x11_window_id);
+    if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
     if (reset_watch_id > 0) g_source_remove(reset_watch_id);
     if (progress_id > 0) g_source_remove(progress_id);
-    if (video_reset_watch_id > 0) g_source_remove(video_reset_watch_id);
+    if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
     if (feedback_watch_id > 0) g_source_remove(feedback_watch_id);
     g_main_loop_unref(loop);
 }    
@@ -2994,7 +3005,7 @@ int main (int argc, char *argv[]) {
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                             videosink_options.c_str(), fullscreen, video_sync, h265_support,
                             render_coverart, playbin_version, NULL);
-        video_renderer_start(NULL);
+        video_renderer_start();
 #ifdef __OpenBSD__
     } else {
         if (pledge("stdio rpath wpath cpath inet unix prot_exec", NULL) == -1) {
@@ -3096,7 +3107,7 @@ int main (int argc, char *argv[]) {
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
-            video_renderer_start((void *) raop);
+            video_renderer_start();
         }
         if (reset_httpd) {
             unsigned short port = raop_get_port(raop);
