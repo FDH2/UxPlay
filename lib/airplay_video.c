@@ -37,12 +37,12 @@ struct media_item_s {
 struct airplay_video_s {
     raop_t *raop;
     char *apple_session_id;
-    char playback_uuid[37];
+    char *playback_uuid;
     char *uri_prefix;
     char *language_name;
     char *language_code;
     const char *lang;
-    char local_uri_prefix[23];
+    char *local_uri_prefix;
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -57,7 +57,8 @@ struct airplay_video_s {
 
 //  initialize airplay_video service.
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, const char *lang) {
-    char uri[] = "http://localhost:xxxxx";
+    char uri[] = "http://localhost:";
+    char port[6] = { '\0' };
     assert(raop);
 
     /* calloc guarantees that the 36-character strings apple_session_id and 
@@ -70,14 +71,10 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
 
     airplay_video->lang = lang;
      /* create local_uri_prefix string */
-    strncpy(airplay_video->local_uri_prefix, uri, sizeof(airplay_video->local_uri_prefix));
-    char *ptr  = strstr(airplay_video->local_uri_prefix, "xxxxx");
-    snprintf(ptr, 6, "%-5u", http_port);
-    ptr = strstr(airplay_video->local_uri_prefix, " ");
-    if (ptr) {
-        *ptr = '\0';
-    }
-
+    snprintf(port, sizeof(port), "%u", http_port);
+    airplay_video->local_uri_prefix = (char *) calloc (strlen(uri) + strlen(port) + 1, sizeof(char));
+    memcpy(airplay_video->local_uri_prefix, uri, strlen(uri));
+    memcpy(airplay_video->local_uri_prefix + strlen(uri), port, strlen(port));
     //printf(" %p %p\n", airplay_video, get_airplay_video(raop));
 
     airplay_video->raop = raop;
@@ -86,7 +83,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
     airplay_video->apple_session_id = NULL;
         
     airplay_video->start_position_seconds = 0.0f;
-
+    airplay_video->playback_uuid = NULL;
     airplay_video->uri_prefix = NULL;
     airplay_video->language_code = NULL;
     airplay_video->language_name = NULL;
@@ -104,8 +101,14 @@ airplay_video_destroy(airplay_video_t *airplay_video) {
     if (airplay_video->apple_session_id) {
         free(airplay_video->apple_session_id);
     }
+    if (airplay_video->playback_uuid) {
+        free(airplay_video->playback_uuid);
+    }
     if (airplay_video->uri_prefix) {
         free(airplay_video->uri_prefix);
+    }
+    if (airplay_video->local_uri_prefix) {
+        free(airplay_video->local_uri_prefix);
     }
     if (airplay_video->language_name) {
         free(airplay_video->language_name);
@@ -127,6 +130,7 @@ void set_apple_session_id(airplay_video_t *airplay_video, const char * apple_ses
     if (airplay_video->apple_session_id) {
         free (airplay_video->apple_session_id);
     }
+    assert(apple_session_id && strlen(apple_session_id) == 36);
     airplay_video->apple_session_id = (char *) calloc(strlen(apple_session_id) + 1, sizeof(char));
     memcpy(airplay_video->apple_session_id, apple_session_id, strlen(apple_session_id));
 }
@@ -162,10 +166,12 @@ void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_po
 }
 
 void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid) {
-    size_t len = strlen(playback_uuid);
-    assert(len == 36);
-    memcpy(airplay_video->playback_uuid, playback_uuid, len);
-    (airplay_video->playback_uuid)[len] = '\0';
+    if (airplay_video->playback_uuid) {
+        free (airplay_video->playback_uuid);
+    }
+    assert(playback_uuid && strlen(playback_uuid) == 36);
+    airplay_video->playback_uuid = (char *) calloc(strlen(playback_uuid) + 1, sizeof(char));
+    memcpy(airplay_video->playback_uuid, playback_uuid, strlen(playback_uuid));
 }
 
 const char *get_playback_uuid(airplay_video_t *airplay_video) {
