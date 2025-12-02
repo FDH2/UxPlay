@@ -2498,14 +2498,14 @@ extern "C" void on_video_rate(void *cls, const float rate) {
 
 
 
-extern "C" void on_video_playlist_remove (void *cls, void *airplay_video) {
+extern "C" float on_video_playlist_remove (void *cls) {
     double duration, position;
     float rate;
     bool buffer_empty, buffer_full;
     LOGI("************************* on_video_playlist_remove\n");
     video_renderer_pause();
     video_get_playback_info(&duration, &position, &rate, &buffer_empty, &buffer_full);
-    raop_playlist_remove(raop, airplay_video, (float) position);
+    return (float) position;
 }
 
  extern "C" void on_video_stop(void *cls) {

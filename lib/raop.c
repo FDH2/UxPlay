@@ -85,7 +85,7 @@ struct raop_s {
     /* place to store media_data_store */
     airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
     int current_video;
-    int removed_video;
+    int interrupted_video;
   
     /* activate support for HLS live streaming */
     bool hls_support;
@@ -603,7 +603,7 @@ raop_init(raop_callbacks_t *callbacks) {
 
     /* initialize airplay_video */
     raop->current_video = -1;
-    raop->removed_video = -1;
+    raop->interrupted_video = -1;
     for (int i= 0; i < MAX_AIRPLAY_VIDEO; i++) {
         raop->airplay_video[i] = NULL;
     }
