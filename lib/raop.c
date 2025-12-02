@@ -129,8 +129,8 @@ typedef struct raop_conn_s raop_conn_t;
 static void *
 conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remote, int remotelen, unsigned int zone_id) {
     raop_t *raop = opaque;
-    raop_conn_t *conn;
-    char ip_address[40];
+    raop_conn_t *conn = NULL;
+    char ip_address[40] = { '\0' };
     assert(raop);
 
     conn = calloc(1, sizeof(raop_conn_t));
@@ -154,18 +154,17 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
         return NULL;
     }
 
-
     utils_ipaddress_to_string(locallen, local, zone_id, ip_address, (int) sizeof(ip_address));
     logger_log(conn->raop->logger, LOGGER_INFO, "Local : %s", ip_address);
 
     utils_ipaddress_to_string(remotelen, remote, zone_id, ip_address, (int) sizeof(ip_address));
     logger_log(conn->raop->logger, LOGGER_INFO, "Remote: %s", ip_address);
 
-    conn->local = malloc(locallen);
+    conn->local = (unsigned char *) malloc(locallen);
     assert(conn->local);
     memcpy(conn->local, local, locallen);
 
-    conn->remote = malloc(remotelen);
+    conn->remote = (unsigned char *) malloc(remotelen);
     assert(conn->remote);
     memcpy(conn->remote, remote, remotelen);
 
@@ -242,7 +241,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     if (conn->connection_type == CONNECTION_TYPE_UNKNOWN) {
         if (cseq || ble) {
             if (httpd_count_connection_type(conn->raop->httpd, CONNECTION_TYPE_RAOP)) {
-                char ipaddr[40];
+                char ipaddr[40] = { '\0' };
                 utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
                 if (httpd_nohold(conn->raop->httpd)) {
                     logger_log(conn->raop->logger, LOGGER_INFO, "\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
@@ -264,9 +263,9 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             logger_log(conn->raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type AirPlay", ptr);            
             httpd_set_connection_type(conn->raop->httpd, ptr, CONNECTION_TYPE_AIRPLAY);
             conn->connection_type = CONNECTION_TYPE_AIRPLAY;
-            size_t len = strlen(client_session_id) + 1;
-            conn->client_session_id = (char *) malloc(len);
-            strncpy(conn->client_session_id, client_session_id, len);
+            conn->client_session_id = (char *) calloc(strlen(client_session_id) + 1, sizeof(char));
+            assert(conn->client_session_id);
+            memcpy(conn->client_session_id, client_session_id, strlen(client_session_id));
             /* airplay video has been requested: shut down any running RAOP udp services */
             raop_conn_t *raop_conn = (raop_conn_t *) httpd_get_connection_by_type(conn->raop->httpd, CONNECTION_TYPE_RAOP, 1);
             if (raop_conn) {
@@ -461,7 +460,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     }
     http_response_finish(*response, response_data, response_datalen);
 
-    int len;
+    int len = 0;
     const char *data = http_response_get_data(*response, &len);
     if (response_data && response_datalen > 0) {
         len -= response_datalen;
@@ -620,9 +619,8 @@ raop_init(raop_callbacks_t *callbacks) {
 
 int
 raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile) {
-    pairing_t *pairing;
-    httpd_t *httpd;
-    httpd_callbacks_t httpd_cbs;
+    pairing_t *pairing = NULL;
+    httpd_t *httpd = NULL;
 
     /* create a new public key for pairing */
     int new_key;
@@ -636,7 +634,7 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
 #ifdef PK
     strncpy(raop->pk_str, PK, 2*ED25519_KEY_SIZE);
 #else
-    unsigned char public_key[ED25519_KEY_SIZE];
+    unsigned char public_key[ED25519_KEY_SIZE] = { '\0' };
     pairing_get_public_key(pairing, public_key);
     char *pk_str = utils_hex_to_string(public_key, ED25519_KEY_SIZE);
     strncpy(raop->pk_str, (const char *) pk_str, 2*ED25519_KEY_SIZE);
@@ -647,13 +645,14 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
     }
 
     /* Set HTTP callbacks to our handlers */
+    httpd_callbacks_t httpd_cbs;
     memset(&httpd_cbs, 0, sizeof(httpd_cbs));
     httpd_cbs.opaque = raop;
     httpd_cbs.conn_init = &conn_init;
     httpd_cbs.conn_request = &conn_request;
     httpd_cbs.conn_destroy = &conn_destroy;
 
-    /* Initialize the http daemon */
+    /* Initialize the http daemon, (this will take a copy of httpd_cbs) */
     httpd = httpd_init(raop->logger, &httpd_cbs, nohold);
     if (!httpd) {
         logger_log(raop->logger, LOGGER_ERR, "failed to initialize http daemon");
@@ -800,7 +799,7 @@ raop_set_lang(raop_t *raop, const char *lang) {
     }
     if (lang && strlen(lang)) {
         raop->lang = (char *) calloc(strlen(lang) + 1, sizeof(char));
-        memcpy(raop->lang, lang, strlen(lang) * sizeof(char));
+        memcpy(raop->lang, lang, strlen(lang));
     }
 }
 
@@ -889,4 +888,3 @@ int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
 uint64_t get_local_time() {
     return raop_ntp_get_local_time();
 }
-

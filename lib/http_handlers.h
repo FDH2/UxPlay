@@ -28,7 +28,6 @@ http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_respon
     const char *hw_addr_raw = dnssd_get_hw_addr(conn->raop->dnssd, &hw_addr_raw_len);
 
     char *hw_addr = calloc(1, 3 * hw_addr_raw_len);
-    //int hw_addr_len =
     utils_hwaddr_airplay(hw_addr, 3 * hw_addr_raw_len, hw_addr_raw, hw_addr_raw_len);
 
     plist_t r_node = plist_new_dict();
@@ -91,7 +90,7 @@ http_handler_scrub(raop_conn_t *conn, http_request_t *request, http_response_t *
     if (data) {
         data++;
         const char *position = strstr(data, "=") + 1;
-        char *end;
+        char *end = NULL;
         double value = strtod(position, &end);
         if (end && end != position) {
             scrub_position = (float) value;
@@ -113,7 +112,7 @@ http_handler_rate(raop_conn_t *conn, http_request_t *request, http_response_t *r
     if (data) {
         data++;
         const char *rate = strstr(data, "=") + 1;
-        char *end;
+        char *end = NULL;
         float value = strtof(rate, &end);
         if (end && end != rate) {
             rate_value =  value;
@@ -261,7 +260,7 @@ http_handler_fpsetup2(raop_conn_t *conn, http_request_t *request, http_response_
                       char **response_data, int *response_datalen) {
     logger_log(conn->raop->logger, LOGGER_WARNING, "client HTTP request POST fp-setup2 is unhandled");
     http_response_add_header(response, "Content-Type", "application/x-apple-binary-plist");
-    int req_datalen;
+    int req_datalen = 0;
     const unsigned char *req_data = (unsigned char *) http_request_get_data(request, &req_datalen);
     logger_log(conn->raop->logger, LOGGER_ERR, "only FairPlay version 0x03 is implemented, version is 0x%2.2x",
                req_data[4]);
@@ -326,7 +325,7 @@ int create_playback_info_plist_xml(playback_info_t *playback_info, char **plist_
                         seekable_time_ranges_node);
     plist_dict_set_item(res_root_node, "seekableTimeRanges", seekable_time_ranges_node);
 
-    int len;
+    int len = 0;
     plist_to_xml(res_root_node, plist_xml, (uint32_t *) &len);
     /* plist_xml is null-terminated, last character is '/n' */
 
@@ -433,7 +432,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     bool data_is_plist = false;
     plist_t req_root_node = NULL;
-    uint64_t uint_val;
+    uint64_t uint_val = 0;
     int request_id = 0;
     int fcup_response_statuscode = 0;
     bool logger_debug = (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG);
@@ -923,8 +922,8 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         }
 
     } else {
-        int chunks;
-        float duration;
+        int chunks = 0;
+        float duration = 0.0f;
         char *media_playlist = get_media_playlist(airplay_video, &chunks, &duration, url);
         if (media_playlist) {
             char *data  = adjust_yt_condensed_playlist(media_playlist);
@@ -941,7 +940,7 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
 
     http_response_add_header(response, "Access-Control-Allow-Headers", "Content-type");
     http_response_add_header(response, "Access-Control-Allow-Origin", "*");
-    const char *date;
+    const char *date = NULL;
     date = gmt_time_string();
     http_response_add_header(response, "Date", date);
     if (*response_datalen > 0) {

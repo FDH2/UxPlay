@@ -58,7 +58,7 @@ char *create_fcup_request(const char *url, int request_id, const char *client_se
     plist_dict_set_item(fcup_request_node, "FCUP_Response_Headers", fcup_response_header_node);
     plist_dict_set_item(req_root_node, "request", fcup_request_node);
     
-    uint32_t uint_val;
+    uint32_t uint_val = 0;
     
     plist_to_xml(req_root_node, &plist_xml, &uint_val);
     *datalen = (int) uint_val;
@@ -71,7 +71,7 @@ int fcup_request(void *conn_opaque, const char *media_url, const char *client_se
 
     raop_conn_t *conn = (raop_conn_t *) conn_opaque;
     int datalen = 0;
-    int requestlen;
+    int requestlen = 0;
 
     int socket_fd = httpd_get_connection_socket_by_type(conn->raop->httpd, CONNECTION_TYPE_PTTH, 1);
     

@@ -51,7 +51,7 @@ raop_handler_info(raop_conn_t *conn,
     url  = http_request_get_url(request);
     content_type = http_request_get_header(request, "Content-Type");
     cseq = http_request_get_header(request, "CSeq");
-    int len;
+    int len = 0;
     bool add_txt_airplay = false;
     bool add_txt_raop = false;
     const char txtRAOP[] = "txtRAOP";
@@ -252,7 +252,7 @@ raop_handler_pairpinstart(raop_conn_t *conn,
                           http_request_t *request, http_response_t *response,
                           char **response_data, int *response_datalen) {
     logger_log(conn->raop->logger, LOGGER_INFO, "client sent PAIR-PIN-START request");
-    int pin_4;
+    int pin_4 = 0;
     if (conn->raop->pin > 9999) {
         pin_4 = conn->raop->pin % 10000;
     } else {
@@ -263,7 +263,7 @@ raop_handler_pairpinstart(raop_conn_t *conn,
             conn->raop->pin = (unsigned short) pin_4 % 10000;
         }
     }
-    char pin[6];
+    char pin[6] = { '\0' };
     snprintf(pin, 5, "%04u", pin_4);
     if (conn->raop->callbacks.display_pin) {
          conn->raop->callbacks.display_pin(conn->raop->callbacks.cls, pin);
@@ -309,10 +309,10 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
   
     if (PLIST_IS_STRING(req_method_node) && PLIST_IS_STRING(req_user_node)) {
         /* this is the initial pair-setup-pin request */
-        const char *salt;
-        char pin[6];
-        const char *pk;
-        int len_pk, len_salt;
+        const char *salt = NULL;
+        char pin[6] = { '\0' };
+        const char *pk = NULL;
+        int len_pk = 0, len_salt = 0;
         char *method = NULL;
         char *user = NULL;
         plist_get_string_val(req_method_node, &method);
@@ -354,10 +354,10 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         /* this is the second part of pair-setup-pin request */
         char *client_pk = NULL;
         char *client_proof = NULL;
-        unsigned char proof[64];
+        unsigned char proof[64] = { '\0' };
         memset(proof, 0, sizeof(proof));
-        uint64_t client_pk_len;
-        uint64_t client_proof_len;
+        uint64_t client_pk_len = 0;
+        uint64_t client_proof_len = 0;
         plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
         if (logger_debug) {
@@ -391,11 +391,11 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         /* this is the third part of pair-setup-pin request */
         char *client_epk = NULL;
         char *client_authtag = NULL;
-        uint64_t client_epk_len;
-        uint64_t client_authtag_len;
+        uint64_t client_epk_len = 0;
+        uint64_t client_authtag_len = 0;
         unsigned char epk[ED25519_KEY_SIZE];
         unsigned char authtag[GCM_AUTHTAG_SIZE];
-        int ret;
+        int ret = 0;
         plist_get_data_val(req_epk_node, &client_epk, &client_epk_len); 
         plist_get_data_val(req_authtag_node, &client_authtag, &client_authtag_len);
 
@@ -441,7 +441,7 @@ raop_handler_pairsetup(raop_conn_t *conn,
 {
     unsigned char public_key[ED25519_KEY_SIZE];
     //const char *data;
-    int datalen;
+    int datalen = 0;
 
     //data =
     http_request_get_data(request, &datalen);
@@ -453,7 +453,7 @@ raop_handler_pairsetup(raop_conn_t *conn,
     pairing_get_public_key(conn->raop->pairing, public_key);
     pairing_session_set_setup_status(conn->session);
 
-    *response_data = malloc(sizeof(public_key));
+    *response_data = calloc(1, sizeof(public_key));
     if (*response_data) {
         http_response_add_header(response, "Content-Type", "application/octet-stream");
         memcpy(*response_data, public_key, sizeof(public_key));
@@ -477,8 +477,8 @@ raop_handler_pairverify(raop_conn_t *conn,
     }
     unsigned char public_key[X25519_KEY_SIZE];
     unsigned char signature[PAIRING_SIG_SIZE];
-    const unsigned char *data;
-    int datalen;
+    const unsigned char *data = NULL;
+    int datalen = 0;
 
     data = (unsigned char *) http_request_get_data(request, &datalen);
     if (datalen < 4) {
@@ -515,7 +515,7 @@ raop_handler_pairverify(raop_conn_t *conn,
                 return;
             }
         }
-        *response_data = malloc(sizeof(public_key) + sizeof(signature));
+        *response_data = calloc(1, sizeof(public_key) + sizeof(signature));
         if (*response_data) {
             http_response_add_header(response, "Content-Type", "application/octet-stream");
             memcpy(*response_data, public_key, sizeof(public_key));
@@ -546,12 +546,12 @@ raop_handler_fpsetup(raop_conn_t *conn,
                      http_request_t *request, http_response_t *response,
                      char **response_data, int *response_datalen)
 {
-    const unsigned char *data;
-    int datalen;
+    const unsigned char *data = NULL;
+    int datalen = 0;
 
     data = (unsigned char *) http_request_get_data(request, &datalen);
     if (datalen == 16) {
-        *response_data = malloc(142);
+        *response_data = calloc(142, sizeof(char));
         if (*response_data) {
             http_response_add_header(response, "Content-Type", "application/octet-stream");
             if (!fairplay_setup(conn->fairplay, data, (unsigned char *) *response_data)) {
@@ -563,7 +563,7 @@ raop_handler_fpsetup(raop_conn_t *conn,
             }
         }
     } else if (datalen == 164) {
-        *response_data = malloc(32);
+        *response_data = calloc(32, sizeof(char));
         if (*response_data) {
             http_response_add_header(response, "Content-Type", "application/octet-stream");
             if (!fairplay_handshake(conn->fairplay, data, (unsigned char *) *response_data)) {
@@ -649,7 +649,7 @@ raop_handler_setup(raop_conn_t *conn,
                     conn->raop->random_pw = NULL;
                 }
             }
-            int len;
+            int len = 0;
             const char *password = conn->raop->callbacks.passwd(conn->raop->callbacks.cls, &len);
             // len = -1 means use a random password for this connection; len = 0 means no password
             if (len == -1 && conn->raop->random_pw && conn->raop->auth_fail_count >= MAX_PW_ATTEMPTS) {
@@ -665,7 +665,7 @@ raop_handler_setup(raop_conn_t *conn,
                     logger_log(conn->raop->logger, LOGGER_ERR, "Failed to generate random pin");
                     pin_4 = 1234;
                 }
-                conn->raop->random_pw =  (char *) malloc(pin_len + 1 + 18);
+                conn->raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char));
                 char *pin = conn->raop->random_pw;
                 snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
                 pin[pin_len] = '\0';
@@ -1057,9 +1057,9 @@ raop_handler_get_parameter(raop_conn_t *conn,
                            http_request_t *request, http_response_t *response,
                            char **response_data, int *response_datalen)
 {
-    const char *content_type;
-    const char *data;
-    int datalen;
+    const char *content_type = NULL;
+    const char *data = NULL;
+    int datalen = 0;
 
     content_type = http_request_get_header(request, "Content-Type");
     if (!content_type) {
@@ -1112,9 +1112,9 @@ raop_handler_set_parameter(raop_conn_t *conn,
                            http_request_t *request, http_response_t *response,
                            char **response_data, int *response_datalen)
 {
-    const char *content_type;
-    const char *data;
-    int datalen;
+    const char *content_type = NULL;
+    const char *data = NULL;
+    int datalen = 0;
 
     content_type = http_request_get_header(request, "Content-Type");
     if (!content_type) {
@@ -1124,15 +1124,15 @@ raop_handler_set_parameter(raop_conn_t *conn,
     data = http_request_get_data(request, &datalen);
     if (!strcmp(content_type, "text/parameters")) {
         char *datastr;
-        datastr = calloc(1, datalen+1);
+        datastr = calloc(1, datalen + 1);
         if (data && datastr && conn->raop_rtp) {
             memcpy(datastr, data, datalen);
             if ((datalen >= 8) && !strncmp(datastr, "volume: ", 8)) {
-                float vol = 0.0;
+                float vol = 0.0f;
                 sscanf(datastr+8, "%f", &vol);
                 raop_rtp_set_volume(conn->raop_rtp, vol);
             } else if ((datalen >= 10) && !strncmp(datastr, "progress: ", 10)) {
-                uint32_t start, curr, end;
+                uint32_t start = 0, curr = 0, end = 0;
                 sscanf(datastr+10, "%"PRIu32"/%"PRIu32"/%"PRIu32, &start, &curr, &end);
                 raop_rtp_set_progress(conn->raop_rtp, start, curr, end);
             }
@@ -1164,7 +1164,7 @@ raop_handler_audiomode(raop_conn_t *conn,
 {
     const char *data = NULL;
     char *audiomode = NULL;
-    int data_len;
+    int data_len = 0;
     data = http_request_get_data(request, &data_len);
     plist_t req_root_node = NULL;
     plist_from_bin(data, data_len, &req_root_node);
@@ -1192,7 +1192,7 @@ raop_handler_record(raop_conn_t *conn,
                     http_request_t *request, http_response_t *response,
                     char **response_data, int *response_datalen)
 {
-    char audio_latency[12];
+    char audio_latency[12] = { '\0' };
     unsigned int ad = (unsigned int) (((uint64_t) conn->raop->audio_delay_micros) * AUDIO_SAMPLE_RATE / SECOND_IN_USECS);
     snprintf(audio_latency, sizeof(audio_latency), "%u", ad);
     logger_log(conn->raop->logger, LOGGER_DEBUG, "raop_handler_record");
@@ -1205,7 +1205,7 @@ raop_handler_flush(raop_conn_t *conn,
                       http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen)
 {
-    const char *rtpinfo;
+    const char *rtpinfo = NULL;
     int next_seq = -1;
 
     rtpinfo = http_request_get_header(request, "RTP-Info");
@@ -1228,8 +1228,8 @@ raop_handler_teardown(raop_conn_t *conn,
                       char **response_data, int *response_datalen)
 {
     /* get the teardown request type(s):  (type 96, 110, or none) */
-    const char *data;
-    int data_len;
+    const char *data = NULL;
+    int data_len = 0;
     bool teardown_96 = false, teardown_110 = false;
     data = http_request_get_data(request, &data_len);
     plist_t req_root_node = NULL;
@@ -1237,7 +1237,7 @@ raop_handler_teardown(raop_conn_t *conn,
     plist_t req_streams_node = plist_dict_get_item(req_root_node, "streams");
     /* Process stream teardown requests */
     if (PLIST_IS_ARRAY(req_streams_node)) {
-        uint64_t val;
+        uint64_t val = 0;
         int count = plist_array_get_size(req_streams_node);
         for (int i = 0; i < count; i++) {
             plist_t req_stream_node = plist_array_get_item(req_streams_node,i);
