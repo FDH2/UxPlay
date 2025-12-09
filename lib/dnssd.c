@@ -159,9 +159,6 @@ struct dnssd_s {
 dnssd_t *
 dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, unsigned char pin_pw)
 {
-    dnssd_t *dnssd;
-    char *end;
-    unsigned long features;
     /* pin_pw = 0: no pin or password
                 1: use onscreen pin for client access control
                 2 or 3: require password for client access control  
@@ -169,15 +166,16 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
     
     if (error) *error = DNSSD_ERROR_NOERROR;
 
-    dnssd = calloc(1, sizeof(dnssd_t));
+    dnssd_t *dnssd = (dnssd_t *) calloc(1, sizeof(dnssd_t));
     if (!dnssd) {
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         return NULL;
     }
 
     dnssd->pin_pw = pin_pw;
-    
-    features  = strtoul(FEATURES_1, &end, 16);
+
+    char *end = NULL;
+    unsigned long features  = strtoul(FEATURES_1, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
         free (dnssd);
         if (error) *error = DNSSD_ERROR_BADFEATURES;
@@ -289,8 +287,8 @@ int
 dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
 {
     char servname[MAX_SERVNAME];
-    DNSServiceErrorType retval;
-    char features[22];
+
+    char features[22] = {0};
 
     assert(dnssd);
 
@@ -347,13 +345,13 @@ dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
     strncat(servname, dnssd->name, sizeof(servname)-strlen(servname)-1);
 
     /* Register the service */
-    retval = dnssd->DNSServiceRegister(&dnssd->raop_service, 0, 0,
-                              servname, "_raop._tcp",
-                              NULL, NULL,
-                              htons(port),
-                              dnssd->TXTRecordGetLength(&dnssd->raop_record),
-                              dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record),
-                              NULL, NULL);
+    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->raop_service, 0, 0,
+                                                          servname, "_raop._tcp",
+                                                          NULL, NULL,
+                                                          htons(port),
+                                                          dnssd->TXTRecordGetLength(&dnssd->raop_record),
+                                                          dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record),
+                                                          NULL, NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
@@ -362,8 +360,7 @@ int
 dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
 {
     char device_id[3 * MAX_HWADDR_LEN];
-    DNSServiceErrorType retval;
-    char features[22];
+    char features[22] = {0};
 
     assert(dnssd);
 
@@ -401,13 +398,13 @@ dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "vv", strlen(AIRPLAY_VV), AIRPLAY_VV);
 
     /* Register the service */
-    retval = dnssd->DNSServiceRegister(&dnssd->airplay_service, 0, 0,
-                              dnssd->name, "_airplay._tcp",
-                              NULL, NULL,
-                              htons(port),
-                              dnssd->TXTRecordGetLength(&dnssd->airplay_record),
-                              dnssd->TXTRecordGetBytesPtr(&dnssd->airplay_record),
-                              NULL, NULL);
+    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->airplay_service, 0, 0,
+                                                           dnssd->name, "_airplay._tcp",
+                                                           NULL, NULL,
+                                                           htons(port),
+                                                           dnssd->TXTRecordGetLength(&dnssd->airplay_record),
+                                                           dnssd->TXTRecordGetBytesPtr(&dnssd->airplay_record),
+                                                           NULL, NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
@@ -493,8 +490,8 @@ void dnssd_set_pk(dnssd_t *dnssd, char * pk_str) {
 }
 
 void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
-    uint32_t mask;
-    uint32_t *features;
+    uint32_t mask = 0;
+    uint32_t *features = 0;
     if (bit < 0 || bit > 63) return;
     if (val < 0 || val > 1) return;
     if (bit >= 32) {

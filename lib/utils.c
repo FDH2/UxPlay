@@ -26,15 +26,12 @@
 char *
 utils_strsep(char **stringp, const char *delim)
 {
-    char *original;
-    char *strptr;
-
     if (*stringp == NULL) {
         return NULL;
     }
 
-    original = *stringp;
-    strptr = strstr(*stringp, delim);
+    char *original = *stringp;
+    char *strptr = strstr(*stringp, delim);
     if (strptr == NULL) {
         *stringp = NULL;
         return original;
@@ -47,31 +44,26 @@ utils_strsep(char **stringp, const char *delim)
 int
 utils_read_file(char **dst, const char *filename)
 {
-    FILE *stream;
-    int filesize;
-    char *buffer;
-    int read_bytes;
-
     /* Open stream for reading */
-    stream = fopen(filename, "rb");
+    FILE *stream = fopen(filename, "rb");
     if (!stream) {
         return -1;
     }
 
     /* Find out file size */
     fseek(stream, 0, SEEK_END);
-    filesize = ftell(stream);
+    int filesize = ftell(stream);
     fseek(stream, 0, SEEK_SET);
 
     /* Allocate one extra byte for zero */
-    buffer = malloc(filesize+1);
+    char *buffer = malloc(filesize+1);
     if (!buffer) {
         fclose(stream);
         return -2;
     }
 
     /* Read data in a loop to buffer */
-    read_bytes = 0;
+    int read_bytes = 0;
     do {
         int ret = fread(buffer+read_bytes, 1,
                         filesize-read_bytes, stream);
@@ -99,14 +91,13 @@ utils_read_file(char **dst, const char *filename)
 int
 utils_hwaddr_raop(char *str, int strlen, const char *hwaddr, int hwaddrlen)
 {
-    int i,j;
-
     /* Check that our string is long enough */
     if (strlen == 0 || strlen < 2*hwaddrlen+1)
         return -1;
 
     /* Convert hardware address to hex string */
-    for (i=0,j=0; i<hwaddrlen; i++) {
+    int j = 0;
+    for (int i = 0; i < hwaddrlen; i++) {
         int hi = (hwaddr[i]>>4) & 0x0f;
         int lo = hwaddr[i] & 0x0f;
 
@@ -124,14 +115,13 @@ utils_hwaddr_raop(char *str, int strlen, const char *hwaddr, int hwaddrlen)
 int
 utils_hwaddr_airplay(char *str, int strlen, const char *hwaddr, int hwaddrlen)
 {
-    int i,j;
-
     /* Check that our string is long enough */
     if (strlen == 0 || strlen < 2*hwaddrlen+hwaddrlen)
         return -1;
 
     /* Convert hardware address to hex string */
-    for (i=0,j=0; i<hwaddrlen; i++) {
+    int j = 0;
+    for (int i = 0; i < hwaddrlen; i++) {
         int hi = (hwaddr[i]>>4) & 0x0f;
         int lo = hwaddr[i] & 0x0f;
 
@@ -290,15 +280,9 @@ char *utils_strip_data_from_plist_xml(char *plist_xml) {
     assert(plist_xml);
     int len = (int) strlen(plist_xml);
     char *last =  plist_xml + len * sizeof(char); // position of null termination of plist_xml
- 
-    char *eol;
-    char *eol_data;
     char *xml = NULL;
-    int nchars;
-    char line[81];
-    int count;
+    char line[81] = { '\0' };
     char *begin = strstr(plist_xml, "<data>");
-    char *end;
     if (!begin) {
         /* there are no data lines, nothing to do */
         return NULL;
@@ -308,14 +292,15 @@ char *utils_strip_data_from_plist_xml(char *plist_xml) {
     char *ptr1 = plist_xml;
     char *ptr2 = xml;
     do {
-        eol = strchr(begin,'\n');
-        nchars = eol + 1 - ptr1;
+        char *eol = strchr(begin,'\n');
+        int nchars = eol + 1 - ptr1;
         memcpy(ptr2, ptr1, nchars);
         ptr2 += nchars;
         ptr1 += nchars;
-        end = strstr(ptr1, "</data>");
+        char *end = strstr(ptr1, "</data>");
         assert(end);
-        count = 0;
+        int count = 0;
+        char *eol_data = NULL;
         do {
             eol_data = eol;
             eol = strchr(eol + 1, '\n');
@@ -345,12 +330,13 @@ char *utils_strip_data_from_plist_xml(char *plist_xml) {
 }
 
 const char *gmt_time_string() {
-  static char date_buf[64];
-  memset(date_buf, 0, 64);
+    static char date_buf[64] = { '\0' };
+    memset(date_buf, 0, 64);
 
-  time_t now = time(0);
-  if (strftime(date_buf, 63, "%c GMT", gmtime(&now)))
-    return date_buf;
-  else
-    return "";
+    time_t now = time(0);
+    if (strftime(date_buf, 63, "%c GMT", gmtime(&now))) {
+        return date_buf;
+    } else {
+        return "";
+    }
 }

@@ -100,9 +100,7 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
     int proto = use_udp ? IPPROTO_UDP : IPPROTO_TCP;
 
     struct sockaddr_storage saddr;
-    socklen_t socklen;
-    int server_fd;
-    int ret;
+    socklen_t socklen = 0;
 #ifndef _WIN32
     int reuseaddr = 1;
 #else
@@ -111,12 +109,12 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
     
     assert(port);
 
-    server_fd = socket(family, type, proto);
+    int server_fd = socket(family, type, proto);
     if (server_fd == -1) {
         goto cleanup;
     }
 
-    ret = setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof (reuseaddr));
+    int ret = setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof (reuseaddr));
     if (ret == -1) {
         goto cleanup;
     }
@@ -186,8 +184,6 @@ netutils_parse_address(int family, const char *src, void *dst, int dstlen)
     struct addrinfo *result;
     struct addrinfo *ptr;
     struct addrinfo hints;
-    int length;
-    int ret;
 
     if (family != AF_INET && family != AF_INET6) {
         return -1;
@@ -200,13 +196,13 @@ netutils_parse_address(int family, const char *src, void *dst, int dstlen)
     hints.ai_family = family;
     hints.ai_flags = AI_PASSIVE | AI_NUMERICHOST;
 
-    ret = getaddrinfo(src, NULL, &hints, &result);
+    int ret = getaddrinfo(src, NULL, &hints, &result);
     if (ret != 0) {
         return -1;
     }
 
-    length = -1;
-    for (ptr=result; ptr!=NULL; ptr=ptr->ai_next) {
+    int length = -1;
+    for (ptr = result; ptr != NULL; ptr = ptr->ai_next) {
         if (family == ptr->ai_family && (unsigned int)dstlen >= ptr->ai_addrlen) {
             memcpy(dst, ptr->ai_addr, ptr->ai_addrlen);
             length = ptr->ai_addrlen;

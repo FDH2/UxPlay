@@ -329,7 +329,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", header_str);
         bool data_is_plist = (strstr(header_str,"apple-binary-plist") != NULL);
         bool data_is_text = (strstr(header_str,"text/") != NULL);
-        int request_datalen;
+        int request_datalen = 0;
         const char *request_data = http_request_get_data(request, &request_datalen);
         if (request_data) {
             if (request_datalen > 0) {
@@ -339,7 +339,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                     plist_from_bin(request_data, request_datalen, &req_root_node);
                     char * plist_xml = NULL;
                     char * stripped_xml = NULL;
-                    uint32_t plist_len;
+                    uint32_t plist_len = 0;
                     plist_to_xml(req_root_node, &plist_xml, &plist_len);
                     stripped_xml = utils_strip_data_from_plist_xml(plist_xml);
                     logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", (stripped_xml ? stripped_xml : plist_xml));
@@ -552,8 +552,6 @@ conn_destroy(void *ptr) {
 
 raop_t *
 raop_init(raop_callbacks_t *callbacks) {
-    raop_t *raop;
-
     assert(callbacks);
 
     /* Initialize the network */
@@ -568,7 +566,7 @@ raop_init(raop_callbacks_t *callbacks) {
     }
 
     /* Allocate the raop_t structure */
-    raop = calloc(1, sizeof(raop_t));
+    raop_t *raop = (raop_t *) calloc(1, sizeof(raop_t));
     if (!raop) {
         return NULL;
     }
@@ -623,7 +621,7 @@ raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile)
     httpd_t *httpd = NULL;
 
     /* create a new public key for pairing */
-    int new_key;
+    int new_key = 0;
     pairing = pairing_init_generate(device_id, keyfile, &new_key);
     if (!pairing) {
         logger_log(raop->logger, LOGGER_ERR, "failed to create new public key for pairing");

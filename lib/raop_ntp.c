@@ -126,8 +126,7 @@ raop_ntp_compare(const void* av, const void* bv)
 static int
 raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_len)
 {
-    int family;
-    int ret;
+    int family = AF_UNSPEC;
     assert(raop_ntp);
     if (remote_addr_len == 4) {
         family = AF_INET;
@@ -137,7 +136,7 @@ raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_
         return -1;
     }
     logger_log(raop_ntp->logger, LOGGER_DEBUG, "raop_ntp parse remote ip = %s", remote);
-    ret = netutils_parse_address(family, remote,
+    int ret = netutils_parse_address(family, remote,
                                  &raop_ntp->remote_saddr,
                                  sizeof(raop_ntp->remote_saddr));
     if (ret < 0) {
@@ -149,12 +148,10 @@ raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_
 
 raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const char *remote,
                           int remote_addr_len, unsigned short timing_rport, timing_protocol_t *time_protocol) {
-    raop_ntp_t *raop_ntp;
-
     assert(logger);
     assert(callbacks);
 
-    raop_ntp = calloc(1, sizeof(raop_ntp_t));
+    raop_ntp_t *raop_ntp = calloc(1, sizeof(raop_ntp_t));
     if (!raop_ntp) {
         return NULL;
     }
@@ -279,8 +276,8 @@ raop_ntp_thread(void *arg)
 {
     raop_ntp_t *raop_ntp = arg;
     assert(raop_ntp);
-    unsigned char response[128];
-    int response_len;
+    unsigned char response[128] = {0};
+    int response_len = 0;
     unsigned char request[32] = {0x80, 0xd2, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };

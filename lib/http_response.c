@@ -33,13 +33,11 @@ struct http_response_s {
 static void
 http_response_add_data(http_response_t *response, const char *data, int datalen)
 {
-    int newdatasize;
-
     assert(response);
     assert(data);
     assert(datalen > 0);
 
-    newdatasize = response->data_size;
+    int newdatasize = response->data_size;
     while (response->data_size+datalen > newdatasize) {
         newdatasize *= 2;
     }
@@ -74,7 +72,7 @@ http_response_init(http_response_t *response, const char *protocol, int code, co
 {
     assert(response);
     response->data_length = 0;    /* can be used to reinitialize a previously-initialized response */
-    char codestr[4];
+    char codestr[4] = {0};
 
     assert(code >= 100 && code < 1000);
 
@@ -136,7 +134,7 @@ http_response_finish(http_response_t *response, const char *data, int datalen)
 
     if (data && datalen > 0) {
         const char *hdrname = "Content-Length";
-        char hdrvalue[16];
+        char hdrvalue[16] = {0};
 
         memset(hdrvalue, 0, sizeof(hdrvalue));
         snprintf(hdrvalue, sizeof(hdrvalue)-1, "%d", datalen);

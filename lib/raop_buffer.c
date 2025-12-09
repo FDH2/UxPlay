@@ -69,10 +69,9 @@ raop_buffer_init(logger_t *logger,
                  const unsigned char *aeskey,
                  const unsigned char *aesiv)
 {
-    raop_buffer_t *raop_buffer;
     assert(aeskey);
     assert(aesiv);
-    raop_buffer = calloc(1, sizeof(raop_buffer_t));
+    raop_buffer_t *raop_buffer = (raop_buffer_t *) calloc(1, sizeof(raop_buffer_t));
     if (!raop_buffer) {
         return NULL;
     }
@@ -118,7 +117,6 @@ int
 raop_buffer_decrypt(raop_buffer_t *raop_buffer, unsigned char *data, unsigned char* output, unsigned int payload_size, unsigned int *outputlen)
 {
     assert(raop_buffer);
-    int encryptedlen;
     if (DECRYPTION_TEST) {
         char *str = utils_data_to_string(data,12,12);
         logger_log(raop_buffer->logger, LOGGER_INFO, "encrypted 12 byte header %s", str);
@@ -129,7 +127,7 @@ raop_buffer_decrypt(raop_buffer_t *raop_buffer, unsigned char *data, unsigned ch
             free(str);
         }
     }
-    encryptedlen = payload_size / 16*16;
+    int encryptedlen = payload_size / 16*16;
     memset(output, 0, payload_size);
 
     aes_cbc_decrypt(raop_buffer->aes_ctx, &data[12], output, encryptedlen);
@@ -181,7 +179,7 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
     int payload_size = datalen - 12;
 
     /* Get correct seqnum for the packet */
-    unsigned short seqnum;
+    unsigned short seqnum = 0;
     if (use_seqnum) {
         seqnum = byteutils_get_short_be(data, 2);
     } else {

@@ -68,7 +68,7 @@ struct pairing_session_s {
 static int
 derive_key_internal(pairing_session_t *session, const unsigned char *salt, unsigned int saltlen, unsigned char *key, unsigned int keylen)
 {
-    unsigned char hash[SHA512_DIGEST_LENGTH];
+    unsigned char hash[SHA512_DIGEST_LENGTH] = {0};
 
     if (keylen > sizeof(hash)) {
         return -1;
@@ -87,9 +87,8 @@ derive_key_internal(pairing_session_t *session, const unsigned char *salt, unsig
 pairing_t *
 pairing_init_generate(const char *device_id, const char *keyfile, int *result)
 {
-    pairing_t *pairing;
     *result = 0;
-    pairing = calloc(1, sizeof(pairing_t));
+    pairing_t *pairing = (pairing_t *) calloc(1, sizeof(pairing_t));
     if (!pairing) {
         return NULL;
     }
@@ -122,13 +121,11 @@ pairing_get_ecdh_secret_key(pairing_session_t *session, unsigned char ecdh_secre
 pairing_session_t *
 pairing_session_init(pairing_t *pairing)
 {
-    pairing_session_t *session;
-
     if (!pairing) {
         return NULL;
     }
 
-    session = calloc(1, sizeof(pairing_session_t));
+    pairing_session_t *session = (pairing_session_t *) calloc(1, sizeof(pairing_session_t));
     if (!session) {
         return NULL;
     }
@@ -262,8 +259,8 @@ pairing_digest_verify(const char *method, const char * authorization, const char
     char *cursor = sentence;
     const char *pwd = password;
     const char *mthd = method;
-    char *raw;
-    int len;
+    int len = 0;
+    char *raw = NULL;
     bool authenticated;
 
 #ifdef test_digest
@@ -472,7 +469,7 @@ int
 random_pin() {
     unsigned char random_bytes[2] = { 0 };
     unsigned short random_short = 0;
-    int ret;
+    int ret = 0;
     /* create a random unsigned short in range 1-9999 */
     while (!random_short) {
         if ((ret = get_random_bytes(random_bytes, sizeof(random_bytes))  < 1)) {
@@ -505,13 +502,13 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
     get_random_bytes(session->srp->private_key, SRP_PRIVATE_KEY_SIZE);
     
     const unsigned char *srp_b = session->srp->private_key;
-    unsigned char * srp_B;
-    unsigned char * srp_s;
-    unsigned char * srp_v;
+    unsigned char * srp_B = NULL;
+    unsigned char * srp_s = NULL;
+    unsigned char * srp_v = NULL;
     int len_b = SRP_PRIVATE_KEY_SIZE;
-    int len_B;
-    int len_s;
-    int len_v;
+    int len_B = 0;
+    int len_s = 0;
+    int len_v = 0;
     srp_create_salted_verification_key(SRP_SHA, SRP_NG, device_id,
                                        (const unsigned char *) pin, strlen (pin),
                                        (const unsigned char **) &srp_s, &len_s,
@@ -579,10 +576,9 @@ srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigne
 int
 srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
                        unsigned char *epk, unsigned char *auth_tag) {
-    unsigned char aesKey[16], aesIV[16];
-    unsigned char hash[SHA512_DIGEST_LENGTH];
-    unsigned char pk[ED25519_KEY_SIZE];
-    int pk_len_client, epk_len;
+    unsigned char aesKey[16] = {0}, aesIV[16] = {0};
+    unsigned char hash[SHA512_DIGEST_LENGTH] = {0};
+    unsigned char pk[ED25519_KEY_SIZE] = {0};
     /* decrypt client epk to get client pk, authenticate with auth_tag*/ 
 
     const char *salt = "Pair-Setup-AES-Key";
@@ -607,7 +603,7 @@ srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
     session->srp = NULL;
 
     /* decrypt client epk to authenticate client using auth_tag */
-    pk_len_client  = gcm_decrypt(epk, ED25519_KEY_SIZE, pk, aesKey, aesIV, auth_tag);
+    int pk_len_client  = gcm_decrypt(epk, ED25519_KEY_SIZE, pk, aesKey, aesIV, auth_tag);
     if (pk_len_client <= 0) {
        /* authentication failed */
          return pk_len_client;
@@ -622,7 +618,7 @@ srp_confirm_pair_setup(pairing_session_t *session, pairing_t *pairing,
 
     /* encryption  needs this previously undocumented additional "nonce" */
     aesIV[15]++;
-    epk_len = gcm_encrypt(pk, ED25519_KEY_SIZE, epk, aesKey, aesIV, auth_tag);
+    int epk_len = gcm_encrypt(pk, ED25519_KEY_SIZE, epk, aesKey, aesIV, auth_tag);
     return epk_len;    
 }
 
@@ -630,7 +626,7 @@ void get_pairing_session_client_data(pairing_session_t *session, char **username
     int len64 = 4 * (1 + (ED25519_KEY_SIZE / 3)) + 1;
     *username = session->username;
     if (session->pair_setup) {
-        *client_pk64 = (char *) malloc(len64);
+      *client_pk64 = (char *) calloc(len64, sizeof(char));
         pk_to_base64(session->client_pk, ED25519_KEY_SIZE, *client_pk64, len64);
     } else {
         *client_pk64 = NULL;
@@ -639,6 +635,6 @@ void get_pairing_session_client_data(pairing_session_t *session, char **username
 
 void ed25519_pk_to_base64(const unsigned char *pk, char  **pk64) {
     int len64 = 4 * (1 + (ED25519_KEY_SIZE / 3)) + 1;
-    *pk64 = (char *) malloc(len64);
+    *pk64 = (char *) calloc(len64, sizeof(char));
     pk_to_base64(pk, ED25519_KEY_SIZE, *pk64, len64);
 }

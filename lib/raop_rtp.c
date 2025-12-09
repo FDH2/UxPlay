@@ -125,8 +125,8 @@ struct raop_rtp_s {
 static int
 raop_rtp_parse_remote(raop_rtp_t *raop_rtp, const char *remote, int remotelen)
 {
-    int family;
-    int ret;
+    int family = AF_UNSPEC;
+    int ret = 0;
     assert(raop_rtp);
     if (remotelen == 4) {
         family = AF_INET;
@@ -150,7 +150,7 @@ raop_rtp_t *
 raop_rtp_init(logger_t *logger, raop_callbacks_t *callbacks, raop_ntp_t *ntp, const char *remote, 
               int remotelen, const unsigned char *aeskey, const unsigned char *aesiv)
 {
-    raop_rtp_t *raop_rtp;
+    raop_rtp_t *raop_rtp = NULL;
 
     assert(logger);
     assert(callbacks);
@@ -214,11 +214,11 @@ static int
 raop_rtp_resend_callback(void *opaque, unsigned short seqnum, unsigned short count)
 {
     raop_rtp_t *raop_rtp = opaque;
-    unsigned char packet[8];
-    unsigned short ourseqnum;
-    struct sockaddr *addr;
-    socklen_t addrlen;
-    int ret;
+    unsigned char packet[8] = {0};
+    unsigned short ourseqnum = 0;
+    struct sockaddr *addr = NULL;
+    socklen_t addrlen = 0;
+    int ret = 0;
 
     addr = (struct sockaddr *)&raop_rtp->control_saddr;
     addrlen = raop_rtp->control_saddr_len;
@@ -278,20 +278,6 @@ raop_rtp_init_sockets(raop_rtp_t *raop_rtp, int use_ipv6)
 static int
 raop_rtp_process_events(raop_rtp_t *raop_rtp, void *cb_data)
 {
-    int flush;
-    float volume;
-    int volume_changed;
-    unsigned char *metadata;
-    int metadata_len;
-    unsigned char *coverart;
-    int coverart_len;
-    char *dacp_id;
-    char *active_remote_header;
-    uint32_t progress_start;
-    uint32_t progress_curr;
-    uint32_t progress_end;
-    int progress_changed;
-
     assert(raop_rtp);
 
     MUTEX_LOCK(raop_rtp->run_mutex);
@@ -301,37 +287,37 @@ raop_rtp_process_events(raop_rtp_t *raop_rtp, void *cb_data)
     }
 
     /* Read the volume level */
-    volume = raop_rtp->volume;
-    volume_changed = raop_rtp->volume_changed;
+    float volume = raop_rtp->volume;
+    int volume_changed = raop_rtp->volume_changed;
     raop_rtp->volume_changed = 0;
 
     /* Read the flush value */
-    flush = raop_rtp->flush;
+    int flush = raop_rtp->flush;
     raop_rtp->flush = NO_FLUSH;
 
     /* Read the metadata */
-    metadata = raop_rtp->metadata;
-    metadata_len = raop_rtp->metadata_len;
+    unsigned char *metadata = raop_rtp->metadata;
+    int metadata_len = raop_rtp->metadata_len;
     raop_rtp->metadata = NULL;
     raop_rtp->metadata_len = 0;
 
     /* Read the coverart */
-    coverart = raop_rtp->coverart;
-    coverart_len = raop_rtp->coverart_len;
+    unsigned char *coverart = raop_rtp->coverart;
+    int coverart_len = raop_rtp->coverart_len;
     raop_rtp->coverart = NULL;
     raop_rtp->coverart_len = 0;
 
     /* Read DACP remote control data */
-    dacp_id = raop_rtp->dacp_id;
-    active_remote_header = raop_rtp->active_remote_header;
+    char *dacp_id = raop_rtp->dacp_id;
+    char *active_remote_header = raop_rtp->active_remote_header;
     raop_rtp->dacp_id = NULL;
     raop_rtp->active_remote_header = NULL;
 
     /* Read the progress values */
-    progress_start = raop_rtp->progress_start;
-    progress_curr = raop_rtp->progress_curr;
-    progress_end = raop_rtp->progress_end;
-    progress_changed = raop_rtp->progress_changed;
+    uint32_t progress_start = raop_rtp->progress_start;
+    uint32_t progress_curr = raop_rtp->progress_curr;
+    uint32_t progress_end = raop_rtp->progress_end;
+    int progress_changed = raop_rtp->progress_changed;
     raop_rtp->progress_changed = 0;
 
     MUTEX_UNLOCK(raop_rtp->run_mutex);
@@ -409,9 +395,9 @@ raop_rtp_thread_udp(void *arg)
 {
     raop_rtp_t *raop_rtp = arg;
     unsigned char packet[RAOP_PACKET_LEN];
-    unsigned int packetlen;
+    unsigned int packetlen = 0;
     struct sockaddr_storage saddr;
-    socklen_t saddrlen;
+    socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
 
@@ -445,8 +431,7 @@ raop_rtp_thread_udp(void *arg)
     while(1) {
         fd_set rfds;
         struct timeval tv;
-        int nfds, ret;	
-        /* Check if we are still running and process callbacks */
+         /* Check if we are still running and process callbacks */
         if (raop_rtp_process_events(raop_rtp, NULL)) {
             break;
         }
@@ -456,7 +441,7 @@ raop_rtp_thread_udp(void *arg)
         tv.tv_usec = 5000;
 
         /* Get the correct nfds value */
-        nfds = raop_rtp->csock+1;
+        int nfds = raop_rtp->csock+1;
         if (raop_rtp->dsock >= nfds)
             nfds = raop_rtp->dsock+1;
 
@@ -465,7 +450,7 @@ raop_rtp_thread_udp(void *arg)
         FD_SET(raop_rtp->csock, &rfds);
         FD_SET(raop_rtp->dsock, &rfds);
 
-        ret = select(nfds, &rfds, NULL, NULL, &tv);
+        int ret = select(nfds, &rfds, NULL, NULL, &tv);
         if (ret == 0) {
             /* Timeout happened */
             continue;
@@ -635,9 +620,9 @@ raop_rtp_thread_udp(void *arg)
             } else {
             // Render continuous buffer entries
                 void *payload = NULL;
-                unsigned int payload_size;
-                unsigned short seqnum;
-                uint32_t rtp_timestamp;
+                unsigned int payload_size = 0;
+                unsigned short seqnum = 0;
+                uint32_t rtp_timestamp = 0;
 
                 while ((payload = raop_buffer_dequeue(raop_rtp->buffer, &payload_size, &rtp_timestamp, &seqnum, no_resend))) {
                     audio_decode_struct audio_data; 
@@ -743,14 +728,12 @@ raop_rtp_set_volume(raop_rtp_t *raop_rtp, float volume)
 void
 raop_rtp_set_metadata(raop_rtp_t *raop_rtp, const char *data, int datalen)
 {
-    unsigned char *metadata;
-
     assert(raop_rtp);
 
     if (datalen <= 0) {
         return;
     }
-    metadata = malloc(datalen);
+    unsigned char *metadata = (unsigned char *) malloc(datalen);
     assert(metadata);
     memcpy(metadata, data, datalen);
 
@@ -767,14 +750,12 @@ raop_rtp_set_metadata(raop_rtp_t *raop_rtp, const char *data, int datalen)
 void
 raop_rtp_set_coverart(raop_rtp_t *raop_rtp, const char *data, int datalen)
 {
-    unsigned char *coverart;
-
     assert(raop_rtp);
 
     if (datalen <= 0) {
         return;
     }
-    coverart = malloc(datalen);
+    unsigned char *coverart = (unsigned char *) malloc(datalen);
     assert(coverart);
     memcpy(coverart, data, datalen);
 
