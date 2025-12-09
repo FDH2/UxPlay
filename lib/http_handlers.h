@@ -214,16 +214,14 @@ http_handler_set_property(raop_conn_t *conn,
 	    }
 	}
         plist_free (req_root_node);
-	const char *lname = NULL, *lcode = NULL;
-        if (language_code) {
-	    set_language_code(airplay_video, language_code);
-	    lcode = get_language_code(airplay_video);
+        if (language_code && language_name) {
+            set_language_code(airplay_video, language_code, strlen(language_code));
+            set_language_name(airplay_video, language_name, strlen(language_name));
+            logger_log(conn->raop->logger, LOGGER_INFO, "stored language from MediaSelectionOptions: %s \"%s\"",
+                       get_language_code(airplay_video), get_language_name(airplay_video));
         }
-        if (language_name) {
-            set_language_name(airplay_video, language_name);
-	    lname = get_language_name(airplay_video);
-        }
-        logger_log(conn->raop->logger, LOGGER_INFO, "stored language from MediaSelectionOptions: %s \"%s\"", lcode, lname);
+        plist_mem_free(language_name);
+        plist_mem_free(language_code);
     } else if (!strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
         !strcmp(property, "actionAtItemEnd")) {
@@ -745,7 +743,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         printf("use: airplay_video[%d] %p %s %s\n", id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
         airplay_video = conn->raop->airplay_video[id];
         assert(airplay_video);
-        set_apple_session_id(airplay_video, apple_session_id);      
+        set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));      
         char * uri_local_prefix = get_uri_local_prefix(airplay_video);
         conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
                                             strcat(uri_local_prefix, "/master.m3u8"),
@@ -789,7 +787,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     airplay_video = airplay_video_init(conn->raop, conn->raop->port, conn->raop->lang);
     if (airplay_video) {
-        set_playback_uuid(airplay_video, playback_uuid);
+        set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
         plist_mem_free (playback_uuid);
         conn->raop->current_video = id;
         conn->raop->airplay_video[id] = airplay_video;
@@ -818,7 +816,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 	       get_duration(conn->raop->airplay_video[i]));
     }
 #endif
-    set_apple_session_id(airplay_video, apple_session_id);
+    set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
 	   
     plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
     if (!req_content_location_node) {
@@ -849,15 +847,16 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
-    char *ptr = strstr(playback_location, "/master.m3u8");
-    if (!ptr) {
+    if (!strstr(playback_location, "/master.m3u8")) {
         logger_log(conn->raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
         goto play_error;
     } else {
-        int prefix_len =  (int) (ptr - playback_location);
-        char *uri_prefix = (char *) calloc(prefix_len + 1, sizeof(char));
-        memcpy(uri_prefix, playback_location, prefix_len);
-        set_uri_prefix(airplay_video, uri_prefix);
+        char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
+        strncpy(uri_prefix, playback_location, strlen(playback_location));
+        char *ptr = strstr(uri_prefix, "/master.m3u8");
+        *ptr = '\0';						  
+        set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
+        free (uri_prefix);
     }
     set_next_media_uri_id(airplay_video, 0);
     printf("FCUP REQUEST\n");

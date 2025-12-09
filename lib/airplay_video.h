@@ -17,30 +17,31 @@
 #ifndef AIRPLAY_VIDEO_H
 #define AIRPLAY_VIDEO_H
 
-
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "raop.h"
 #include "logger.h"
 
+
 typedef struct airplay_video_s airplay_video_t;
 typedef struct media_item_s media_item_t;
 
-void set_apple_session_id(airplay_video_t *airplay_video, const char *apple_session_id);
+void set_apple_session_id(airplay_video_t *airplay_video, const char *apple_session_id, size_t len);
 const char *get_apple_session_id(airplay_video_t *airplay_video);
 void set_start_position_seconds(airplay_video_t *airplay_video, float start_position_seconds);
 void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_position_seconds);
 float get_duration(airplay_video_t *airplay_video);
 float get_start_position_seconds(airplay_video_t *airplay_video);
 float get_resume_position_seconds(airplay_video_t *airplay_video);
-void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid);
+void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid, size_t len);
 const char *get_playback_uuid(airplay_video_t *airplay_video);
-void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix);
+void set_uri_prefix(airplay_video_t *airplay_video, const char *uri_prefix, size_t len);
 const char *get_uri_prefix(airplay_video_t *airplay_video);
 char *get_uri_local_prefix(airplay_video_t *airplay_video);
-void set_language_code(airplay_video_t *airplay_video, char *language_code);
+void set_language_code(airplay_video_t *airplay_video, const char *language_code, size_t len);
 const char *get_language_code(airplay_video_t *airplay_video);
-void set_language_name(airplay_video_t *airplay_video, char *language_name);
+void set_language_name(airplay_video_t *airplay_video, const char *language_name, size_t len);
 const char *get_language_name(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    

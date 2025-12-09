@@ -126,14 +126,61 @@ airplay_video_destroy(airplay_video_t *airplay_video) {
     airplay_video = NULL;
 }
 
-void set_apple_session_id(airplay_video_t *airplay_video, const char * apple_session_id) {
+void set_apple_session_id(airplay_video_t *airplay_video, const char * apple_session_id, size_t len) {
+    assert(apple_session_id && len == 36);
+    char *str = (char *) calloc(len + 1, sizeof(char));
+    strncpy(str, apple_session_id, len);
     if (airplay_video->apple_session_id) {
-        free (airplay_video->apple_session_id);
+        free(airplay_video->apple_session_id);
     }
-    assert(apple_session_id && strlen(apple_session_id) == 36);
-    airplay_video->apple_session_id = (char *) calloc(strlen(apple_session_id) + 1, sizeof(char));
-    memcpy(airplay_video->apple_session_id, apple_session_id, strlen(apple_session_id));
+    airplay_video->apple_session_id = str;
+    str = NULL;
 }
+
+void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid, size_t len) {
+    assert(playback_uuid && len == 36);
+    char *str = (char *) calloc(len + 1, sizeof(char));
+    strncpy(str, playback_uuid, len);
+    if (airplay_video->playback_uuid) {
+        free(airplay_video->playback_uuid);
+    }
+    airplay_video->playback_uuid = str;
+    str = NULL;
+}
+
+void set_uri_prefix(airplay_video_t *airplay_video, const char *uri_prefix, size_t len) {
+    assert(uri_prefix && len );
+    char *str = (char *) calloc(len + 1, sizeof(char));
+    strncpy(str, uri_prefix, len);
+    if (airplay_video->uri_prefix) {
+        free(airplay_video->uri_prefix);
+    }
+    airplay_video->uri_prefix = str;
+    str = NULL;
+}
+
+void set_language_name(airplay_video_t *airplay_video, const char *language_name, size_t len) {
+    assert(language_name && len );
+    char *str = (char *) calloc(len + 1, sizeof(char));
+    strncpy(str, language_name, len);
+    if (airplay_video->language_name) {
+        free(airplay_video->language_name);
+    }
+    airplay_video->language_name = str;
+    str = NULL;
+}
+
+void set_language_code(airplay_video_t *airplay_video, const char *language_code, size_t len) {
+    assert(language_code && len );
+    char *str = (char *) calloc(len + 1, sizeof(char));
+    strncpy(str, language_code, len);
+    if (airplay_video->language_code) {
+        free(airplay_video->language_code);
+    }
+    airplay_video->language_code = str;
+    str = NULL;
+}
+
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
     if (!airplay_video || !airplay_video->apple_session_id) {
@@ -165,46 +212,16 @@ void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_po
     airplay_video->resume_position_seconds = resume_position_seconds;
 }
 
-void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid) {
-    if (airplay_video->playback_uuid) {
-        free (airplay_video->playback_uuid);
-    }
-    assert(playback_uuid && strlen(playback_uuid) == 36);
-    airplay_video->playback_uuid = (char *) calloc(strlen(playback_uuid) + 1, sizeof(char));
-    memcpy(airplay_video->playback_uuid, playback_uuid, strlen(playback_uuid));
-}
-
 const char *get_playback_uuid(airplay_video_t *airplay_video) {
     return (const char *) (!airplay_video ? NULL : airplay_video->playback_uuid); 
-}
-
-void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix) {
-    if (airplay_video->uri_prefix) {
-        free (airplay_video->uri_prefix);
-    }
-    airplay_video->uri_prefix = uri_prefix;
 }
 
 const char *get_uri_prefix(airplay_video_t *airplay_video) {
   return (const char *) airplay_video->uri_prefix;
 }
 
-void set_language_name(airplay_video_t *airplay_video, char *language_name) {
-    if (airplay_video->language_name) {
-        free (airplay_video->language_name);
-    }
-    airplay_video->language_name = language_name;
-}
-
 const char *get_language_name(airplay_video_t *airplay_video) {
   return (const char *)airplay_video->language_name;
-}
-
-void set_language_code(airplay_video_t *airplay_video, char *language_code) {;
-    if (airplay_video->language_code) {
-        free (airplay_video->language_code);
-    }
-    airplay_video->language_code = language_code;
 }
 
 const char *get_language_code(airplay_video_t *airplay_video) {
@@ -418,14 +435,14 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
 
     /* update stored language code, name if changed */
     if (name != language_name) {   /* compare addresses */
-        int len = strlen(name);
+        size_t len = strlen(name);
         char *new_language_name = (char *) calloc(len + 1, sizeof(char));
         memcpy(new_language_name, name, len);
-        set_language_name(airplay_video, new_language_name);
+        set_language_name(airplay_video, new_language_name, len);
         len = strlen(code);
         char *new_language_code = (char *) calloc(len + 1, sizeof(char));
         memcpy(new_language_code, code, len);
-        set_language_code(airplay_video, new_language_code);
+        set_language_code(airplay_video, new_language_code, len);
     }
     
     int len = 0;
