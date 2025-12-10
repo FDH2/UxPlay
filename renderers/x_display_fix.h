@@ -39,7 +39,7 @@ extern "C" {
 #include <stdio.h>
 
 struct X11_Window_s {
-    Display * display;
+    Display *display;
     Window window;
 } typedef X11_Window_t;
 
@@ -57,7 +57,6 @@ static int free_X11_Display(X11_Window_t *X11) {
 }
   
 static Window enum_windows(const char * str, Display * display, Window window, int depth) {
-    int i;
     char* name = NULL;
     XFetchName(display, window, &name);
     if (name) {
@@ -70,10 +69,10 @@ static Window enum_windows(const char * str, Display * display, Window window, i
 
     Window _root, parent;
     Window* children = NULL;
-    unsigned int n;
+    unsigned int n = 0;
     XQueryTree(display, window, &_root, &parent, &children, &n);
     if (children != NULL) {
-        for (i = 0; i < n; i++) {
+        for (int i = 0; i < n; i++) {
             Window w = enum_windows(str, display, children[i], depth + 1);
             if (w) {
                 XFree(children);

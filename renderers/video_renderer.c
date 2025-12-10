@@ -31,7 +31,7 @@
 #include "x_display_fix.h"
 static bool fullscreen = false;
 static bool alt_keypress = false;
-static unsigned char X11_search_attempts;
+static unsigned char X11_search_attempts = 0;
 #endif
 
 static GstClockTime gst_video_pipeline_base_time = GST_CLOCK_TIME_NONE;
@@ -48,15 +48,15 @@ static bool logger_debug = false;
 static gint64 hls_requested_start_position = 0;
 static gint64 hls_seek_start = 0;
 static gint64 hls_seek_end = 0;
-static gint64 hls_duration;
-static gboolean hls_seek_enabled;
-static gboolean hls_playing;
-static gboolean hls_buffer_empty;
-static gboolean hls_buffer_full;
-static int type_264;
-static int type_265;
-static int type_hls;
-static int type_jpeg;
+static gint64 hls_duration = 0;
+static gboolean hls_seek_enabled = FALSE;
+static gboolean hls_playing = FALSE;
+static gboolean hls_buffer_empty = FALSE;
+static gboolean hls_buffer_full = FALSE;
+static int type_264 = 0;
+static int type_265 = 0;
+static int type_hls = 0;
+static int type_jpeg = 0;
 
 typedef enum {
   //GST_PLAY_FLAG_VIDEO         = (1 << 0),
@@ -204,7 +204,7 @@ GstElement *make_video_sink(const char *videosink, const char *videosink_options
 
     /* add any fullscreen options "property=pval" included in string videosink_options*/    
     /* OK to use strtok_r in Windows with MSYS2 (POSIX); use strtok_s for MSVC */
-    char *token;
+    char *token = NULL;
     char *text = options;
 
     while((token = strtok_r(text, " ", &text))) {
@@ -308,7 +308,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                     g_object_set(G_OBJECT (renderer_type[i]->pipeline), "video-sink", playbin_videosink, NULL);
                 }
             }
-            gint flags;
+            gint flags = 0;
             g_object_get(renderer_type[i]->pipeline, "flags", &flags, NULL);
             flags |= GST_PLAY_FLAG_DOWNLOAD;
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
@@ -477,7 +477,7 @@ void video_renderer_resume() {
 
 void video_renderer_start() {
     GstState state;
-    const gchar *state_name;
+    const gchar *state_name = NULL;
     if (hls_video) {
         g_object_set (G_OBJECT (renderer->pipeline), "uri", renderer->uri, NULL);
         gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
@@ -563,7 +563,7 @@ int video_renderer_cycle() {
 }
 
 void video_renderer_display_jpeg(const void *data, int *data_len) {
-    GstBuffer *buffer;
+    GstBuffer *buffer = NULL;
     if (type_jpeg == -1) {
         return;
     }
@@ -576,7 +576,7 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
 }
 
 uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time) {
-    GstBuffer *buffer;
+    GstBuffer *buffer = NULL;
     GstClockTime pts = (GstClockTime) *ntp_time; /*now in nsecs */
     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
     if (sync) {
@@ -793,7 +793,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
     /* monitor hls video position until seek to hls_start_position is achieved */
     if (hls_video && hls_requested_start_position) {
         if (strstr(GST_MESSAGE_SRC_NAME(message), "sink")) {	  
-            gint64 pos;
+            gint64 pos = -1;
             if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
                 gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration);
             }
@@ -838,9 +838,9 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
 	break;      
     case GST_MESSAGE_ERROR: {
-        GError *err;
-        gchar *debug;
-        gboolean flushing;
+        GError *err = NULL;
+        gchar *debug = NULL;
+        gboolean flushing = FALSE;
         gst_message_parse_error (message, &err, &debug);
         logger_log(logger, LOGGER_INFO, "GStreamer error (video): %s %s", GST_MESSAGE_SRC_NAME(message),err->message);
         if (!hls_video && strstr(err->message,"Internal data stream error")) {
@@ -886,7 +886,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                 hls_playing = FALSE;
             }
             hls_playing = TRUE;
-            GstQuery *query;
+            GstQuery *query = NULL;
             query = gst_query_new_seeking(GST_FORMAT_TIME);
                 if (gst_element_query(renderer->pipeline, query)) {
 	        gst_query_parse_seeking (query, NULL, &hls_seek_enabled, &hls_seek_start, &hls_seek_end);
@@ -925,7 +925,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                 GstEvent *event = NULL;
                 if (gst_navigation_message_parse_event (message, &event)) {
                     GstNavigationEventType event_type = gst_navigation_event_get_type (event);
-                    const gchar *key;
+                    const gchar *key = NULL;
                     switch (event_type) {
                     case GST_NAVIGATION_EVENT_KEY_PRESS:
                         if (gst_navigation_event_parse_key_event (event, &key)) {
