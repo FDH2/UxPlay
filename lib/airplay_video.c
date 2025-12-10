@@ -54,31 +54,6 @@ struct airplay_video_s {
     int num_uri;
 };
 
-#if 0   //used for debugging a memory issue
-void print_airplay_video(airplay_video_t *airplay_video, const char *title) {
-  printf("-------------------------start  %s -----------------------------------------\n", title);
-  printf("%p airplay_video\n", airplay_video);
-  printf("%p airplay_video->raop %p\n", &(airplay_video->raop), airplay_video->raop);
-  printf("%p airplay_video->apple_session_id %p %s\n", &(airplay_video->apple_session_id), airplay_video->apple_session_id, airplay_video->apple_session_id );
-  printf("%p airplay_video->playback_uuid %p %s\n", &(airplay_video->playback_uuid), airplay_video->playback_uuid, airplay_video->playback_uuid);
-  printf("%p airplay_video->uri_prefix %p %s\n", &(airplay_video->uri_prefix), airplay_video->uri_prefix, airplay_video->uri_prefix);
-  printf("%p airplay_video->playback_location %p %s\n", &(airplay_video->playback_location), airplay_video->playback_location, airplay_video->playback_location);
-  printf("%p airplay_video->local_uri_prefix %p %s\n", &(airplay_video->local_uri_prefix), airplay_video->local_uri_prefix, airplay_video->local_uri_prefix);
-  printf("%p airplay_video->language_name %p %s\n", &(airplay_video->language_name), airplay_video->language_name, airplay_video->language_name);
-  printf("%p airplay_video->language_code %p %s\n", &(airplay_video->language_code), airplay_video->language_code, airplay_video->language_code);
-  printf("%p airplay_video->lang %p %s\n", &(airplay_video->lang), airplay_video->lang, airplay_video->lang);
-  printf("%p airplay_video->next_uri %d\n", &(airplay_video->next_uri), airplay_video->next_uri);
-  printf("%p airplay_video->FCUP_request_id %d\n", &(airplay_video->FCUP_RequestID), airplay_video->FCUP_RequestID);
-  printf("%p airplay_video->start_position_seconds %f\n", &(airplay_video->start_position_seconds), airplay_video->start_position_seconds);
-  printf("%p airplay_video->resume_position_seconds %f\n", &(airplay_video->resume_position_seconds), airplay_video->resume_position_seconds);
-  printf("%p airplay_video->playback_info %p\n", &(airplay_video->playback_info), airplay_video->playback_info);
-  printf("%p airplay_video->master_playlist %p\n", &(airplay_video->master_playlist), airplay_video->master_playlist);
-  printf("%p airplay_video->media_data_store %p\n", &(airplay_video->media_data_store), airplay_video->media_data_store);
-  printf("%p airplay_video->num_uri %d\n", &(airplay_video->num_uri), airplay_video->num_uri);
-  printf("--------------------------end------------------------------------------\n");
-}
-#endif
-
 //  initialize airplay_video service.
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, const char *lang) {
     char uri[] = "http://localhost:";

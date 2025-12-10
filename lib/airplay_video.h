@@ -27,7 +27,6 @@
 typedef struct airplay_video_s airplay_video_t;
 typedef struct media_item_s media_item_t;
 
-void print_airplay_video(airplay_video_t *airplay_video, const char *title);
 void set_apple_session_id(airplay_video_t *airplay_video, const char *apple_session_id, size_t len);
 const char *get_apple_session_id(airplay_video_t *airplay_video);
 void set_start_position_seconds(airplay_video_t *airplay_video, float start_position_seconds);
