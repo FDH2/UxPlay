@@ -920,6 +920,10 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
     site). This should install the Bonjour SDK as
     `C:\Program Files\Bonjour SDK`.
 
+  * **NEW: while you still need to install the Bonjour SDK to build UxPlay, there is now an alternative method for
+    Service Discovery using a Bluetooth Low Energy (BLE) beacon. A Windows-based python script for running the beacon
+    is available for this.** See [instructions below](#bluetooth-le-beacon-setup).
+
 2.  (This is for 64-bit Windows; a build for 32-bit Windows should be
     possible, but is not tested.) The unix-like MSYS2 build environment
     will be used: download and install MSYS2 from the official site

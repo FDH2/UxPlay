@@ -918,14 +918,23 @@ compiler.</h2>
 <li>tested on Windows 10 and 11, 64-bit.</li>
 </ul>
 <ol type="1">
-<li><p>Download and install <strong>Bonjour SDK for Windows
-v3.0</strong>. You can download the SDK without any registration at <a
+<li>Download and install <strong>Bonjour SDK for Windows v3.0</strong>.
+You can download the SDK without any registration at <a
 href="https://www.softpedia.com/get/Programming/SDK-DDK/Bonjour-SDK.shtml">softpedia.com</a>,
 or get it from the official Apple site <a
 href="https://developer.apple.com/download/all/?q=Bonjour%20SDK%20for%20Windows">https://developer.apple.com/download</a>
 (Apple makes you register as a developer to access it from their site).
 This should install the Bonjour SDK as
-<code>C:\Program Files\Bonjour SDK</code>.</p></li>
+<code>C:\Program Files\Bonjour SDK</code>.</li>
+</ol>
+<ul>
+<li><strong>NEW: while you still need to install the Bonjour SDK to
+build UxPlay, there is now an alternative method for Service Discovery
+using a Bluetooth Low Energy (BLE) beacon. A Windows-based python script
+for running the beacon is available for this.</strong> See <a
+href="#bluetooth-le-beacon-setup">instructions below</a>.</li>
+</ul>
+<ol start="2" type="1">
 <li><p>(This is for 64-bit Windows; a build for 32-bit Windows should be
 possible, but is not tested.) The unix-like MSYS2 build environment will
 be used: download and install MSYS2 from the official site <a
