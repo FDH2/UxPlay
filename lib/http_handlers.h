@@ -484,7 +484,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         goto post_action_error;
     }
     logger_log(conn->raop->logger, LOGGER_DEBUG, "action type is %s", type);
-
     /* check that plist structure is as expected*/
     plist_t req_params_node = NULL;
     if (PLIST_IS_DICT (req_root_node)) {
@@ -493,7 +492,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     if (!PLIST_IS_DICT (req_params_node)) {
         goto post_action_error;
     }
-    
     if (!strcmp(type,"playlistRemove")) {
         plist_t req_params_item_node = plist_dict_get_item(req_params_node, "item");
         if (!req_params_item_node || !PLIST_IS_DICT (req_params_item_node)) {
@@ -653,9 +651,8 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                                                              get_next_FCUP_RequestID(airplay_video));
             set_next_media_uri_id(airplay_video, ++uri_num);
         } else {
-            char * uri_local_prefix = get_uri_local_prefix(airplay_video);
             conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
-                                                strcat(uri_local_prefix, "/master.m3u8"),
+                                                get_playback_location(airplay_video),
                                                 get_start_position_seconds(airplay_video));
         }
 
@@ -744,9 +741,8 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         airplay_video = conn->raop->airplay_video[id];
         assert(airplay_video);
         set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));      
-        char * uri_local_prefix = get_uri_local_prefix(airplay_video);
         conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
-                                            strcat(uri_local_prefix, "/master.m3u8"),
+                                            get_playback_location(airplay_video),
                                             get_start_position_seconds(airplay_video));
         plist_mem_free(playback_uuid);
         plist_free(req_root_node);
@@ -792,7 +788,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         conn->raop->current_video = id;
         conn->raop->airplay_video[id] = airplay_video;
         count++;
-        //printf("created new airplay_video %p %s\n\n", airplay_video, get_playback_uuid(airplay_video));
+        printf("created new airplay_video %p %s\n\n", airplay_video, get_playback_uuid(airplay_video));
     } else {
         logger_log(conn->raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
         exit(-1);
@@ -847,19 +843,25 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
-    if (!strstr(playback_location, "/master.m3u8")) {
+    const char *uri_suffix = strstr(playback_location, "/master.m3u8");
+    if (!uri_suffix) { 
         logger_log(conn->raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
         goto play_error;
     } else {
+        size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
+        char *location = (char *) calloc(len + 1, sizeof(char));
+        strcat(location, get_uri_local_prefix(airplay_video));
+        strcat(location, uri_suffix);
+        set_playback_location(airplay_video, location, strlen(location));
+        free(location);
         char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
         strncpy(uri_prefix, playback_location, strlen(playback_location));
-        char *ptr = strstr(uri_prefix, "/master.m3u8");
-        *ptr = '\0';						  
+        char *end = strstr(uri_prefix, "/master.m3u8");
+        *end = '\0';						  
         set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
         free (uri_prefix);
     }
     set_next_media_uri_id(airplay_video, 0);
-    printf("FCUP REQUEST\n");
     fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
     plist_mem_free(playback_location);
