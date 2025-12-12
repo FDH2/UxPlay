@@ -96,7 +96,7 @@ logger_utf8_to_local(const char *str)
 #if defined(_WIN32) || defined(_WIN64)
     BOOL failed;
 
-    int wclen = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
+    int *wclen = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
     WCHAR wcstr = malloc(sizeof(WCHAR) * wclen);
     MultiByteToWideChar(CP_UTF8, 0, str, -1, wcstr, wclen);
 
