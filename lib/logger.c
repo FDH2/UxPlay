@@ -12,7 +12,7 @@
  *  Lesser General Public License for more details.
  *
  *===============================================================
- * modified by fduncanh 2023
+ * modified by fduncanh 2023-25
  */
 
 #include <stdlib.h>
@@ -87,34 +87,6 @@ logger_set_callback(logger_t *logger, logger_callback_t callback, void *cls)
     MUTEX_UNLOCK(logger->cb_mutex);
 }
 
-static char *
-logger_utf8_to_local(const char *str)
-{
-    char *ret = NULL;
-
-/* FIXME: This is only implemented on Windows for now */
-#if defined(_WIN32) || defined(_WIN64)
-    BOOL failed = false;
-
-    int wclen = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
-    WCHAR *wcstr = (WCHAR *) calloc(wclen, sizeof(WCHAR));
-    MultiByteToWideChar(CP_UTF8, 0, str, -1, wcstr, wclen);
-
-    int mblen = WideCharToMultiByte(CP_ACP, 0, wcstr, wclen, NULL, 0, NULL, &failed);
-    if (failed) {
-        /* Invalid characters in input, conversion failed */
-        free(wcstr);
-        return NULL;
-    }
-
-    ret = (char *) calloc(mblen, sizeof(CHAR));
-    WideCharToMultiByte(CP_ACP, 0, wcstr, wclen, ret, mblen, NULL, NULL);
-    free(wcstr);
-#endif
-
-    return ret;
-}
-
 void
 logger_log(logger_t *logger, int level, const char *fmt, ...)
 {
@@ -136,23 +108,10 @@ logger_log(logger_t *logger, int level, const char *fmt, ...)
         snprintf(err_buf, sizeof(err_buf), err_fmt, message_len, (int) sizeof(buffer) -1);
     }
     MUTEX_LOCK(logger->cb_mutex);
-    if (logger->callback) {
-        logger->callback(logger->cls, level, buffer);
-        if (err_buf[0]) {
-            logger->callback(logger->cls, level, err_buf);
-        }
-        MUTEX_UNLOCK(logger->cb_mutex);
-    } else {
-        MUTEX_UNLOCK(logger->cb_mutex);
-        char *local = logger_utf8_to_local(buffer);
-        if (local) {
-            fprintf(stderr, "%s\n", local);
-            free(local);
-        } else {
-            fprintf(stderr, "%s\n", buffer);
-        }
-        if (err_buf[0]) {
-            fprintf(stderr,"%s\n", err_buf);
-        }
+    assert (logger->callback);
+    logger->callback(logger->cls, level, buffer);
+    if (err_buf[0]) {
+        logger->callback(logger->cls, level, err_buf);
     }
+    MUTEX_UNLOCK(logger->cb_mutex);
 }
