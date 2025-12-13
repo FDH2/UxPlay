@@ -94,10 +94,10 @@ logger_utf8_to_local(const char *str)
 
 /* FIXME: This is only implemented on Windows for now */
 #if defined(_WIN32) || defined(_WIN64)
-    BOOL failed;
+    BOOL failed = false;
 
     int wclen = MultiByteToWideChar(CP_UTF8, 0, str, -1, NULL, 0);
-    WCHAR wcstr = malloc(sizeof(WCHAR) * wclen);
+    WCHAR *wcstr = (WCHAR *) calloc(wclen, sizeof(WCHAR));
     MultiByteToWideChar(CP_UTF8, 0, str, -1, wcstr, wclen);
 
     int mblen = WideCharToMultiByte(CP_ACP, 0, wcstr, wclen, NULL, 0, NULL, &failed);
@@ -107,7 +107,7 @@ logger_utf8_to_local(const char *str)
         return NULL;
     }
 
-    ret = malloc(sizeof(CHAR) * mblen);
+    ret = (char *) calloc(mblen, sizeof(CHAR));
     WideCharToMultiByte(CP_ACP, 0, wcstr, wclen, ret, mblen, NULL, NULL);
     free(wcstr);
 #endif
@@ -118,9 +118,6 @@ logger_utf8_to_local(const char *str)
 void
 logger_log(logger_t *logger, int level, const char *fmt, ...)
 {
-    char buffer[4096] = {0};
-    va_list ap;
-
     MUTEX_LOCK(logger->lvl_mutex);
     if (level > logger->level) {
         MUTEX_UNLOCK(logger->lvl_mutex);
@@ -128,14 +125,22 @@ logger_log(logger_t *logger, int level, const char *fmt, ...)
     }
     MUTEX_UNLOCK(logger->lvl_mutex);
 
-    buffer[sizeof(buffer)-1] = '\0';
-    va_start(ap, fmt);
-    vsnprintf(buffer, sizeof(buffer)-1, fmt, ap);
+    char buffer[4096] = {0};
+    char err_fmt[] = "---logger message is truncated from %d to %d chars---\n";
+    char err_buf[128] = {0};
+    va_list ap;
+    va_start(ap, fmt);    
+    int message_len = vsnprintf(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
-
+    if (message_len >= sizeof(buffer)) {
+        snprintf(err_buf, sizeof(err_buf), err_fmt, message_len, (int) sizeof(buffer) -1);
+    }
     MUTEX_LOCK(logger->cb_mutex);
     if (logger->callback) {
         logger->callback(logger->cls, level, buffer);
+        if (err_buf[0]) {
+            logger->callback(logger->cls, level, err_buf);
+        }
         MUTEX_UNLOCK(logger->cb_mutex);
     } else {
         MUTEX_UNLOCK(logger->cb_mutex);
@@ -145,6 +150,9 @@ logger_log(logger_t *logger, int level, const char *fmt, ...)
             free(local);
         } else {
             fprintf(stderr, "%s\n", buffer);
+        }
+        if (err_buf[0]) {
+            fprintf(stderr,"%s\n", err_buf);
         }
     }
 }
