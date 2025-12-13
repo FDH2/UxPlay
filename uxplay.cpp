@@ -2054,14 +2054,32 @@ static bool check_blocked_client(char *deviceid) {
 
 // Server callbacks
 
-extern "C" void video_reset(void *cls, bool hls_shutdown) {
+extern "C" void video_reset(void *cls, bool hls_shutdown, bool nohold) {
     LOGD("video_reset");
-    video_renderer_stop();
+    if (use_video) {
+        video_renderer_stop();
+    }
     if (hls_shutdown) {
         url.erase();
         raop_destroy_airplay_video(raop, -1);
         raop_remove_hls_connections(raop);
         preserve_connections = true;
+    } else if (nohold) {
+        if (use_video) {
+	    /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */ 
+            video_renderer_destroy();
+            video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
+                                video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
+                                videosink_options.c_str(), fullscreen, video_sync, h265_support,
+                                render_coverart, playbin_version, NULL);
+            video_renderer_start();
+        }
+        if (hls_support && !url.empty()) {
+            url.erase();
+            raop_destroy_airplay_video(raop, -1);
+        }
+        close_window = false;  // we already closed the window
+        preserve_connections = false; //we already closed all other connections
     }
     remote_clock_offset = 0;
     relaunch_video = true;
@@ -2380,7 +2398,7 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
 
 extern "C" void audio_stop_coverart_rendering(void *cls) {
     if (render_coverart) {
-        video_reset(cls, false);
+      video_reset(cls, false, false);
     }
 }
 

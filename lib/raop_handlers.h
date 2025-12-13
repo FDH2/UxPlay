@@ -1265,7 +1265,7 @@ raop_handler_teardown(raop_conn_t *conn,
             }
         }
     } else if (teardown_110) {
-        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, false);
+      conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, false, false);
         if (conn->raop_rtp_mirror) {
         /* Stop our video RTP session */
             raop_rtp_mirror_stop(conn->raop_rtp_mirror);
@@ -1283,7 +1283,7 @@ raop_handler_teardown(raop_conn_t *conn,
         /* shut down any HLS connections */
         int hls_count = httpd_count_connection_type(conn->raop->httpd, CONNECTION_TYPE_HLS);
         if (hls_count) {
-            conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, true);
+	  conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, true, false);
         }
     }
     if (conn->raop->callbacks.conn_teardown) {

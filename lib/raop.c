@@ -244,11 +244,11 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                 char ipaddr[40] = { '\0' };
                 utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, ipaddr, (int) (sizeof(ipaddr)));
                 if (httpd_nohold(conn->raop->httpd)) {
-                    logger_log(conn->raop->logger, LOGGER_INFO, "\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
-                    if (conn->raop->callbacks.video_reset) {
-                        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, false);
-                    }
+                    logger_log(conn->raop->logger, LOGGER_INFO, "*****\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
                     httpd_remove_known_connections(conn->raop->httpd);
+                    if (conn->raop->callbacks.video_reset) {
+                        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, false, true);
+                    }
                 } else {
                     logger_log(conn->raop->logger, LOGGER_WARNING, "rejecting new connection request from %s", ipaddr);
                     *response = http_response_create();

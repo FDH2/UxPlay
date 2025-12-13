@@ -67,7 +67,7 @@ struct raop_callbacks_s {
     void  (*video_resume)(void *cls);
     void  (*conn_feedback) (void *cls);
     void  (*conn_reset) (void *cls, int reason);
-    void  (*video_reset) (void *cls, bool hls_shutdown);
+    void  (*video_reset) (void *cls, bool hls_shutdown, bool nohold);
   
   
     /* Optional but recommended callback functions (probably not optional, check this)*/

@@ -356,7 +356,7 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
         logger_log(conn->raop->logger, LOGGER_DEBUG, "playback_info not available (finishing)");
         //httpd_remove_known_connections(conn->raop->httpd);
         http_response_set_disconnect(response,1);
-        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, true);
+        conn->raop->callbacks.video_reset(conn->raop->callbacks.cls, true, false);
         return;
     } else if (playback_info.position == -1.0) {
         logger_log(conn->raop->logger, LOGGER_DEBUG, "playback_info not available");
