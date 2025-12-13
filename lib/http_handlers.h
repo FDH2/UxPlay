@@ -855,7 +855,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         set_playback_location(airplay_video, location, strlen(location));
         free(location);
         char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
-        strncpy(uri_prefix, playback_location, strlen(playback_location));
+        strcat(uri_prefix, playback_location);
         char *end = strstr(uri_prefix, "/master.m3u8");
         *end = '\0';						  
         set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
