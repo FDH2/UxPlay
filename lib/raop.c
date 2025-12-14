@@ -879,8 +879,8 @@ void raop_handle_eos(raop_t *raop) {
 }
 
 void *raop_get_current_playlist(raop_t *raop) {
-    if (raop->current_video >- 0) {
-        return raop->airplay_video[raop->current_video];
+    if (raop->current_video >= 0) {
+        return (void *) raop->airplay_video[raop->current_video];
     } else {
         return NULL;
     }
