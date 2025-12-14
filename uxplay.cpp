@@ -2495,7 +2495,8 @@ extern "C" void on_video_play(void *cls, const char* location, const float start
     url.append(location);
     relaunch_video = true;
     preserve_connections = true;
-    LOGD("********************on_video_play: location = %s***********************", url.c_str());
+    LOGD("********************on_video_play: location = %s playlist %p ***********************",
+         url.c_str(), raop_get_current_playlist(raop));
     reset_loop = true;
 }
 

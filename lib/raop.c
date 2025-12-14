@@ -878,16 +878,12 @@ void raop_handle_eos(raop_t *raop) {
     raop->callbacks.video_reset(raop->callbacks.cls, true, false);
 }
 
-int raop_current_playlist_delete(raop_t *raop) {
-    int current_video = raop->current_video;
-    assert (current_video < MAX_AIRPLAY_VIDEO);
-    if (current_video >= 0) {
-        raop_destroy_airplay_video(raop, current_video);
-        raop->current_video = -1;
+void *raop_get_current_playlist(raop_t *raop) {
+    if (raop->current_video >- 0) {
+        return raop->airplay_video[raop->current_video];
     } else {
-        logger_log(raop->logger, LOGGER_ERR, "raop_current_playlist_delete: failed to identify current_playlist");
+        return NULL;
     }
-    return current_video;
 }
 
 int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
