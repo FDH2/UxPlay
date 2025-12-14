@@ -35,7 +35,6 @@ typedef struct raop_s raop_t;
 
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);
 
-
 typedef struct playback_info_s {
   //char * uuid;
     uint32_t stallcount;
@@ -68,8 +67,7 @@ struct raop_callbacks_s {
     void  (*conn_feedback) (void *cls);
     void  (*conn_reset) (void *cls, int reason);
     void  (*video_reset) (void *cls, bool hls_shutdown, bool nohold);
-  
-  
+    
     /* Optional but recommended callback functions (probably not optional, check this)*/
     void  (*conn_init)(void *cls);
     void  (*conn_destroy)(void *cls);
@@ -111,6 +109,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const cha
 int get_playlist_by_uuid(raop_t *raop, const char *uuid);
 char *raop_get_lang(raop_t *raop);
 uint64_t get_local_time();
+void raop_handle_eos(raop_t *raop);
 
 RAOP_API raop_t *raop_init(raop_callbacks_t *callbacks);
 RAOP_API int raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile);

@@ -637,7 +637,9 @@ static gboolean progress_callback (gpointer loop) {
 static gboolean video_eos_watch_callback (gpointer loop) {
     if (video_renderer_eos_watch()) {
         /* HLS video has sent EOS */
-	LOGI("hls video has sent EOS");
+        LOGI("hls video has sent EOS");
+        video_renderer_pause;
+        raop_handle_eos(raop);
     }
     return TRUE;
 }
@@ -727,7 +729,6 @@ static void main_loop()  {
         if (gst_audio_bus_watch_id[i] > 0) g_source_remove(gst_audio_bus_watch_id[i]);
     }
     if (gst_x11_window_id > 0) g_source_remove(gst_x11_window_id);
-    if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
     if (reset_watch_id > 0) g_source_remove(reset_watch_id);
     if (progress_id > 0) g_source_remove(progress_id);
     if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);

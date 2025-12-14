@@ -723,7 +723,6 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     char* playback_uuid = NULL;
     plist_get_string_val(req_uuid_node, &playback_uuid);
 
-    /* check if playlist is already dowloaded and stored (may have been interruoted by advertisements ) */
 #if 0
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         printf("old: airplay_video[%d] %p %s %f\n", i, conn->raop->airplay_video[i],
@@ -734,16 +733,25 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     printf("new playback_uuid %s\n\n", playback_uuid);
 #endif
 
+     /* check if playlist is already dowloaded and stored (may have been interrupted by advertisements ) */
     int id = -1;
     id = get_playlist_by_uuid(conn->raop, playback_uuid);
     if (id >= 0) {
-        printf("use: airplay_video[%d] %p %s %s\n", id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
+        logger_log(conn->raop->logger, LOGGER_INFO, "use previously downloaded airplay_video[%d] %p %s %s\n",
+                   id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
         airplay_video = conn->raop->airplay_video[id];
         assert(airplay_video);
+        float start_position_secs = get_start_position_seconds(airplay_video);
+        if (id == conn->raop->interrupted_video) {
+            float resume_position_secs = get_resume_position_seconds(airplay_video);
+            start_position_secs = (start_position_secs > resume_position_secs ? start_position_secs : resume_position_secs);
+            conn->raop->interrupted_video = -1;
+            set_resume_position_seconds(airplay_video, 0.0f);
+        }
         set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));      
         conn->raop->callbacks.on_video_play(conn->raop->callbacks.cls,
                                             get_playback_location(airplay_video),
-                                            get_start_position_seconds(airplay_video));
+                                            start_position_secs);
         plist_mem_free(playback_uuid);
         plist_free(req_root_node);
         return;
@@ -893,7 +901,6 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 static void
 http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *response,
                  char **response_data, int *response_datalen) {
-    airplay_video_t *airplay_video = conn->raop->airplay_video[conn->raop->current_video];
     const char *method = http_request_get_method(request);
     assert (!strcmp(method, "GET"));
     const char *url = http_request_get_url(request);    
@@ -907,7 +914,19 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         free (header_str);
         return;
     }
+    airplay_video_t *airplay_video = NULL;
+    if (conn->raop->current_video >= 0) {
+        airplay_video = conn->raop->airplay_video[conn->raop->current_video];
+    }
+    if (!airplay_video) {
+        logger_log(conn->raop->logger, LOGGER_ERR,"http_handler_hls: airplay_video is NULL");
+        *response_datalen = 0;
+        http_response_init(response, "HTTP/1.1", 404, "Not Found");
+        return;
+    }
+    logger_log(conn->raop->logger, LOGGER_DEBUG, "http_handler_hls: airplay_video %p playback_uuid = %s", airplay_video, get_playback_uuid(airplay_video));
 
+    
     if (!strcmp(url, "/master.m3u8")){
         char * master_playlist  = get_master_playlist(airplay_video);
         if (master_playlist) {
@@ -918,7 +937,7 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
             *response_data = data;
             *response_datalen = (int ) len;
         } else {
-            logger_log(conn->raop->logger, LOGGER_ERR,"requested master playlist %s not found", url); 
+            logger_log(conn->raop->logger, LOGGER_ERR,"requested master playlist %s not found", url);
             *response_datalen = 0;
         }
 

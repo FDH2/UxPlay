@@ -862,6 +862,22 @@ void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
     }
 }
 
+void raop_handle_eos(raop_t *raop) {
+    logger_log(raop->logger, LOGGER_DEBUG, "***raop_handle_eos***");
+    if (raop->current_video >= 0) {
+        raop_destroy_airplay_video(raop, raop->current_video);
+        raop->current_video = -1;
+    }
+    
+
+    //if (raop->interrupted_video) {
+    //    raop->current_video = raop->interrupted_video;
+    //    raop->interrupted_video = -1;
+    //}
+
+    raop->callbacks.video_reset(raop->callbacks.cls, true, false);
+}
+
 int raop_current_playlist_delete(raop_t *raop) {
     int current_video = raop->current_video;
     assert (current_video < MAX_AIRPLAY_VIDEO);
