@@ -158,7 +158,7 @@ http_handler_set_property(raop_conn_t *conn,
         selectedMediaArray contains plist with language choice:
     */
 
-    airplay_video_t *airplay_video = raop->airplay_video[raop->current_video];
+    airplay_video_t *airplay_video = (airplay_video_t *) raop_get_current_video(raop);
     if (!strcmp(property, "selectedMediaArray")) {
         /* verify that this request contains a binary plist*/
         char *header_str = NULL;
@@ -438,7 +438,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                     char **response_data, int *response_datalen) {
 
     raop_t *raop = conn->raop;
-    airplay_video_t *airplay_video = raop->airplay_video[raop->current_video];
+    airplay_video_t *airplay_video = (airplay_video_t *) raop_get_current_video(raop);
     bool data_is_plist = false;
     plist_t req_root_node = NULL;
     uint64_t uint_val = 0;
@@ -690,6 +690,21 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
    "FCUP Request" request to the Client on the reverse http channel, to request the HLS Master Playlist */
 
 static void
+delete_short_playlist(raop_t *raop, int id) {
+    if (!raop->airplay_video[id]) {
+        return;
+    }
+    float duration = get_duration(raop->airplay_video[id]); 
+    if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { //likely to be an advertisement
+        logger_log(raop->logger, LOGGER_INFO,
+                   "deleting playlist playback_uuid %s duration (seconds) %f",
+                    get_playback_uuid(raop->airplay_video[id]), duration);
+        airplay_video_destroy(raop->airplay_video[id]);
+        raop->airplay_video[id] = NULL;
+    }
+}
+
+static void
 http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen) {
 
@@ -735,7 +750,6 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     char* playback_uuid = NULL;
     plist_get_string_val(req_uuid_node, &playback_uuid);
 
-    /* check if playlist is already dowloaded and stored (may have been interruoted by advertisements ) */
 #if 0
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         printf("old: airplay_video[%d] %p %s %f\n", i, raop->airplay_video[i],
@@ -748,9 +762,16 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
+
+    /* check if playlist is already dowloaded and stored (may have been interruoted by advertisements ) */
     if (id >= 0) {
         printf("use: airplay_video[%d] %p %s %s\n", id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
-        airplay_video = raop->airplay_video[id];
+        int current_video = raop->current_video;
+        if (current_video >= 0 && current_video != id) {
+             delete_short_playlist(raop, current_video);
+        }
+        raop->current_video = id;
+        airplay_video = raop_get_current_video(raop);
         assert(airplay_video);
         set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));      
         raop->callbacks.on_video_play(raop->callbacks.cls,
@@ -765,17 +786,10 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     int count = 0;
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (raop->airplay_video[i]) {
-            float duration = get_duration(raop->airplay_video[i]);
-                if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) {
-                    logger_log(raop->logger, LOGGER_INFO,
-                              "deleting playlist playback_uuid %s duration (seconds) %f",
-                    get_playback_uuid(raop->airplay_video[i]), duration);
-                    airplay_video_destroy(raop->airplay_video[i]);
-                    raop->airplay_video[i] = NULL;
-                } else {
-                count++;
-                //printf(" %d %d duration %f : keep\n", i, count,  duration);
-            }
+            delete_short_playlist(raop, i);
+        }
+        if (raop->airplay_video[i]) {
+            count++;
         }
     }
 
@@ -793,12 +807,12 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         exit(1);
     }
 
-    airplay_video = airplay_video_init(raop, raop->port, raop->lang);
+    raop->current_video = id;
+    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang);
+    airplay_video = raop_get_current_video(raop);
     if (airplay_video) {
         set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
         plist_mem_free (playback_uuid);
-        raop->current_video = id;
-        raop->airplay_video[id] = airplay_video;
         count++;
         printf("created new airplay_video %p %s\n\n", airplay_video, get_playback_uuid(airplay_video));
     } else {
@@ -906,7 +920,12 @@ static void
 http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *response,
                  char **response_data, int *response_datalen) {
     raop_t *raop = conn->raop;
-    airplay_video_t *airplay_video = raop->airplay_video[raop->current_video];
+    if (raop->current_video == -1) {
+        logger_log(raop->logger, LOGGER_ERR,"airplay_video playlist  not found");
+        *response_datalen = 0;
+        http_response_init(response, "HTTP/1.1", 404, "Not Found");
+        return;
+    }
     const char *method = http_request_get_method(request);
     assert (!strcmp(method, "GET"));
     const char *url = http_request_get_url(request);    
@@ -920,7 +939,7 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         free (header_str);
         return;
     }
-
+    airplay_video_t *airplay_video = (airplay_video_t *) raop_get_current_video(raop);    
     if (!strcmp(url, "/master.m3u8")){
         char * master_playlist  = get_master_playlist(airplay_video);
         if (master_playlist) {

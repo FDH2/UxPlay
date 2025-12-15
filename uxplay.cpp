@@ -727,7 +727,6 @@ static void main_loop()  {
         if (gst_audio_bus_watch_id[i] > 0) g_source_remove(gst_audio_bus_watch_id[i]);
     }
     if (gst_x11_window_id > 0) g_source_remove(gst_x11_window_id);
-    if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
     if (reset_watch_id > 0) g_source_remove(reset_watch_id);
     if (progress_id > 0) g_source_remove(progress_id);
     if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
