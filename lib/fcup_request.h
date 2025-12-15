@@ -70,12 +70,13 @@ char *create_fcup_request(const char *url, int request_id, const char *client_se
 int fcup_request(void *conn_opaque, const char *media_url, const char *client_session_id, int request_id) {
 
     raop_conn_t *conn = (raop_conn_t *) conn_opaque;
+    raop_t *raop = conn->raop;
     int datalen = 0;
     int requestlen = 0;
 
-    int socket_fd = httpd_get_connection_socket_by_type(conn->raop->httpd, CONNECTION_TYPE_PTTH, 1);
+    int socket_fd = httpd_get_connection_socket_by_type(raop->httpd, CONNECTION_TYPE_PTTH, 1);
     
-    logger_log(conn->raop->logger, LOGGER_DEBUG, "fcup_request send socket = %d", socket_fd);
+    logger_log(raop->logger, LOGGER_DEBUG, "fcup_request send socket = %d", socket_fd);
     
     /* create xml plist request data */
     char *plist_xml = create_fcup_request(media_url, request_id, client_session_id, &datalen);
@@ -93,20 +94,20 @@ int fcup_request(void *conn_opaque, const char *media_url, const char *client_se
     int send_len = send(socket_fd, http_request, requestlen, 0);
     if (send_len < 0) {
         int sock_err = SOCKET_GET_ERROR();
-	logger_log(conn->raop->logger, LOGGER_ERR, "fcup_request: send  error %d:%s\n",
+	logger_log(raop->logger, LOGGER_ERR, "fcup_request: send  error %d:%s\n",
 		 sock_err, SOCKET_ERROR_STRING(sock_err));
 	http_response_destroy(request);
         /* shut down connection? */
         return -1;
     }
 
-    if (logger_get_level(conn->raop->logger) >= LOGGER_DEBUG) {
+    if (logger_get_level(raop->logger) >= LOGGER_DEBUG) {
       char *request_str =  utils_data_to_text(http_request, requestlen);
-        logger_log(conn->raop->logger, LOGGER_DEBUG, "\n%s", request_str);
+        logger_log(raop->logger, LOGGER_DEBUG, "\n%s", request_str);
         free (request_str);
     }
     http_response_destroy(request);
-    logger_log(conn->raop->logger, LOGGER_DEBUG,"fcup_request: send sent Request of %d bytes from socket %d\n",
+    logger_log(raop->logger, LOGGER_DEBUG,"fcup_request: send sent Request of %d bytes from socket %d\n",
                send_len, socket_fd);
     return 0;
 }
