@@ -174,8 +174,8 @@ http_handler_set_property(raop_conn_t *conn,
 
         const char *request_data = http_request_get_data(request, &request_datalen);
         plist_t req_root_node = NULL;
-	plist_from_bin(request_data, request_datalen, &req_root_node);
-	plist_t req_value_node = plist_dict_get_item(req_root_node, "value");
+        plist_from_bin(request_data, request_datalen, &req_root_node);
+        plist_t req_value_node = plist_dict_get_item(req_root_node, "value");
 
         if (!req_value_node || !PLIST_IS_ARRAY(req_value_node)) {	  
             logger_log(raop->logger, LOGGER_INFO, "POST /setProperty?selectedMediaArray"
@@ -184,10 +184,10 @@ http_handler_set_property(raop_conn_t *conn,
         }
 
         int count = plist_array_get_size(req_value_node);
-	char *name = NULL;
-	char *code = NULL;
-	char *language_name = NULL;
-	char *language_code = NULL;
+        char *name = NULL;
+        char *code = NULL;
+        char *language_name = NULL;
+        char *language_code = NULL;
         for (int i = 0; i < count; i++) {
             plist_t req_value_array_node = plist_array_get_item(req_value_node,i);
             if (!language_name) {
@@ -202,7 +202,7 @@ http_handler_set_property(raop_conn_t *conn,
                 }
             }
             if (!language_code) {
-		plist_t req_value_options_code_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsUnicodeLanguageIdentifier");
+                plist_t req_value_options_code_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsUnicodeLanguageIdentifier");
                 if (PLIST_IS_STRING(req_value_options_code_node)) {
                     plist_get_string_val(req_value_options_code_node, &code);
                     if (code) {
@@ -215,10 +215,10 @@ http_handler_set_property(raop_conn_t *conn,
             if (language_code && language_name) {
                 break;
             } else {
-	      plist_free (req_value_array_node);
-	      continue;
-	    }
-	}
+                plist_free (req_value_array_node);
+                continue;
+            }
+        }
         plist_free (req_root_node);
         if (language_code && language_name) {
             set_language_code(airplay_video, language_code, strlen(language_code));
@@ -276,8 +276,8 @@ http_handler_fpsetup2(raop_conn_t *conn, http_request_t *request, http_response_
 // called by http_handler_playback_info while preparing response to a GET /playback_info request from the client.
 
 typedef struct time_range_s {
-  double start;
-  double duration;
+    double start;
+    double duration;
 } time_range_t;
 
 void time_range_to_plist(void *time_ranges, const int n_time_ranges,
@@ -523,7 +523,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             } else {
                 set_resume_position_seconds(airplay_video, position);
                 raop->interrupted_video = id;
-           }
+            }
         } else {
             logger_log(raop->logger, LOGGER_WARNING, "playlistRemove uuid %s does not match current_video\n", remove_uuid);
         }
@@ -540,18 +540,18 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
         if (remove_uuid) {
             int id  =  get_playlist_by_uuid(raop, remove_uuid);
-	    if (id >= 0) {
-	      logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is stored at airplay_video[%d]", remove_uuid, id);
-	    } else {
-	      logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is not a stored playlist", remove_uuid);
-	    }
-	    plist_mem_free(remove_uuid);
-	    char *plist_xml = NULL;
-	    uint32_t plist_len = 0;
-	    plist_to_xml(req_params_item_node, &plist_xml, &plist_len);
+            if (id >= 0) {
+                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is stored at airplay_video[%d]", remove_uuid, id);
+            } else {
+                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is not a stored playlist", remove_uuid);
+            }
+            plist_mem_free(remove_uuid);
+            char *plist_xml = NULL;
+            uint32_t plist_len = 0;
+            plist_to_xml(req_params_item_node, &plist_xml, &plist_len);
             printf("playlistInsert parameter item list is:\n%s", plist_xml);
-	    plist_mem_free(plist_xml);
-	}
+            plist_mem_free(plist_xml);
+        }
         logger_log(raop->logger, LOGGER_ERR, "FIXME: playlistInsert is not yet implemented");
 
     } else if (!strcmp(type, "unhandledURLResponse")) {   
