@@ -637,7 +637,10 @@ static gboolean progress_callback (gpointer loop) {
 static gboolean video_eos_watch_callback (gpointer loop) {
     if (video_renderer_eos_watch()) {
         /* HLS video has sent EOS */
-	LOGI("hls video has sent EOS");
+        LOGI("hls video has sent EOS");
+        video_renderer_hls_ready();
+        video_renderer_start();	 
+        /* if raop->interrupted_video exists, we should reset video without deleting raop->airplay_video */
     }
     return TRUE;
 }

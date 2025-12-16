@@ -863,24 +863,6 @@ void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
     }
 }
 
-void *raop_get_current_video(raop_t *raop) {
-    if (raop->current_video < 0) {
-        logger_log(raop->logger, LOGGER_ERR, "raop_get_current_video: failed to identify current_playlist");
-        return NULL;
-    }
-    assert(raop->airplay_video[raop->current_video]);
-    return (void *) raop->airplay_video[raop->current_video];
-}
-
-int get_playlist_by_uuid(raop_t *raop, const char *uuid) {
-    for (int i = 0 ;i < MAX_AIRPLAY_VIDEO && raop->airplay_video[i]; i++) {
-        if (!strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
-            return i;
-        }
-    }
-    return -1;
-}
-
 uint64_t get_local_time() {
     return raop_ntp_get_local_time();
 }

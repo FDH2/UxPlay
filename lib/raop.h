@@ -108,11 +108,9 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           timing_protocol_t *time_protocol);
 
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang);
-int get_playlist_by_uuid(raop_t *raop, const char *uuid);
 char *raop_get_lang(raop_t *raop);
 uint64_t get_local_time();
-void *raop_get_current_video(raop_t *raop);
-  
+
 RAOP_API raop_t *raop_init(raop_callbacks_t *callbacks);
 RAOP_API int raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile);
 RAOP_API void raop_set_log_level(raop_t *raop, int level);
