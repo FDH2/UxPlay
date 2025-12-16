@@ -763,9 +763,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
 
-    /* check if playlist is already dowloaded and stored (may have been interruoted by advertisements ) */
+    /* check if playlist is already downloaded and stored (may have been interruoted by advertisements ) */
     if (id >= 0) {
-        printf("use: airplay_video[%d] %p %s %s\n", id, airplay_video, playback_uuid, get_playback_uuid(airplay_video));
+        printf("use: airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
         int current_video = raop->current_video;
         if (current_video >= 0 && current_video != id) {
              delete_short_playlist(raop, current_video);
@@ -773,10 +773,12 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         raop->current_video = id;
         airplay_video = raop_get_current_video(raop);
         assert(airplay_video);
-        set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));      
+        set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
+        float resume_pos = get_resume_position_seconds(airplay_video);
+        float start_pos = get_start_position_seconds(airplay_video);
         raop->callbacks.on_video_play(raop->callbacks.cls,
-                                            get_playback_location(airplay_video),
-                                            get_start_position_seconds(airplay_video));
+                                      get_playback_location(airplay_video),
+                                      resume_pos > start_pos ? resume_pos : start_pos);
         plist_mem_free(playback_uuid);
         plist_free(req_root_node);
         return;
