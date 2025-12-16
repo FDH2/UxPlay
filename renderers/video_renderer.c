@@ -841,8 +841,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         GError *err = NULL;
         gchar *debug = NULL;
         gboolean flushing = FALSE;
+        gboolean closed_window = FALSE;
         gst_message_parse_error (message, &err, &debug);
         logger_log(logger, LOGGER_INFO, "GStreamer error (video): %s %s", GST_MESSAGE_SRC_NAME(message),err->message);
+        if (strstr(err->message, "Output window was closed")) {
+            closed_window = TRUE;
+        }
         if (!hls_video && strstr(err->message,"Internal data stream error")) {
             logger_log(logger, LOGGER_INFO,
                      "*** This is a generic GStreamer error that usually means that GStreamer\n"
@@ -858,7 +862,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         if (renderer_type[type]->appsrc) {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer_type[type]->appsrc));
         }
-        if (!hls_video) {
+        if (!hls_video || closed_window) {
             gst_bus_set_flushing(bus, TRUE);
             gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
             g_main_loop_quit( (GMainLoop *) loop);
