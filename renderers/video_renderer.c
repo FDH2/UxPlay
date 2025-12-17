@@ -762,6 +762,8 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         return TRUE;
     }
 
+    video_renderer_t *renderer = renderer_type[type];
+
     if (logger_debug) {
         gchar *name = NULL;
         GstElement *element = NULL;
@@ -776,13 +778,13 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
         gint64 pos = -1;
         if (hls_video) {
-            gst_element_query_position (renderer_type[type]->pipeline, GST_FORMAT_TIME, &pos);
+            gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos);
         }
         if (GST_CLOCK_TIME_IS_VALID(pos)) {
-            g_print("GStreamer %s  bus message %s %s %s %s; position: %" GST_TIME_FORMAT "\n" ,renderer_type[type]->codec,
+            g_print("GStreamer %s  bus message %s %s %s %s; position: %" GST_TIME_FORMAT "\n" ,renderer->codec,
                      GST_MESSAGE_SRC_NAME(message), GST_MESSAGE_TYPE_NAME(message), old_state_name, new_state_name, GST_TIME_ARGS(pos));
         } else {
-            g_print("GStreamer %s bus message %s %s %s %s\n", renderer_type[type]->codec,
+            g_print("GStreamer %s bus message %s %s %s %s\n", renderer->codec,
                     GST_MESSAGE_SRC_NAME(message), GST_MESSAGE_TYPE_NAME(message), old_state_name, new_state_name);
         }
         if (name) {
@@ -797,7 +799,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
                 gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration);
             }
-            gst_element_query_position (renderer_type[type]->pipeline, GST_FORMAT_TIME, &pos);
+            gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos);
             //g_print("HLS position %" GST_TIME_FORMAT " requested_start_position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s\n",
             //    GST_TIME_ARGS(pos), GST_TIME_ARGS(hls_requested_start_position), GST_TIME_ARGS(hls_duration),
             //    (hls_seek_enabled ? "seek enabled" : "seek not enabled"));
@@ -806,7 +808,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             }
             if ( hls_requested_start_position && pos < hls_requested_start_position  && hls_seek_enabled) {
                 g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
-                if (gst_element_seek_simple (renderer_type[type]->pipeline, GST_FORMAT_TIME,
+                if (gst_element_seek_simple (renderer->pipeline, GST_FORMAT_TIME,
                                             GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
                     hls_requested_start_position = 0;
                 }
@@ -826,13 +828,13 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             hls_buffer_full = FALSE;
             if (percent > 0) {
                 hls_buffer_empty = FALSE;
-                renderer_type[type]->buffering_level = percent;
+                renderer->buffering_level = percent;
                 logger_log(logger, LOGGER_DEBUG, "Buffering :%d percent done", percent);
                 if (percent < 100) {
-                    gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_PAUSED);
+                    gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
                 } else {
                     hls_buffer_full = TRUE;
-                    gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_PLAYING);
+                    gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
                 }
             }
         }
@@ -859,12 +861,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
         g_error_free (err);
         g_free (debug);
-        if (renderer_type[type]->appsrc) {
-            gst_app_src_end_of_stream (GST_APP_SRC(renderer_type[type]->appsrc));
+        if (renderer->appsrc) {
+            gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
         }
         if (!hls_video || closed_window) {
             gst_bus_set_flushing(bus, TRUE);
-            gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
+            gst_element_set_state (renderer->pipeline, GST_STATE_READY);
             g_main_loop_quit( (GMainLoop *) loop);
         }
         break;
@@ -874,8 +876,8 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         logger_log(logger, LOGGER_INFO, "GStreamer: End-Of-Stream (video)");
         if (hls_video) {
             gst_bus_set_flushing(bus, TRUE);
-            gst_element_set_state (renderer_type[type]->pipeline, GST_STATE_READY);
-            renderer_type[type]->eos = TRUE;
+            gst_element_set_state (renderer->pipeline, GST_STATE_READY);
+            renderer->eos = TRUE;
         }
         break;
     case GST_MESSAGE_STATE_CHANGED:
@@ -905,25 +907,25 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             }
             gst_query_unref (query);
         }
-        if (renderer_type[type]->autovideo) {
+        if (renderer->autovideo) {
             char *sink = strstr(GST_MESSAGE_SRC_NAME(message), "-actual-sink-");
             if (sink) {
                 sink += strlen("-actual-sink-");
-                if (strstr(GST_MESSAGE_SRC_NAME(message), renderer_type[type]->codec)) {
+                if (strstr(GST_MESSAGE_SRC_NAME(message), renderer->codec)) {
                     logger_log(logger, LOGGER_DEBUG, "GStreamer: automatically-selected videosink"
-                               " (renderer %d: %s) is \"%ssink\"", renderer_type[type]->id + 1,
-                               renderer_type[type]->codec, sink);
+                               " (renderer %d: %s) is \"%ssink\"", renderer->id + 1,
+                               renderer->codec, sink);
 #ifdef X_DISPLAY_FIX
-                    renderer_type[type]->use_x11 = (strstr(sink, "ximage") || strstr(sink, "xvimage"));
+                    renderer->use_x11 = (strstr(sink, "ximage") || strstr(sink, "xvimage"));
 #endif
-                    renderer_type[type]->autovideo = false;
+                    renderer->autovideo = false;
                 }
             }
         }
         break;
 #ifdef  X_DISPLAY_FIX
     case GST_MESSAGE_ELEMENT:
-        if (renderer_type[type]->gst_window && renderer_type[type]->gst_window->window) {
+        if (renderer->gst_window && renderer->gst_window->window) {
             GstNavigationMessageType message_type = gst_navigation_message_get_type (message);
             if (message_type == GST_NAVIGATION_MESSAGE_EVENT) {
                 GstEvent *event = NULL;
@@ -935,7 +937,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                         if (gst_navigation_event_parse_key_event (event, &key)) {
                             if ((strcmp (key, "F11") == 0) || (alt_keypress && strcmp (key, "Return") == 0)) {
                                 fullscreen = !(fullscreen);
-                                set_fullscreen(renderer_type[type]->gst_window, &fullscreen);
+                                set_fullscreen(renderer->gst_window, &fullscreen);
                             } else if (strcmp (key, "Alt_L") == 0) {
                                 alt_keypress = true;
                             }
