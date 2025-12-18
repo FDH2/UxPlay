@@ -732,7 +732,20 @@ static void get_stream_status_name(GstStreamStatusType type, char *name, size_t 
         return;
     }
 }
-  
+
+static void hls_video_seek_to_start_position(GstElement *pipeline) {
+    if (hls_requested_start_position && hls_seek_enabled && hls_requested_start_position >= hls_seek_start
+        && hls_requested_start_position  <= hls_seek_end) {
+        g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
+        if (gst_element_seek_simple (pipeline, GST_FORMAT_TIME,
+				 GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
+            hls_requested_start_position = 0;
+        } else {
+            g_print("*** seek to requested_start_position failed\n"); 
+        }
+    } 
+}
+
 static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *message, void *loop) {
     GstState old_state, new_state;
     const gchar no_state[] = "";
@@ -764,6 +777,14 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
 
     video_renderer_t *renderer = renderer_type[type];
 
+    gint64 pos = -1;
+    if (hls_video) {
+        gst_element_query_position (renderer_type[type]->pipeline, GST_FORMAT_TIME, &pos);
+        if (hls_requested_start_position && pos >= hls_requested_start_position) {
+            hls_requested_start_position = 0;
+        }
+    }
+
     if (logger_debug) {
         gchar *name = NULL;
         GstElement *element = NULL;
@@ -775,10 +796,6 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             get_stream_status_name(type, type_name, 8);
             old_state_name = name;
             new_state_name = type_name;
-        }
-        gint64 pos = -1;
-        if (hls_video) {
-            gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos);
         }
         if (GST_CLOCK_TIME_IS_VALID(pos)) {
             g_print("GStreamer %s  bus message %s %s %s %s; position: %" GST_TIME_FORMAT "\n" ,renderer->codec,
@@ -792,28 +809,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
     }
 
-    /* monitor hls video position until seek to hls_start_position is achieved */
-    if (hls_video && hls_requested_start_position) {
-        if (strstr(GST_MESSAGE_SRC_NAME(message), "sink")) {	  
-            gint64 pos = -1;
-            if (!GST_CLOCK_TIME_IS_VALID(hls_duration)) {
-                gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration);
-            }
-            gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos);
-            //g_print("HLS position %" GST_TIME_FORMAT " requested_start_position %" GST_TIME_FORMAT " duration %" GST_TIME_FORMAT " %s\n",
-            //    GST_TIME_ARGS(pos), GST_TIME_ARGS(hls_requested_start_position), GST_TIME_ARGS(hls_duration),
-            //    (hls_seek_enabled ? "seek enabled" : "seek not enabled"));
-            if (pos > hls_requested_start_position) {
-                hls_requested_start_position = 0;
-            }
-            if ( hls_requested_start_position && pos < hls_requested_start_position  && hls_seek_enabled) {
-                g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
-                if (gst_element_seek_simple (renderer->pipeline, GST_FORMAT_TIME,
-                                            GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
-                    hls_requested_start_position = 0;
-                }
-            }
-        }
+    if (hls_video && !GST_CLOCK_TIME_IS_VALID(hls_duration)) {
+        gst_element_query_duration (renderer->pipeline, GST_FORMAT_TIME, &hls_duration);
+    }
+
+    if (hls_requested_start_position && hls_seek_enabled) {
+        hls_video_seek_to_start_position(renderer->pipeline);
     }
 
     switch (GST_MESSAGE_TYPE (message)) {
@@ -881,16 +882,18 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
         break;
     case GST_MESSAGE_STATE_CHANGED:
-        if (hls_video && logger_debug && strstr(GST_MESSAGE_SRC_NAME(message), "hls-playbin")) {
+        if (hls_video && strstr(GST_MESSAGE_SRC_NAME(message), "hls-playbin")) {
             GstState old_state, new_state;
             gst_message_parse_state_changed (message, &old_state, &new_state, NULL);
+            if (logger_debug) {
             g_print ("****** hls_playbin: Element %s changed state from %s to %s.\n", GST_OBJECT_NAME (message->src),
                      gst_element_state_get_name (old_state),
                      gst_element_state_get_name (new_state));
+            } 
             if (new_state != GST_STATE_PLAYING) {
-                break;
                 hls_playing = FALSE;
-            }
+                break;
+            } 
             hls_playing = TRUE;
             GstQuery *query = NULL;
             query = gst_query_new_seeking(GST_FORMAT_TIME);
@@ -906,6 +909,11 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
                 g_printerr ("Seeking query failed.");
             }
             gst_query_unref (query);
+
+            if (hls_requested_start_position && hls_seek_enabled) {
+                hls_video_seek_to_start_position(renderer_type[type]->pipeline);
+            }
+
         }
         if (renderer->autovideo) {
             char *sink = strstr(GST_MESSAGE_SRC_NAME(message), "-actual-sink-");
@@ -1018,15 +1026,23 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
     }
     return 0;
 }
+    
 
-bool video_get_playback_info(double *duration, double *position, float *rate, bool *buffer_empty, bool *buffer_full) {
+bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full) {
     gint64 pos = 0;
     GstState state;
     *duration = 0.0;
     *position = -1.0;
+    *seek_start = 0.0;
+    *seek_duration = 0.0;
     *rate = 0.0f;
     if (!renderer) {
         return true;
+    }
+
+    if (hls_seek_enabled) {
+        *seek_start = ((double) hls_seek_start) / GST_SECOND;
+        *seek_duration = ((double) (hls_seek_end - hls_seek_start)) / GST_SECOND;     
     }
 
     *buffer_empty = (bool) hls_buffer_empty;

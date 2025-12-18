@@ -2496,7 +2496,7 @@ extern "C" void on_video_play(void *cls, const char* location, const float start
     url.append(location);
     relaunch_video = true;
     preserve_connections = true;
-    LOGD("********************on_video_play: location = %s***********************", url.c_str());
+    LOGI("********************on_video_play: location = %s*** start position %f ********************", url.c_str(), start_position);
     reset_loop = true;
 }
 
@@ -2519,12 +2519,12 @@ extern "C" void on_video_rate(void *cls, const float rate) {
 
 
 extern "C" float on_video_playlist_remove (void *cls) {
-    double duration, position;
+    double duration, position, seek_start, seek_end;
     float rate;
     bool buffer_empty, buffer_full;
     LOGI("************************* on_video_playlist_remove\n");
     video_renderer_pause();
-    video_get_playback_info(&duration, &position, &rate, &buffer_empty, &buffer_full);
+    video_get_playback_info(&duration, &position, &seek_start, &seek_end, &rate, &buffer_empty, &buffer_full);
     return (float) position;
 }
 
@@ -2536,6 +2536,7 @@ extern "C" float on_video_playlist_remove (void *cls) {
 extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *playback_info) {
     int buffering_level;
     bool still_playing = video_get_playback_info(&playback_info->duration, &playback_info->position,
+                                                 &playback_info->seek_start, &playback_info->seek_duration,
                                                  &playback_info->rate,
                                                  &playback_info->playback_buffer_empty,
                                                  &playback_info->playback_buffer_full);

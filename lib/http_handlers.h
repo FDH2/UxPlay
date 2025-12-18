@@ -400,8 +400,8 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
 
     playback_info.num_seekable_time_ranges = 1;
     time_range_t time_ranges_seekable[1];
-    time_ranges_seekable[0].start = 0.0;
-    time_ranges_seekable[0].duration = playback_info.position;
+    time_ranges_seekable[0].start = playback_info.seek_start;
+    time_ranges_seekable[0].duration = playback_info.seek_duration;
     playback_info.seekableTimeRanges = (void *) &time_ranges_seekable;
 
     *response_datalen =  create_playback_info_plist_xml(&playback_info, response_data);
@@ -727,7 +727,6 @@ delete_short_playlist(raop_t *raop, int id) {
 static void
 http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen) {
-
     raop_t *raop = conn->raop;
     char* playback_location = NULL;
     char* client_proc_name = NULL;
@@ -785,10 +784,12 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     /* check if playlist is already downloaded and stored (may have been interruoted by advertisements ) */
     if (id >= 0) {
-        printf("use: airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
+        //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
+        plist_mem_free(playback_uuid);
+        plist_free(req_root_node);
         int current_video = raop->current_video;
         if (current_video >= 0 && current_video != id) {
-             delete_short_playlist(raop, current_video);
+            delete_short_playlist(raop, current_video);
         }
         raop->current_video = id;
         airplay_video = hls_get_current_video(raop);
@@ -796,11 +797,10 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
         float resume_pos = get_resume_position_seconds(airplay_video);
         float start_pos = get_start_position_seconds(airplay_video);
+	//printf("========= %f ============call on_video_play===== %f ==========\n", start_pos, resume_pos);
         raop->callbacks.on_video_play(raop->callbacks.cls,
                                       get_playback_location(airplay_video),
                                       resume_pos > start_pos ? resume_pos : start_pos);
-        plist_mem_free(playback_uuid);
-        plist_free(req_root_node);
         return;
     }
 
@@ -836,7 +836,6 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
         plist_mem_free (playback_uuid);
         count++;
-        printf("created new airplay_video %p %s\n\n", airplay_video, get_playback_uuid(airplay_video));
     } else {
         logger_log(raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
         exit(-1);
@@ -944,7 +943,6 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
     raop_t *raop = conn->raop;
     if (raop->current_video == -1) {
         logger_log(raop->logger, LOGGER_ERR,"airplay_video playlist  not found");
-        *response_datalen = 0;
         http_response_init(response, "HTTP/1.1", 404, "Not Found");
         return;
     }
@@ -973,7 +971,6 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
             *response_datalen = (int ) len;
         } else {
             logger_log(raop->logger, LOGGER_ERR,"requested master playlist %s not found", url); 
-            *response_datalen = 0;
         }
 
     } else {
@@ -988,7 +985,6 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
                        "Requested media_playlist %s has %5d chunks, total duration %9.3f secs", url, chunks, duration); 
         } else {
             logger_log(raop->logger, LOGGER_ERR,"requested media playlist %s not found", url); 
-            *response_datalen = 0;
         }
 	    
     }

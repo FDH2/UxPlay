@@ -41,6 +41,8 @@ typedef struct playback_info_s {
     uint32_t stallcount;
     double duration;
     double position;
+    double seek_start;
+    double seek_duration;
     float rate;
     bool ready_to_play;
     bool playback_buffer_empty;

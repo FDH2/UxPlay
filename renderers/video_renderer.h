@@ -68,7 +68,7 @@ unsigned int video_renderer_listen(void *loop, int id);
 void video_renderer_destroy ();
 void video_renderer_size(float *width_source, float *height_source, float *width, float *height);
 bool waiting_for_x11_window();
-bool video_get_playback_info(double *duration, double *position, float *rate, bool *buffer_empty, bool *buffer_full);
+bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full);
 int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265);
 unsigned int video_renderer_listen(void *loop, int id);
 bool video_renderer_eos_watch();
