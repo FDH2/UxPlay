@@ -341,6 +341,7 @@ httpd_thread(void *arg)
 {
     httpd_t *httpd = arg;
     char http[] = "HTTP/1.1";
+    char event[] = "EVENT/1.0";
     char buffer[1024];
     int i;
 
@@ -469,7 +470,7 @@ httpd_thread(void *arg)
                 logger_log(httpd->logger, LOGGER_DEBUG, " ");
             }
             /* reverse-http responses from the client must not be sent to the llhttp parser:
-             * such messages start with "HTTP/1.1" */
+             * such messages start with "HTTP/1.1" (or sometimes with "EVENT/1.0")  */
             if (new_request) {
                 int readstart = 0;
                 new_request = 0;
@@ -500,7 +501,7 @@ httpd_thread(void *arg)
                     /* connection was recently removed */
                     continue;
                 }
-                if (!memcmp(buffer, http, 8)) {
+                if (!memcmp(buffer, http, 8) || !memcmp(buffer, event, 8)) {
                     http_request_set_reverse(connection->request);  
                 }
             } else {
@@ -533,7 +534,7 @@ httpd_thread(void *arg)
             /* Parse HTTP request from data read from connection */
             http_request_add_data(connection->request, buffer, ret);
             if (http_request_has_error(connection->request)) {
-                char *data = utils_data_to_string((const unsigned char *) buffer, ret, 16);
+                char *data = utils_data_to_text((const char *) buffer, ret);
                 logger_log(httpd->logger, LOGGER_ERR, "httpd error in parsing: %s\n%s\n%s",
                            http_request_get_error_name(connection->request),
                            http_request_get_error_description(connection->request),
