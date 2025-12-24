@@ -1,5 +1,4 @@
-/**
- *  Copyright (C) 2011-2012  Juho Vähä-Herttua
+/**  Copyright (C) 2011-2012  Juho Vähä-Herttua
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -85,7 +84,6 @@ struct raop_s {
     /* place to store media_data_store */
     airplay_video_t *airplay_video[MAX_AIRPLAY_VIDEO];
     int current_video;
-    int interrupted_video;
   
     /* activate support for HLS live streaming */
     bool hls_support;
@@ -248,7 +246,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                     logger_log(raop->logger, LOGGER_INFO, "*****\"nohold\" feature: switch to new connection request from %s", ipaddr);		  
                     httpd_remove_known_connections(raop->httpd);
                     if (raop->callbacks.video_reset) {
-                        raop->callbacks.video_reset(raop->callbacks.cls, false, true);
+                        raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_NOHOLD);
                     }
                 } else {
                     logger_log(raop->logger, LOGGER_WARNING, "rejecting new connection request from %s", ipaddr);
@@ -601,7 +599,6 @@ raop_init(raop_callbacks_t *callbacks) {
 
     /* initialize airplay_video */
     raop->current_video = -1;
-    raop->interrupted_video = -1;
     for (int i= 0; i < MAX_AIRPLAY_VIDEO; i++) {
         raop->airplay_video[i] = NULL;
     }
@@ -839,28 +836,20 @@ void raop_destroy_airplay_video(raop_t *raop, int id) {
         if (raop->airplay_video[i]) {
             airplay_video_destroy(raop->airplay_video[i]);
             raop->airplay_video[i] = NULL;
+            if (i == raop->current_video) {
+                raop->current_video = -1;
+            }
         }
     }
 }
-void raop_playlist_remove(raop_t *raop, void *opaque, float position_seconds) {
-    airplay_video_t *airplay_video = (airplay_video_t *) opaque;
 
-    int id = -1;
-    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
-        if (airplay_video == raop->airplay_video[i]) {
-            id  = i;
-            break;
-        }
-    }
-    if (id >= 0) {
-        set_resume_position_seconds(airplay_video, position_seconds);
-        raop->current_video = -1;
-        float pos = get_resume_position_seconds(airplay_video);
-        assert(pos == position_seconds);
-    } else {
-        logger_log(raop->logger, LOGGER_ERR, "raop_playlist_remove: failed to identify removed_video");
-	exit(0);
-    }
+void raop_handle_eos(raop_t *raop) {
+    int id = raop->current_video;
+    assert (id >= 0);
+    raop_destroy_airplay_video(raop, id);
+    raop->current_video = -1;
+    /* reset video without deleting raop->airplay_video */
+    raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_EOS);
 }
 
 uint64_t get_local_time() {
