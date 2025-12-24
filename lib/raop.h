@@ -60,6 +60,13 @@ typedef enum video_codec_e {
     VIDEO_CODEC_H265
 } video_codec_t;
 
+typedef enum reset_type_e {
+  RESET_TYPE_NOHOLD,
+  RESET_TYPE_RTP_SHUTDOWN,
+  RESET_TYPE_HLS_SHUTDOWN,
+  RESET_TYPE_HLS_EOS
+} reset_type_t;
+
 struct raop_callbacks_s {
     void* cls;
 
@@ -69,7 +76,7 @@ struct raop_callbacks_s {
     void  (*video_resume)(void *cls);
     void  (*conn_feedback) (void *cls);
     void  (*conn_reset) (void *cls, int reason);
-    void  (*video_reset) (void *cls, bool hls_shutdown, bool nohold);
+    void  (*video_reset) (void *cls, reset_type_t reset_type);
   
   
     /* Optional but recommended callback functions (probably not optional, check this)*/
@@ -112,6 +119,7 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang);
 char *raop_get_lang(raop_t *raop);
 uint64_t get_local_time();
+void raop_handle_eos(raop_t *raop);
 
 RAOP_API raop_t *raop_init(raop_callbacks_t *callbacks);
 RAOP_API int raop_init2(raop_t *raop, int nohold, const char *device_id, const char *keyfile);

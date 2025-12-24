@@ -31,8 +31,8 @@ static void
 
 static int
 get_playlist_by_uuid(raop_t *raop, const char *uuid) {
-    for (int i = 0 ;i < MAX_AIRPLAY_VIDEO && raop->airplay_video[i]; i++) {
-        if (!strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
+    for (int i = 0 ;i < MAX_AIRPLAY_VIDEO; i++) {
+        if (raop->airplay_video[i] && !strcmp(uuid, get_playback_uuid(raop->airplay_video[i]))) {
             return i;
         }
     }
@@ -385,7 +385,7 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
         logger_log(raop->logger, LOGGER_DEBUG, "playback_info not available (finishing)");
         //httpd_remove_known_connections(raop->httpd);
         http_response_set_disconnect(response,1);
-        raop->callbacks.video_reset(raop->callbacks.cls, true, false);
+        raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
         return;
     } else if (playback_info.position == -1.0) {
         logger_log(raop->logger, LOGGER_DEBUG, "playback_info not available");
@@ -536,14 +536,9 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         if (id == raop->current_video) {
             raop->current_video = -1;
             float position = raop->callbacks.on_video_playlist_remove(raop->callbacks.cls);
-            float duration = get_duration(airplay_video);
-            if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS) {
-                airplay_video_destroy(airplay_video);    /* short duration == probably advertisements */
-                raop->airplay_video[id] = NULL;
-            } else {
-                set_resume_position_seconds(airplay_video, position);
-                raop->interrupted_video = id;
-            }
+            /* keep the playlist (until space is needed for another one) in case its playback_uuid is re-requested
+               the video will then be restarted at its previous position */
+            set_resume_position_seconds(airplay_video, position);
         } else {
             logger_log(raop->logger, LOGGER_WARNING, "playlistRemove uuid %s does not match current_video\n", remove_uuid);
         }
@@ -575,7 +570,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         logger_log(raop->logger, LOGGER_ERR, "FIXME: playlistInsert is not yet implemented");
 
     } else if (!strcmp(type, "unhandledURLResponse")) {   
-        /* handling type "unhandledURLResponse" (case 1)*/
+        /* handling type "unhandledURLResponse" */
         uint_val = 0;
         int fcup_response_datalen = 0;
 
@@ -710,21 +705,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
    "FCUP Request" request to the Client on the reverse http channel, to request the HLS Master Playlist */
 
 static void
-delete_short_playlist(raop_t *raop, int id) {
-    if (!raop->airplay_video[id]) {
-        return;
-    }
-    float duration = get_duration(raop->airplay_video[id]); 
-    if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { //likely to be an advertisement
-        logger_log(raop->logger, LOGGER_INFO,
-                   "deleting playlist playback_uuid %s duration (seconds) %f",
-                    get_playback_uuid(raop->airplay_video[id]), duration);
-        airplay_video_destroy(raop->airplay_video[id]);
-        raop->airplay_video[id] = NULL;
-    }
-}
-
-static void
 http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                       char **response_data, int *response_datalen) {
     raop_t *raop = conn->raop;
@@ -782,15 +762,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
 
-    /* check if playlist is already downloaded and stored (may have been interruoted by advertisements ) */
+    /* check if playlist is already downloaded and stored (may have been interrupted by advertisements ) */
     if (id >= 0) {
-        //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
+      //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
         plist_mem_free(playback_uuid);
         plist_free(req_root_node);
-        int current_video = raop->current_video;
-        if (current_video >= 0 && current_video != id) {
-            delete_short_playlist(raop, current_video);
-        }
         raop->current_video = id;
         airplay_video = hls_get_current_video(raop);
         assert(airplay_video);
@@ -803,18 +779,26 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
                                       resume_pos > start_pos ? resume_pos : start_pos);
         return;
     }
-
-    /* remove short stort playlists (probably advertisements */
+    
+    /* initialize a new playlist (airplay_video structure) */
+    /* first delete any short stored playlists (probably advertisements */
     int count = 0;
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (raop->airplay_video[i]) {
-            delete_short_playlist(raop, i);
-        }
-        if (raop->airplay_video[i]) {
-            count++;
+            float duration = get_duration(raop->airplay_video[i]); 
+            if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { //likely to be an advertisement
+                logger_log(raop->logger, LOGGER_INFO,
+                          "deleting playlist playback_uuid %s duration (seconds) %f",
+                           get_playback_uuid(raop->airplay_video[i]), duration);
+                raop_destroy_airplay_video(raop, i);
+            } else {
+                count++;
+            }
         }
     }
 
+    assert (count < MAX_AIRPLAY_VIDEO);
+    assert(id == -1);
     /* initialize new airplay_video structure to hold playlist */
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
         if (raop->airplay_video[i]) {
@@ -823,23 +807,16 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         id = i;
         break;
     }
-    if (id == -1) {
-        logger_log(raop->logger, LOGGER_ERR, "no unused airplay_video structures are available"
-                  " MAX_AIRPLAY_VIDEO = %d\n", MAX_AIRPLAY_VIDEO);
-        exit(1);
-    }
+    assert(id >= 0);
 
     raop->current_video = id;
     raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang);
     airplay_video = hls_get_current_video(raop);
-    if (airplay_video) {
-        set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
-        plist_mem_free (playback_uuid);
-        count++;
-    } else {
-        logger_log(raop->logger, LOGGER_ERR, "failed to allocate airplay_video[%d]\n", id);
-        exit(-1);
-    }
+    assert(airplay_video);
+    set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
+    set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
+    plist_mem_free (playback_uuid);
+    count++;
 
     /* ensure that space will always be available for adding future playlists */
 
@@ -859,7 +836,6 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 	       get_duration(raop->airplay_video[i]));
     }
 #endif
-    set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
 	   
     plist_t req_content_location_node = plist_dict_get_item(req_root_node, "Content-Location");
     if (!req_content_location_node) {
@@ -890,6 +866,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
+    /* we only support HLS if the playback location is terminated by "/master.m3u8" */
     const char *uri_suffix = strstr(playback_location, "/master.m3u8");
     if (!uri_suffix) { 
         logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    

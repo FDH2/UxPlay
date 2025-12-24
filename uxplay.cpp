@@ -639,8 +639,7 @@ static gboolean video_eos_watch_callback (gpointer loop) {
         /* HLS video has sent EOS */
         LOGI("hls video has sent EOS");
         video_renderer_hls_ready();
-        video_renderer_start();	 
-        /* if raop->interrupted_video exists, we should reset video without deleting raop->airplay_video */
+        raop_handle_eos(raop);
     }
     return TRUE;
 }
@@ -2056,33 +2055,33 @@ static bool check_blocked_client(char *deviceid) {
 
 // Server callbacks
 
-extern "C" void video_reset(void *cls, bool hls_shutdown, bool nohold) {
+extern "C" void video_reset(void *cls, reset_type_t type) {
     LOGD("video_reset");
     if (use_video) {
         video_renderer_stop();
     }
-    if (hls_shutdown) {
+    if (hls_support && (type == RESET_TYPE_HLS_SHUTDOWN || type == RESET_TYPE_NOHOLD)) { 
         url.erase();
         raop_destroy_airplay_video(raop, -1);
+    }
+    if (type == RESET_TYPE_HLS_SHUTDOWN) {
         raop_remove_hls_connections(raop);
         preserve_connections = true;
-    } else if (nohold) {
-        if (use_video) {
-	    /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */ 
-            video_renderer_destroy();
-            video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
-                                video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
-                                videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, NULL);
-            video_renderer_start();
-        }
-        if (hls_support && !url.empty()) {
-            url.erase();
-            raop_destroy_airplay_video(raop, -1);
-        }
+    }
+    if (use_video && (type == RESET_TYPE_NOHOLD || type == RESET_TYPE_HLS_EOS)) {
+        /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */ 
+        video_renderer_destroy();
+        video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
+                            video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
+                            videosink_options.c_str(), fullscreen, video_sync, h265_support,
+                            render_coverart, playbin_version, NULL);
+        video_renderer_start();
         close_window = false;  // we already closed the window
+    }
+    if (type == RESET_TYPE_NOHOLD) {
         preserve_connections = false; //we already closed all other connections
     }
+    
     remote_clock_offset = 0;
     relaunch_video = true;
     reset_loop = true;
@@ -2400,7 +2399,7 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
 
 extern "C" void audio_stop_coverart_rendering(void *cls) {
     if (render_coverart) {
-      video_reset(cls, false, false);
+        video_reset(cls, RESET_TYPE_RTP_SHUTDOWN);
     }
 }
 
