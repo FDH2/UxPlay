@@ -779,7 +779,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
 
     gint64 pos = -1;
     if (hls_video) {
-        gst_element_query_position (renderer_type[type]->pipeline, GST_FORMAT_TIME, &pos);
+        gst_element_query_position (renderer->pipeline, GST_FORMAT_TIME, &pos);
         if (hls_requested_start_position && pos >= hls_requested_start_position) {
             hls_requested_start_position = 0;
         }
@@ -911,7 +911,7 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             gst_query_unref (query);
 
             if (hls_requested_start_position && hls_seek_enabled) {
-                hls_video_seek_to_start_position(renderer_type[type]->pipeline);
+                hls_video_seek_to_start_position(renderer->pipeline);
             }
 
         }
