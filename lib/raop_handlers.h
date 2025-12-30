@@ -1152,21 +1152,23 @@ raop_handler_teardown(raop_conn_t *conn,
                       char **response_data, int *response_datalen)
 {
     /* get the teardown request type(s):  (type 96, 110, or none) */
-    const char *data;
-    int data_len;
+    const char *data = NULL;
+    int data_len = 0;
     bool teardown_96 = false, teardown_110 = false;
     data = http_request_get_data(request, &data_len);
     plist_t req_root_node = NULL;
     plist_from_bin(data, data_len, &req_root_node);
-    char * plist_xml;
-    uint32_t plist_len;
+    char * plist_xml = NULL;
+    uint32_t plist_len = 0;
     plist_to_xml(req_root_node, &plist_xml, &plist_len);
-    logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", plist_xml);
-    free(plist_xml);
+    if (plist_xml) {
+        logger_log(conn->raop->logger, LOGGER_DEBUG, "%s", plist_xml);
+        free(plist_xml);
+    }
     plist_t req_streams_node = plist_dict_get_item(req_root_node, "streams");
     /* Process stream teardown requests */
     if (PLIST_IS_ARRAY(req_streams_node)) {
-        uint64_t val;
+        uint64_t val = 0;
         int count = plist_array_get_size(req_streams_node);
         for (int i = 0; i < count; i++) {
             plist_t req_stream_node = plist_array_get_item(req_streams_node,i);
