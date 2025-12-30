@@ -456,8 +456,8 @@ void video_renderer_pause() {
     if (!renderer) {
         return;
     }
-    logger_log(logger, LOGGER_DEBUG, "video renderer paused");
-    gst_element_set_state(renderer->pipeline, GST_STATE_PAUSED);
+    GstStateChangeReturn ret = gst_element_set_state(renderer->pipeline, GST_STATE_PAUSED);
+    logger_log(logger, LOGGER_DEBUG, "video renderer pause: %s", gst_element_state_change_return_get_name(ret));
 }
 
 void video_renderer_resume() {
