@@ -348,6 +348,10 @@ static const unsigned char empty_image[] = {
 
 static size_t write_coverart(const char *filename, const void *image, size_t len) {
     FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        printf("Failed to open file %s\n", filename);
+        return 0;
+    }
     size_t count = fwrite(image, 1, len, fp);
     fclose(fp);
     return count;
@@ -355,6 +359,10 @@ static size_t write_coverart(const char *filename, const void *image, size_t len
 
 static size_t write_metadata(const char *filename, const char *text) {
     FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        printf("Failed to open file %s\n", filename);
+        return 0;
+    }
     size_t count = fwrite(text, sizeof(char), strlen(text) + 1, fp);
     fclose(fp);
     return count;
@@ -364,6 +372,10 @@ static int write_bledata( const uint32_t *pid, const char *process_name, const c
     char name[16] { 0 };
     size_t len = strlen(process_name);
     FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        printf("Failed to open file %s\n", filename);
+        return 0;
+    }
     printf("port %u\n", raop_port);
     size_t count = sizeof(uint16_t) * fwrite(&raop_port, sizeof(uint16_t), 1, fp);
     count += sizeof(uint32_t) * fwrite(pid, sizeof(uint32_t), 1, fp);
@@ -1811,6 +1823,10 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
 
     if (dmap_type == 9) {
         char *str = (char *) calloc(datalen + 1, sizeof(char));
+        if (!str) {
+            printf("Memeory allocation failure (str)\n");
+            exit(1);
+        }
         memcpy(str, metadata, datalen);
         metadata_text->append(str);
         metadata_text->append("\n");
@@ -2737,6 +2753,10 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
 
         int argc = options.size();
         char **argv = (char **) malloc(sizeof(char*) * argc);
+        if (argv == NULL) {
+            printf("Memory allocation failure (argV)\n");
+            exit(1);
+        }
         for (int i = 0; i < argc; i++) {
             argv[i] = (char *) options[i].c_str();
         }

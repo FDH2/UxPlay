@@ -48,13 +48,13 @@ static void get_X11_Display(X11_Window_t * X11, char *display_name) {
     X11->window = (Window) NULL;
 }
 
-static int free_X11_Display(X11_Window_t *X11) {
-    if (X11->display) {
-        XCloseDisplay(X11->display);
-        X11->display = NULL;
-	X11->window = (Window) NULL;
-    }
-}
+//static void free_X11_Display(X11_Window_t *X11) {
+//  if (X11->display) {
+//      XCloseDisplay(X11->display);
+//        X11->display = NULL;
+//	X11->window = (Window) NULL;
+//    }
+//}
   
 static Window enum_windows(const char * str, Display * display, Window window, int depth) {
     char* name = NULL;

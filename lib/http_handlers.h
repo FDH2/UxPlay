@@ -216,6 +216,10 @@ http_handler_set_property(raop_conn_t *conn,
                     plist_get_string_val(req_value_options_name_node, &name);
                     if (name) {
                         language_name = (char *) calloc(strlen(name) + 1, sizeof(char));
+                        if (!language_name) {
+                            printf("Memory allocation failed\n");
+                            exit(1);
+                        }
                         memcpy(language_name, name, strlen(name));
                         plist_mem_free(name);
                     }
@@ -227,6 +231,10 @@ http_handler_set_property(raop_conn_t *conn,
                     plist_get_string_val(req_value_options_code_node, &code);
                     if (code) {
                         language_code = (char *) calloc(strlen(code) + 1, sizeof(char));
+                        if (!language_code) {
+                            printf("Memory allocation failed\n");
+                            exit(1);
+                        }
                         memcpy(language_code, code, strlen(code));
                         plist_mem_free(code);
                     }
@@ -623,6 +631,10 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             goto post_action_error;
         } else {
             playlist = (char *) malloc(fcup_response_datalen + 1);
+            if (!playlist) {
+                printf("Memory allocation failed (playlist)\n");
+                exit(1);
+            }
             playlist[fcup_response_datalen] = '\0';
             memcpy(playlist, fcup_response_data, fcup_response_datalen);
             plist_mem_free(fcup_response_data);
@@ -874,11 +886,19 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     } else {
         size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
         char *location = (char *) calloc(len + 1, sizeof(char));
+        if (!location) {
+            printf("Memory allocation failed (location)\n");
+            exit(1);
+        }
         strcat(location, get_uri_local_prefix(airplay_video));
         strcat(location, uri_suffix);
         set_playback_location(airplay_video, location, strlen(location));
         free(location);
         char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
+        if (!playback_location) {
+            printf("Memeory allocation failed (playback_location)\n");
+            exit(1);
+        }
         strcat(uri_prefix, playback_location);
         char *end = strstr(uri_prefix, "/master.m3u8");
         *end = '\0';						  
@@ -942,6 +962,10 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         if (master_playlist) {
             size_t len = strlen(master_playlist);
             char * data = (char *) malloc(len + 1);
+            if (!data) {
+                printf("Memory allocation failed (data)\n");
+                exit(1);
+            }
             memcpy(data, master_playlist, len);
             data[len] = '\0';
             *response_data = data;

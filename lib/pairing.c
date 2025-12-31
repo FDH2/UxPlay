@@ -245,6 +245,10 @@ pairing_digest_verify(const char *method, const char * authorization, const char
   /* RFC 2617 HTTP md5 Digest password authentication */
     size_t authlen = strlen(authorization);
     char *sentence = (char *) malloc(authlen + 1);
+    if (!sentence) {
+        printf("Memory allocation failure (sentence)\n");
+        exit(1);
+    }
     memcpy(sentence, authorization, authlen);
     *(sentence + authlen) = '\0';
     char *username = NULL;
@@ -307,11 +311,15 @@ pairing_digest_verify(const char *method, const char * authorization, const char
     /* H1 = H(username : realm : password ) */
     len = strlen(username) + strlen(realm) + strlen(pwd) + 3;
     raw = (char *) calloc(len, sizeof(char));
-    strncat(raw, username, len - strlen(raw) - 1);
-    strncat(raw, ":", len - strlen(raw) - 1);
-    strncat(raw, realm, len - strlen(raw) - 1);
-    strncat(raw, ":", len - strlen(raw) - 1);
-    strncat(raw, pwd, len - strlen(raw) - 1);   
+    if (!raw) {
+        printf("Memory allocation failure (raw)\n");
+        exit(1);
+    }
+    strcat(raw, username);
+    strcat(raw, ":");
+    strcat(raw, realm);
+    strcat(raw, ":");
+    strcat(raw, pwd);   
     char *hash1 = get_md5(raw);
     free (raw);    
     
@@ -322,9 +330,13 @@ pairing_digest_verify(const char *method, const char * authorization, const char
     /* H2 = H(method : uri) */
     len = strlen(mthd) + strlen(uri) + 2;
     raw  = (char *) calloc(len, sizeof(char));
-    strncat(raw, mthd, len - strlen(raw) - 1);
-    strncat(raw, ":", len - strlen(raw) - 1);
-    strncat(raw, uri, len - strlen(raw) - 1);
+    if (!raw) {
+        printf("Memory allocation failure (raw)\n");
+        exit(1);
+    }
+    strcat(raw, mthd);
+    strcat(raw, ":");
+    strcat(raw, uri);
     char *hash2 = get_md5(raw);
     free (raw);
 
@@ -338,6 +350,10 @@ pairing_digest_verify(const char *method, const char * authorization, const char
         len += strlen(nc) + strlen(cnonce) + strlen(qop) + 3;
     }
     raw = (char *) calloc(len, sizeof(char));
+    if (!raw) {
+        printf("Memory allocation failure (raw)\n");
+        exit(1);
+    }
     strncat(raw, hash1, len - strlen(raw) - 1);
     strncat(raw, ":", len - strlen(raw) - 1);
     strncat(raw, nonce, len - strlen(raw) - 1);
@@ -405,10 +421,10 @@ pairing_session_get_signature(pairing_session_t *session, unsigned char signatur
 int
 pairing_session_finish(pairing_session_t *session, const unsigned char signature[PAIRING_SIG_SIZE])
 {
-    unsigned char sig_buffer[PAIRING_SIG_SIZE];
-    unsigned char sig_msg[PAIRING_SIG_SIZE];
-    unsigned char key[AES_128_BLOCK_SIZE];
-    unsigned char iv[AES_128_BLOCK_SIZE];
+    unsigned char sig_buffer[PAIRING_SIG_SIZE] = {0};
+    unsigned char sig_msg[PAIRING_SIG_SIZE] = {0};
+    unsigned char key[AES_128_BLOCK_SIZE] = {0};
+    unsigned char iv[AES_128_BLOCK_SIZE] = {0};
     aes_ctx_t *aes_ctx;
 
     assert(session);

@@ -288,6 +288,10 @@ char *utils_strip_data_from_plist_xml(char *plist_xml) {
         return NULL;
     } else {
         xml = (char *) calloc((len + 1), sizeof(char));
+        if (!xml) {
+          printf("memory allocation failed (xml)\n");
+          exit(1);
+        }
     }
     char *ptr1 = plist_xml;
     char *ptr2 = xml;

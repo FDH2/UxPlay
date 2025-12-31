@@ -509,7 +509,7 @@ raop_handler_pairverify(raop_conn_t *conn,
             bool registered_client = true;
             if (raop->callbacks.check_register) {
                 const unsigned char *pk = data + 4 + X25519_KEY_SIZE;
-                char *pk64;
+                char *pk64 = NULL;
                 ed25519_pk_to_base64(pk, &pk64);
                 registered_client = raop->callbacks.check_register(raop->callbacks.cls, pk64);
                 free (pk64);
@@ -671,11 +671,14 @@ raop_handler_setup(raop_conn_t *conn,
                     logger_log(raop->logger, LOGGER_ERR, "Failed to generate random pin");
                     pin_4 = 1234;
                 }
-                raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char));
-                char *pin = raop->random_pw;
-                snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
-                pin[pin_len] = '\0';
-                snprintf(pin + pin_len + 1, 18, "%s", deviceID);
+                if ((raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char)))) {
+                    char *pin = raop->random_pw;
+                    snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
+                    pin[pin_len] = '\0';
+                    snprintf(pin + pin_len + 1, 18, "%s", deviceID);
+                } else {
+                    logger_log(raop->logger, LOGGER_ERR, "Failed to allocate raop->random_pw");
+                }
                 raop->auth_fail_count = 0;
             }
             if (len == -1 && !authorization && raop->random_pw) {
@@ -1131,7 +1134,7 @@ raop_handler_set_parameter(raop_conn_t *conn,
     }
     data = http_request_get_data(request, &datalen);
     if (!strcmp(content_type, "text/parameters")) {
-        char *datastr;
+        char *datastr = NULL;
         datastr = calloc(1, datalen + 1);
         if (data && datastr && conn->raop_rtp) {
             memcpy(datastr, data, datalen);

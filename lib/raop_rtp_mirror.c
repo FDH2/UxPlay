@@ -438,7 +438,11 @@ raop_rtp_mirror_thread(void *arg)
 		
                 if (prepend_sps_pps) {
                     assert(sps_pps);
-                    payload_out = (unsigned char*)  malloc(payload_size + sps_pps_len);
+                    payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
+                    if (!payload_out) {
+                        printf("Memory allocation failed (payload_out)\n");
+                        exit(1);
+                    }
                     payload_decrypted = payload_out + sps_pps_len;
                     memcpy(payload_out, sps_pps, sps_pps_len);
                     free (sps_pps);
