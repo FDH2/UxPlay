@@ -198,7 +198,7 @@ pairing_session_get_public_key(pairing_session_t *session, unsigned char ecdh_ke
 int
 pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, const char *client_data, unsigned char *nonce, int len)  {
     unsigned char hash[SHA512_DIGEST_LENGTH];
-    if (len > sizeof(hash)) {
+    if (len > (int) sizeof(hash)) {
       return -1;
     }
     if (!client_data || !local_time || !session || !nonce || len <= 0) {

@@ -211,7 +211,7 @@ char *utils_data_to_string(const unsigned char *data, int datalen, int chars_per
     n--;
     p++;
     assert(p == &(str[len]));
-    assert(len == strlen(str));
+    assert(len == (int) strlen(str));
     return str;
 }
 

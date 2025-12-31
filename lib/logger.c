@@ -104,7 +104,7 @@ logger_log(logger_t *logger, int level, const char *fmt, ...)
     va_start(ap, fmt);    
     int message_len = vsnprintf(buffer, sizeof(buffer), fmt, ap);
     va_end(ap);
-    if (message_len >= sizeof(buffer)) {
+    if (message_len >=  (int) sizeof(buffer)) {
         snprintf(err_buf, sizeof(err_buf), err_fmt, message_len, (int) sizeof(buffer) -1);
     }
     MUTEX_LOCK(logger->cb_mutex);

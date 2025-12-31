@@ -526,7 +526,7 @@ static int hash_session_key( SRP_HashAlgorithm alg, const BIGNUM * n, unsigned c
 static void calculate_M( SRP_HashAlgorithm alg, NGConstant *ng, unsigned char * dest, const char * I, const BIGNUM * s,
                          const BIGNUM * A, const BIGNUM * B, const unsigned char * K )
 {
-  unsigned char H_N[ SHA512_DIGEST_LENGTH ] = {0};
+    unsigned char H_N[ SHA512_DIGEST_LENGTH ] = {0};
     unsigned char H_g[ SHA512_DIGEST_LENGTH ] = {0};
     unsigned char H_I[ SHA512_DIGEST_LENGTH ] = {0};
     unsigned char H_xor[ SHA512_DIGEST_LENGTH ] = {0};

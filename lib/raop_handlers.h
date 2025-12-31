@@ -271,8 +271,6 @@ raop_handler_pairpinstart(raop_conn_t *conn,
          raop->callbacks.display_pin(raop->callbacks.cls, pin);
     }
     logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", pin);
-    *response_data = NULL;
-    response_datalen = 0;
 }
 
 static void
@@ -320,10 +318,8 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         plist_get_string_val(req_method_node, &method);
         if (strncmp(method, "pin", strlen (method))) {
             logger_log(raop->logger, LOGGER_ERR, "error, required method is \"pin\", client requested \"%s\"", method);
-            *response_data = NULL;
-            response_datalen = 0;
-	    free (method);
-	    plist_free (req_root_node);
+            free (method);
+            plist_free (req_root_node);
             return;
         }
         plist_mem_free(method);
@@ -908,7 +904,7 @@ raop_handler_setup(raop_conn_t *conn,
         conn->raop_rtp_mirror = NULL;
         char remote[40] = { 0 };
         int len = utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, remote, (int) sizeof(remote));
-        if (!len || len > sizeof(remote)) {
+        if (!len || len > (int) sizeof(remote)) {
             char *str = utils_data_to_string(conn->remote, conn->remotelen, 16);
             logger_log(raop->logger, LOGGER_ERR, "failed to extract valid client ip address:\n"
                        "*** UxPlay will be unable to send communications to client.\n"

@@ -371,7 +371,7 @@ raop_rtp_mirror_thread(void *arg)
                 readstart = 0;
             }
 
-            while (readstart < payload_size) {
+            while ((int) readstart < payload_size) {
                 // Payload data
                 unsigned char *pos = payload + readstart;
                 ret = recv(stream_fd, CAST pos, payload_size - readstart, 0);

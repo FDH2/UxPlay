@@ -892,7 +892,7 @@ char *adjust_yt_condensed_playlist(const char *media_playlist) {
     new_pos += len;
     old_pos += len;
 
-    assert(byte_count == new_len);
+    assert(byte_count == (int) new_len);
 
     free (prefix);
     free (base_uri);
