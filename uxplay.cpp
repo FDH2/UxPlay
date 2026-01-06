@@ -67,6 +67,7 @@
 #include "lib/crypto.h"
 #include "renderers/video_renderer.h"
 #include "renderers/audio_renderer.h"
+#include "renderers/mux_renderer.h"
 #ifdef DBUS
 #include <dbus/dbus.h>
 #endif
@@ -196,6 +197,8 @@ static std::string coverart_artist;
 static std::string ble_filename = "";
 static std::string rtp_pipeline = "";
 static GMainLoop *gmainloop = NULL;
+static bool mux_to_file = false;
+static std::string mux_filename = "recording";
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv;
@@ -950,6 +953,8 @@ static void print_info (char *name) {
     printf("-vrtp pl  Use rtph26[4,5]pay to send decoded video elsewhere: \"pl\"\n");
     printf("          is the remaining pipeline, starting with rtph26*pay options:\n");
     printf("          e.g. \"config-interval=1 ! udpsink host=127.0.0.1 port=5000\"\n");
+    printf("-rtp [fn] Record audio and video to MP4 file; default fn=\"recording\"\n");
+    printf("          Writes output to \"fn.N.mp4\"\n");
     printf("-v4l2     Use Video4Linux2 for GPU hardware h264 decoding\n");
     printf("-bt709    Sometimes needed for Raspberry Pi models using Video4Linux2 \n");
     printf("-srgb     Display \"Full range\" [0-255] color, not \"Limited Range\"[16-235]\n");
@@ -1467,6 +1472,17 @@ static void parse_arguments (int argc, char *argv[]) {
                     fprintf(stderr, "%s cannot be written to:\noption \"-vdmp <fn>\" must be to a file with write access\n", fn);
                     exit(1);
                 }   		
+            }
+        } else if (arg == "-rtp"){
+            mux_to_file = true;
+            if (i < argc - 1 && *argv[i+1] != '-') {
+                mux_filename.erase();
+                mux_filename.append(argv[++i]);
+                const char *fn = mux_filename.c_str();
+                if (!file_has_write_access(fn)) {
+                    fprintf(stderr, "%s cannot be written to:\noption \"-rtp <fn>\" must be to a file with write access\n", fn);
+                    exit(1);
+                }
             }
         } else if (arg == "-admp") {
             dump_audio = true;
@@ -2105,6 +2121,9 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
 
 extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     bool video_is_h265 = (codec == VIDEO_CODEC_H265);
+    if (mux_to_file) {
+        mux_renderer_choose_video_codec(video_is_h265);
+    }
     return video_renderer_choose_codec(false, video_is_h265);
 }
 
@@ -2161,7 +2180,10 @@ extern "C" void conn_destroy (void *cls) {
         }
         if (dacpfile.length()) {
             remove (dacpfile.c_str());
-        }    
+        }
+        if (mux_to_file) {
+            mux_renderer_stop();
+        }
     }
 }
 
@@ -2218,6 +2240,9 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
     if (dump_audio) {
         dump_audio_to_file(data->data, data->data_len, (data->data)[0] & 0xf0);
     }
+    if (mux_to_file) {
+        mux_renderer_push_audio(data->data, data->data_len, data->ntp_time_remote);
+    }
     if (use_audio) {
         if (!remote_clock_offset) {
             uint64_t local_time = (data->ntp_time_local ? data->ntp_time_local : get_local_time());
@@ -2249,6 +2274,9 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
 extern "C" void video_process (void *cls, raop_ntp_t *ntp, video_decode_struct *data) {
     if (dump_video) {
         dump_video_to_file(data->data, data->data_len);
+    }
+    if (mux_to_file) {
+        mux_renderer_push_video(data->data, data->data_len, data->ntp_time_remote);
     }
     if (use_video) {
         if (!remote_clock_offset) {
@@ -2386,6 +2414,10 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
     
     if (use_audio) {
       audio_renderer_start(ct);
+    }
+
+    if (mux_to_file) {
+        mux_renderer_choose_audio_codec(*ct);
     }
 
     if (coverart_filename.length()) {
@@ -3054,6 +3086,10 @@ int main (int argc, char *argv[]) {
 #endif
     }
 
+    if (mux_to_file) {
+        mux_renderer_init(render_logger, mux_filename.c_str());
+    }
+
     if (udp[0]) {
         LOGI("using network ports UDP %d %d %d TCP %d %d %d", udp[0], udp[1], udp[2], tcp[0], tcp[1], tcp[2]);
     }
@@ -3153,6 +3189,9 @@ int main (int argc, char *argv[]) {
             unsigned short port = raop_get_port(raop);
             raop_start_httpd(raop, &port);
             raop_set_port(raop, port);
+        }
+        if (mux_to_file) {
+            mux_renderer_stop();
         }
         goto reconnect;
     } else {
