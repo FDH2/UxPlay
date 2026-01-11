@@ -54,6 +54,7 @@ void video_renderer_init (logger_t *logger, const char *server_name, videoflip_t
 void video_renderer_start ();
 void video_renderer_stop ();
 void video_renderer_set_device_model(const char *model, const char *name);
+void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album);
 void video_renderer_pause ();
 void video_renderer_hls_ready ();
 void video_renderer_seek(float position);
