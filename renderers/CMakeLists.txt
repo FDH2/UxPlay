@@ -1,8 +1,23 @@
+# Option to use native macOS renderer (VideoToolbox + Metal) instead of GStreamer
+option(USE_NATIVE_MACOS_RENDERER "Use native macOS renderer with VideoToolbox and Metal (experimental)" OFF)
 
-if (APPLE )
+if (APPLE AND USE_NATIVE_MACOS_RENDERER)
+  message(STATUS "*** Using NATIVE macOS renderer (VideoToolbox + Metal) ***")
+  message(STATUS "*** GStreamer will NOT be used for video rendering ***")
+
+  # Still need GStreamer for audio (for now)
+  set( ENV{PKG_CONFIG_PATH} "/Library/FrameWorks/GStreamer.framework/Libraries/pkgconfig" )
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/lib/pkgconfig" )
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/lib/pkgconfig" )
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:$ENV{HOMEBREW_PREFIX}/lib/pkgconfig" )
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/local/lib/pkgconfig/" )
+  find_program( PKG_CONFIG_EXECUTABLE  pkg-config  PATHS /Library/FrameWorks/GStreamer.framework/Commands )
+  set(PKG_CONFIG_EXECUTABLE ${PKG_CONFIG_EXECUTABLE} --define-prefix )
+
+elseif (APPLE )
   set( ENV{PKG_CONFIG_PATH} "/Library/FrameWorks/GStreamer.framework/Libraries/pkgconfig" ) # GStreamer.framework, preferred
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/lib/pkgconfig" ) # Brew or self-installed gstreamer
-  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/lib/pkgconfig" ) # Brew, M1/M2 macs  
+  set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/homebrew/lib/pkgconfig" ) # Brew, M1/M2 macs
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:$ENV{HOMEBREW_PREFIX}/lib/pkgconfig" ) # Brew, using prefix
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/opt/local/lib/pkgconfig/" ) # MacPorts
   message( "PKG_CONFIG_PATH (Apple, renderers) = " $ENV{PKG_CONFIG_PATH} )
@@ -32,17 +47,48 @@ if ( X11_FOUND )
   endif()
 endif()
 
-pkg_check_modules(GST REQUIRED    gstreamer-1.0>=1.4 
+pkg_check_modules(GST REQUIRED    gstreamer-1.0>=1.4
                                   gstreamer-sdp-1.0>=1.4
                                   gstreamer-video-1.0>=1.4
                                   gstreamer-app-1.0>=1.4
 )
 
-add_library( renderers
-             STATIC
-             audio_renderer.c
-             video_renderer.c
-             mux_renderer.c )
+# Select video renderer based on platform and options
+if (APPLE AND USE_NATIVE_MACOS_RENDERER)
+  # Use native macOS renderer
+  add_library( renderers
+               STATIC
+               audio_renderer.c
+               mux_renderer.c
+               video_renderer_macos.m )
+
+  # Link Apple frameworks
+  target_link_libraries( renderers PUBLIC
+    "-framework Foundation"
+    "-framework Cocoa"
+    "-framework Metal"
+    "-framework MetalKit"
+    "-framework MetalPerformanceShaders"
+    "-framework VideoToolbox"
+    "-framework CoreVideo"
+    "-framework CoreMedia"
+    "-framework QuartzCore"
+  )
+
+  # Enable ARC for Objective-C
+  set_source_files_properties(video_renderer_macos.m PROPERTIES
+    COMPILE_FLAGS "-fobjc-arc"
+  )
+
+  add_definitions(-DUSE_NATIVE_MACOS_RENDERER)
+else()
+  # Use GStreamer renderer
+  add_library( renderers
+               STATIC
+               audio_renderer.c
+               video_renderer.c
+               mux_renderer.c )
+endif()
 
 target_link_libraries ( renderers PUBLIC airplay )
 
