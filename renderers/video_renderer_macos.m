@@ -260,7 +260,32 @@ static void create_window(const char *title) {
                                       &g_texture_cache);
 
             [g_window setContentView:g_metal_view];
+
+            // Make app appear in dock and bring window to front
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+            [NSApp activateIgnoringOtherApps:YES];
             [g_window makeKeyAndOrderFront:nil];
+            [g_window setLevel:NSNormalWindowLevel];
+
+            // Set a default app icon (using system SF Symbol or fallback)
+            if (@available(macOS 11.0, *)) {
+                NSImage *icon = [NSImage imageWithSystemSymbolName:@"airplayvideo"
+                                          accessibilityDescription:@"AirPlay"];
+                if (icon) {
+                    // Tint the SF Symbol to make it more visible
+                    NSImage *tintedIcon = [icon copy];
+                    [tintedIcon lockFocus];
+                    [[NSColor systemBlueColor] set];
+                    NSRect imageRect = NSMakeRect(0, 0, tintedIcon.size.width, tintedIcon.size.height);
+                    NSRectFillUsingOperation(imageRect, NSCompositingOperationSourceAtop);
+                    [tintedIcon unlockFocus];
+                    [NSApp setApplicationIconImage:tintedIcon];
+                } else {
+                    [NSApp setApplicationIconImage:[NSImage imageNamed:NSImageNameNetwork]];
+                }
+            } else {
+                [NSApp setApplicationIconImage:[NSImage imageNamed:NSImageNameNetwork]];
+            }
 
             log_msg(LOGGER_INFO, "Native macOS window created with Metal rendering");
         }
