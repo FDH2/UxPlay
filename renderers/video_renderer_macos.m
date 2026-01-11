@@ -64,6 +64,13 @@ static bool g_fullscreen = false;
 static bool g_initial_fullscreen = false;
 static NSRect g_windowed_frame = {0};
 
+// Server name for window title
+static char *g_server_name = NULL;
+
+// Cover art storage
+static NSImage *g_cover_art = NULL;
+static bool g_showing_cover_art = false;
+
 // Display window and layer
 static NSWindow *g_window = NULL;
 static MTKView *g_metal_view = NULL;
@@ -171,6 +178,10 @@ static void toggle_fullscreen(void) {
         if (c == 'f' || c == 'F') {
             toggle_fullscreen();
             return;
+        } else if (c == ' ') { // Space - toggle pause
+            g_paused = !g_paused;
+            log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+            return;
         } else if (c == 27) { // ESC
             if (g_fullscreen) {
                 toggle_fullscreen();
@@ -206,6 +217,91 @@ static void toggle_fullscreen(void) {
 }
 
 @end
+
+#pragma mark - Menu Bar
+
+@interface UxPlayMenuHandler : NSObject
+- (void)toggleFullscreen:(id)sender;
+- (void)togglePause:(id)sender;
+- (void)quit:(id)sender;
+@end
+
+@implementation UxPlayMenuHandler
+
+- (void)toggleFullscreen:(id)sender {
+    toggle_fullscreen();
+}
+
+- (void)togglePause:(id)sender {
+    g_paused = !g_paused;
+    log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+}
+
+- (void)quit:(id)sender {
+    kill(getpid(), SIGTERM);
+}
+
+@end
+
+static UxPlayMenuHandler *g_menu_handler = NULL;
+
+static void update_window_title(const char *status) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_window) {
+            NSString *title;
+            if (status && strlen(status) > 0) {
+                title = [NSString stringWithFormat:@"%s - %s",
+                         g_server_name ?: "UxPlay", status];
+            } else {
+                title = [NSString stringWithUTF8String:g_server_name ?: "UxPlay"];
+            }
+            [g_window setTitle:title];
+        }
+    });
+}
+
+static void create_menu_bar(void) {
+    // Create the menu bar
+    NSMenu *menuBar = [[NSMenu alloc] init];
+
+    // App menu (UxPlay)
+    NSMenuItem *appMenuItem = [[NSMenuItem alloc] init];
+    NSMenu *appMenu = [[NSMenu alloc] init];
+    [appMenu addItemWithTitle:@"About UxPlay" action:@selector(orderFrontStandardAboutPanel:) keyEquivalent:@""];
+    [appMenu addItem:[NSMenuItem separatorItem]];
+    [appMenu addItemWithTitle:@"Quit UxPlay" action:@selector(quit:) keyEquivalent:@"q"];
+    [[appMenu itemWithTitle:@"Quit UxPlay"] setTarget:g_menu_handler];
+    [appMenuItem setSubmenu:appMenu];
+    [menuBar addItem:appMenuItem];
+
+    // View menu
+    NSMenuItem *viewMenuItem = [[NSMenuItem alloc] init];
+    NSMenu *viewMenu = [[NSMenu alloc] initWithTitle:@"View"];
+
+    NSMenuItem *fullscreenItem = [[NSMenuItem alloc] initWithTitle:@"Toggle Fullscreen"
+                                                            action:@selector(toggleFullscreen:)
+                                                     keyEquivalent:@"f"];
+    [fullscreenItem setTarget:g_menu_handler];
+    [viewMenu addItem:fullscreenItem];
+
+    [viewMenuItem setSubmenu:viewMenu];
+    [menuBar addItem:viewMenuItem];
+
+    // Playback menu
+    NSMenuItem *playbackMenuItem = [[NSMenuItem alloc] init];
+    NSMenu *playbackMenu = [[NSMenu alloc] initWithTitle:@"Playback"];
+
+    NSMenuItem *pauseItem = [[NSMenuItem alloc] initWithTitle:@"Pause/Resume"
+                                                       action:@selector(togglePause:)
+                                                keyEquivalent:@" "];
+    [pauseItem setTarget:g_menu_handler];
+    [playbackMenu addItem:pauseItem];
+
+    [playbackMenuItem setSubmenu:playbackMenu];
+    [menuBar addItem:playbackMenuItem];
+
+    [NSApp setMainMenu:menuBar];
+}
 
 #pragma mark - Metal Renderer
 
@@ -435,6 +531,10 @@ static void create_window(const char *title) {
             } else {
                 [NSApp setApplicationIconImage:[NSImage imageNamed:NSImageNameNetwork]];
             }
+
+            // Create menu bar
+            g_menu_handler = [[UxPlayMenuHandler alloc] init];
+            create_menu_bar();
 
             // Apply initial fullscreen if requested via -fs flag
             if (g_initial_fullscreen) {
@@ -708,6 +808,10 @@ static void decompress_callback(void *decompressionOutputRefCon,
     if (g_frames_decoded == 1) {
         log_msg(LOGGER_INFO, "First frame decoded! Resolution: %zux%zu", width, height);
 
+        // Update window title to show streaming status
+        update_window_title("Streaming");
+        g_showing_cover_art = false;
+
         // Resize window to match video aspect ratio
         dispatch_async(dispatch_get_main_queue(), ^{
             if (g_window) {
@@ -912,6 +1016,10 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     g_first_frame = true;
     g_base_time = 0;
 
+    // Store server name for window title
+    if (g_server_name) free(g_server_name);
+    g_server_name = server_name ? strdup(server_name) : strdup("UxPlay");
+
     // Create display window
     create_window(server_name);
 
@@ -928,6 +1036,7 @@ void video_renderer_start(void) {
 void video_renderer_stop(void) {
     g_running = false;
     destroy_decoder_session();
+    update_window_title("Ready");
     log_msg(LOGGER_DEBUG, "Video renderer stopped");
 }
 
@@ -1024,6 +1133,9 @@ void video_renderer_destroy(void) {
     if (g_vps) { free(g_vps); g_vps = NULL; }
     if (g_sps) { free(g_sps); g_sps = NULL; }
     if (g_pps) { free(g_pps); g_pps = NULL; }
+    if (g_server_name) { free(g_server_name); g_server_name = NULL; }
+    g_cover_art = nil;
+    g_showing_cover_art = false;
 
     pthread_mutex_lock(&g_frame_mutex);
     if (g_pending_frame) {
@@ -1061,7 +1173,105 @@ unsigned int video_renderer_listen(void *loop, int id) {
 }
 
 void video_renderer_display_jpeg(const void *data, int *data_len) {
-    // JPEG display not implemented yet
+    if (!data || !data_len || *data_len <= 0) return;
+
+    log_msg(LOGGER_INFO, "Displaying cover art (JPEG, %d bytes)", *data_len);
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            // Create NSImage from JPEG data
+            NSData *imageData = [NSData dataWithBytes:data length:*data_len];
+            NSImage *image = [[NSImage alloc] initWithData:imageData];
+
+            if (!image) {
+                log_msg(LOGGER_ERR, "Failed to create image from JPEG data");
+                return;
+            }
+
+            // Store for rendering
+            g_cover_art = image;
+            g_showing_cover_art = true;
+
+            // Resize window to match cover art aspect ratio
+            NSSize imageSize = [image size];
+            if (imageSize.width > 0 && imageSize.height > 0 && g_window) {
+                CGFloat scale = 1.0;
+                if (imageSize.width > 800) {
+                    scale = 800.0 / imageSize.width;
+                }
+                if (imageSize.height * scale > 800) {
+                    scale = 800.0 / imageSize.height;
+                }
+
+                CGFloat newWidth = imageSize.width * scale;
+                CGFloat newHeight = imageSize.height * scale;
+
+                NSRect frame = [g_window frame];
+                frame.size.width = newWidth;
+                frame.size.height = newHeight;
+                [g_window setFrame:frame display:YES animate:YES];
+
+                log_msg(LOGGER_INFO, "Cover art displayed: %.0fx%.0f", newWidth, newHeight);
+            }
+
+            // Update window title
+            update_window_title("Audio - Cover Art");
+
+            // Create a Metal texture from the image for rendering
+            if (g_metal_device && g_texture_cache) {
+                // Convert NSImage to CVPixelBuffer for Metal rendering
+                CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
+                if (cgImage) {
+                    size_t width = CGImageGetWidth(cgImage);
+                    size_t height = CGImageGetHeight(cgImage);
+
+                    // Create pixel buffer
+                    CVPixelBufferRef pixelBuffer = NULL;
+                    NSDictionary *options = @{
+                        (NSString *)kCVPixelBufferMetalCompatibilityKey: @YES,
+                        (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES
+                    };
+
+                    CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault,
+                                                         width, height,
+                                                         kCVPixelFormatType_32BGRA,
+                                                         (__bridge CFDictionaryRef)options,
+                                                         &pixelBuffer);
+
+                    if (status == kCVReturnSuccess && pixelBuffer) {
+                        CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+                        void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
+                        size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+
+                        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+                        CGContextRef context = CGBitmapContextCreate(baseAddress,
+                                                                     width, height,
+                                                                     8, bytesPerRow,
+                                                                     colorSpace,
+                                                                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+                        CGColorSpaceRelease(colorSpace);
+
+                        if (context) {
+                            CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
+                            CGContextRelease(context);
+
+                            // Store as pending frame
+                            pthread_mutex_lock(&g_frame_mutex);
+                            if (g_pending_frame) {
+                                CVPixelBufferRelease(g_pending_frame);
+                            }
+                            g_pending_frame = pixelBuffer;
+                            pthread_mutex_unlock(&g_frame_mutex);
+                        } else {
+                            CVPixelBufferRelease(pixelBuffer);
+                        }
+
+                        CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+                    }
+                }
+            }
+        }
+    });
 }
 
 bool waiting_for_x11_window(void) {
