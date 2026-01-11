@@ -193,6 +193,8 @@ static uint32_t rtptime_start = 0;
 static uint32_t rtptime_end = 0;
 static uint32_t rtptime_coverart_expired = 0;
 static std::string artist;
+static std::string track_title;
+static std::string track_album;
 static std::string coverart_artist;
 static std::string ble_filename = "";
 static std::string rtp_pipeline = "";
@@ -1766,6 +1768,10 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
                 break;
             case 'l':
                 metadata_text->append("Album: ");  /*asal*/
+                if (render_coverart) {
+                    track_album.erase();
+                    track_album.append(metadata, metadata + datalen);
+                }
                 break;
             case 'r':
                 metadata_text->append("Artist: ");  /*asar*/
@@ -1849,6 +1855,10 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
     } else if (strcmp (dmap_tag, "minm") == 0) {
         dmap_type = 9;
         metadata_text->append("Title: ");
+        if (render_coverart) {
+            track_title.erase();
+            track_title.append(metadata, metadata + datalen);
+        }
     }
 
     if (dmap_type == 9) {
@@ -2521,6 +2531,13 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
     }
     if (buflen != 0) {
         LOGE("%d bytes of metadata were not processed", buflen);
+    }
+    // Update video renderer with track metadata for cover art display
+    if (render_coverart) {
+        video_renderer_set_track_metadata(
+            track_title.length() ? track_title.c_str() : NULL,
+            artist.length() ? artist.c_str() : NULL,
+            track_album.length() ? track_album.c_str() : NULL);
     }
 }
 

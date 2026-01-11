@@ -29,6 +29,7 @@
 #import <VideoToolbox/VideoToolbox.h>
 #import <CoreVideo/CoreVideo.h>
 #import <CoreMedia/CoreMedia.h>
+#import <CoreImage/CoreImage.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <mach/mach_time.h>
@@ -70,6 +71,13 @@ static char *g_server_name = NULL;
 // Cover art storage
 static NSImage *g_cover_art = NULL;
 static bool g_showing_cover_art = false;
+static id<MTLTexture> g_cover_art_texture = NULL;
+static bool g_cover_art_texture_created = false;
+
+// Track metadata for cover art display
+static char *g_track_title = NULL;
+static char *g_track_artist = NULL;
+static char *g_track_album = NULL;
 
 // Idle screen texture
 static id<MTLTexture> g_idle_texture = NULL;
@@ -482,6 +490,54 @@ static void create_idle_texture(size_t width, size_t height) {
         CVPixelBufferRetain(pixelBuffer);
     }
     pthread_mutex_unlock(&g_frame_mutex);
+
+    // If showing cover art, display the cover art texture
+    if (g_showing_cover_art && g_cover_art_texture_created && g_cover_art_texture) {
+        @autoreleasepool {
+            id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+            id<CAMetalDrawable> drawable = [view currentDrawable];
+
+            if (drawable && commandBuffer && g_metal_device) {
+                // Use MPS scaler for high-quality scaling to fit drawable
+                MPSImageBilinearScale *scaler = [[MPSImageBilinearScale alloc] initWithDevice:g_metal_device];
+
+                double srcAspect = (double)g_cover_art_texture.width / (double)g_cover_art_texture.height;
+                double dstAspect = (double)drawable.texture.width / (double)drawable.texture.height;
+                double scaleX, scaleY, translateX = 0, translateY = 0;
+
+                if (srcAspect > dstAspect) {
+                    scaleX = (double)drawable.texture.width / (double)g_cover_art_texture.width;
+                    scaleY = scaleX;
+                    translateY = (drawable.texture.height - g_cover_art_texture.height * scaleY) / 2.0;
+                } else {
+                    scaleY = (double)drawable.texture.height / (double)g_cover_art_texture.height;
+                    scaleX = scaleY;
+                    translateX = (drawable.texture.width - g_cover_art_texture.width * scaleX) / 2.0;
+                }
+
+                MPSScaleTransform transform = { .scaleX = scaleX, .scaleY = scaleY, .translateX = translateX, .translateY = translateY };
+                scaler.scaleTransform = &transform;
+
+                // Clear first
+                MTLRenderPassDescriptor *clearPass = [MTLRenderPassDescriptor renderPassDescriptor];
+                clearPass.colorAttachments[0].texture = drawable.texture;
+                clearPass.colorAttachments[0].loadAction = MTLLoadActionClear;
+                clearPass.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+                clearPass.colorAttachments[0].storeAction = MTLStoreActionStore;
+                id<MTLRenderCommandEncoder> clearEncoder = [commandBuffer renderCommandEncoderWithDescriptor:clearPass];
+                [clearEncoder endEncoding];
+
+                [scaler encodeToCommandBuffer:commandBuffer
+                                sourceTexture:g_cover_art_texture
+                           destinationTexture:drawable.texture];
+
+                [commandBuffer presentDrawable:drawable];
+                [commandBuffer commit];
+            }
+        }
+        if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
+        return;
+    }
 
     // If no frame, show idle screen
     if (!pixelBuffer) {
@@ -1261,6 +1317,12 @@ void video_renderer_stop(void) {
     g_idle_texture_created = false;
     g_idle_texture = nil;
 
+    // Reset cover art state
+    g_showing_cover_art = false;
+    g_cover_art_texture_created = false;
+    g_cover_art_texture = nil;
+    g_cover_art = nil;
+
     // Restore window to original size
     dispatch_async(dispatch_get_main_queue(), ^{
         if (g_window && !g_fullscreen) {
@@ -1279,6 +1341,25 @@ void video_renderer_set_device_model(const char *model, const char *name) {
     // Update window title with device name
     if (name) {
         update_window_title(name);
+    }
+}
+
+void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {
+    // Store track metadata for cover art display
+    if (g_track_title) { free(g_track_title); g_track_title = NULL; }
+    if (g_track_artist) { free(g_track_artist); g_track_artist = NULL; }
+    if (g_track_album) { free(g_track_album); g_track_album = NULL; }
+
+    if (title) g_track_title = strdup(title);
+    if (artist) g_track_artist = strdup(artist);
+    if (album) g_track_album = strdup(album);
+
+    log_msg(LOGGER_DEBUG, "Track metadata set: %s - %s", artist ?: "Unknown", title ?: "Unknown");
+
+    // If we're showing cover art, recreate the texture with the new metadata
+    if (g_showing_cover_art && g_cover_art) {
+        // Trigger cover art recreation with updated metadata
+        g_cover_art_texture_created = false;
     }
 }
 
@@ -1301,6 +1382,12 @@ bool video_renderer_is_paused(void) {
 
 uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *nal_count, uint64_t *ntp_time) {
     g_frames_received++;
+
+    // Clear cover art mode when video frames arrive
+    if (g_showing_cover_art) {
+        g_showing_cover_art = false;
+        log_msg(LOGGER_INFO, "Switching from cover art to video mode");
+    }
 
     if (!g_running || g_paused) {
         log_msg(LOGGER_DEBUG, "Renderer not running/paused, dropping frame");
@@ -1419,10 +1506,15 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
 
     log_msg(LOGGER_INFO, "Displaying cover art (JPEG, %d bytes)", *data_len);
 
+    // Copy data for use in async block
+    size_t len = *data_len;
+    void *dataCopy = malloc(len);
+    memcpy(dataCopy, data, len);
+
     dispatch_async(dispatch_get_main_queue(), ^{
         @autoreleasepool {
             // Create NSImage from JPEG data
-            NSData *imageData = [NSData dataWithBytes:data length:*data_len];
+            NSData *imageData = [NSData dataWithBytesNoCopy:dataCopy length:len freeWhenDone:YES];
             NSImage *image = [[NSImage alloc] initWithData:imageData];
 
             if (!image) {
@@ -1434,84 +1526,209 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
             g_cover_art = image;
             g_showing_cover_art = true;
 
-            // Resize window to match cover art aspect ratio
+            // Get cover art size
             NSSize imageSize = [image size];
-            if (imageSize.width > 0 && imageSize.height > 0 && g_window) {
-                CGFloat scale = 1.0;
-                if (imageSize.width > 800) {
-                    scale = 800.0 / imageSize.width;
-                }
-                if (imageSize.height * scale > 800) {
-                    scale = 800.0 / imageSize.height;
-                }
+            if (imageSize.width <= 0 || imageSize.height <= 0) {
+                log_msg(LOGGER_ERR, "Invalid image size");
+                return;
+            }
 
-                CGFloat newWidth = imageSize.width * scale;
-                CGFloat newHeight = imageSize.height * scale;
-
+            // Set window to 16:9 aspect ratio for nice display
+            CGFloat windowWidth = 1280;
+            CGFloat windowHeight = 720;
+            if (g_window && !g_fullscreen) {
                 NSRect frame = [g_window frame];
-                frame.size.width = newWidth;
-                frame.size.height = newHeight;
+                frame.size.width = windowWidth;
+                frame.size.height = windowHeight;
                 [g_window setFrame:frame display:YES animate:YES];
-
-                log_msg(LOGGER_INFO, "Cover art displayed: %.0fx%.0f", newWidth, newHeight);
             }
 
-            // Update window title
-            update_window_title("Audio - Cover Art");
+            // Update window title with track info if available
+            if (g_track_title && g_track_artist) {
+                char title[256];
+                snprintf(title, sizeof(title), "%s - %s", g_track_artist, g_track_title);
+                update_window_title(title);
+            } else {
+                update_window_title("Now Playing");
+            }
 
-            // Create a Metal texture from the image for rendering
-            if (g_metal_device && g_texture_cache) {
-                // Convert NSImage to CVPixelBuffer for Metal rendering
-                CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
-                if (cgImage) {
-                    size_t width = CGImageGetWidth(cgImage);
-                    size_t height = CGImageGetHeight(cgImage);
+            // Create composite texture with blurred gradient background
+            if (!g_metal_device) return;
 
-                    // Create pixel buffer
-                    CVPixelBufferRef pixelBuffer = NULL;
-                    NSDictionary *options = @{
-                        (NSString *)kCVPixelBufferMetalCompatibilityKey: @YES,
-                        (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES
-                    };
+            size_t texWidth = (size_t)windowWidth * 2;  // Retina
+            size_t texHeight = (size_t)windowHeight * 2;
 
-                    CVReturn status = CVPixelBufferCreate(kCFAllocatorDefault,
-                                                         width, height,
-                                                         kCVPixelFormatType_32BGRA,
-                                                         (__bridge CFDictionaryRef)options,
-                                                         &pixelBuffer);
+            // Get CGImage for processing
+            CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
+            if (!cgImage) return;
 
-                    if (status == kCVReturnSuccess && pixelBuffer) {
-                        CVPixelBufferLockBaseAddress(pixelBuffer, 0);
-                        void *baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer);
-                        size_t bytesPerRow = CVPixelBufferGetBytesPerRow(pixelBuffer);
+            // Create CIImage for blur processing
+            CIImage *ciImage = [CIImage imageWithCGImage:cgImage];
 
-                        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-                        CGContextRef context = CGBitmapContextCreate(baseAddress,
-                                                                     width, height,
-                                                                     8, bytesPerRow,
-                                                                     colorSpace,
-                                                                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
-                        CGColorSpaceRelease(colorSpace);
+            // Scale album art to fill the background with extra margin
+            CGFloat bgScale = MAX((CGFloat)texWidth / imageSize.width, (CGFloat)texHeight / imageSize.height) * 1.3;
+            CIImage *scaledBg = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(bgScale, bgScale)];
 
-                        if (context) {
-                            CGContextDrawImage(context, CGRectMake(0, 0, width, height), cgImage);
-                            CGContextRelease(context);
+            // Center the scaled background
+            CGRect scaledExtent = [scaledBg extent];
+            CGFloat offsetX = (texWidth - scaledExtent.size.width) / 2;
+            CGFloat offsetY = (texHeight - scaledExtent.size.height) / 2;
+            scaledBg = [scaledBg imageByApplyingTransform:CGAffineTransformMakeTranslation(offsetX - scaledExtent.origin.x, offsetY - scaledExtent.origin.y)];
 
-                            // Store as pending frame
-                            pthread_mutex_lock(&g_frame_mutex);
-                            if (g_pending_frame) {
-                                CVPixelBufferRelease(g_pending_frame);
-                            }
-                            g_pending_frame = pixelBuffer;
-                            pthread_mutex_unlock(&g_frame_mutex);
-                        } else {
-                            CVPixelBufferRelease(pixelBuffer);
-                        }
+            // IMPORTANT: Clamp BEFORE blur to prevent black edges
+            scaledBg = [scaledBg imageByClampingToExtent];
 
-                        CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
-                    }
+            // Apply strong gaussian blur
+            CIFilter *blurFilter = [CIFilter filterWithName:@"CIGaussianBlur"];
+            [blurFilter setValue:scaledBg forKey:kCIInputImageKey];
+            [blurFilter setValue:@80.0 forKey:kCIInputRadiusKey];
+            CIImage *blurredBg = [blurFilter outputImage];
+
+            // Darken the background
+            CIFilter *darkenFilter = [CIFilter filterWithName:@"CIColorControls"];
+            [darkenFilter setValue:blurredBg forKey:kCIInputImageKey];
+            [darkenFilter setValue:@(-0.2) forKey:kCIInputBrightnessKey];
+            [darkenFilter setValue:@1.1 forKey:kCIInputSaturationKey];
+            blurredBg = [darkenFilter outputImage];
+
+            // Crop to exact size
+            blurredBg = [blurredBg imageByCroppingToRect:CGRectMake(0, 0, texWidth, texHeight)];
+
+            // Create context and render background
+            CIContext *ciContext = [CIContext contextWithMTLDevice:g_metal_device];
+            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+
+            // Create bitmap context for final composite
+            size_t bytesPerRow = texWidth * 4;
+            uint8_t *pixelData = (uint8_t *)calloc(texHeight * bytesPerRow, 1);
+
+            CGContextRef context = CGBitmapContextCreate(pixelData,
+                                                         texWidth, texHeight,
+                                                         8, bytesPerRow,
+                                                         colorSpace,
+                                                         kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+
+            if (!context) {
+                CGColorSpaceRelease(colorSpace);
+                free(pixelData);
+                return;
+            }
+
+            // Render blurred background
+            CGImageRef bgCGImage = [ciContext createCGImage:blurredBg fromRect:CGRectMake(0, 0, texWidth, texHeight)];
+            if (bgCGImage) {
+                CGContextDrawImage(context, CGRectMake(0, 0, texWidth, texHeight), bgCGImage);
+                CGImageRelease(bgCGImage);
+            }
+
+            // Calculate album art size and position (centered, raised to make room for text)
+            CGFloat artMaxSize = MIN(texWidth, texHeight) * 0.50;
+            CGFloat artScale = MIN(artMaxSize / imageSize.width, artMaxSize / imageSize.height);
+            CGFloat artWidth = imageSize.width * artScale;
+            CGFloat artHeight = imageSize.height * artScale;
+            CGFloat artX = (texWidth - artWidth) / 2;
+            CGFloat artY = (texHeight - artHeight) / 2 + texHeight * 0.10;  // Raised to make room for text
+
+            // Draw shadow under album art
+            CGContextSaveGState(context);
+            CGContextSetShadowWithColor(context,
+                                        CGSizeMake(0, -25),
+                                        50,
+                                        [[NSColor colorWithWhite:0 alpha:0.6] CGColor]);
+
+            // Draw album art with rounded corners
+            CGFloat cornerRadius = artWidth * 0.04;
+            CGRect artRect = CGRectMake(artX, artY, artWidth, artHeight);
+            CGPathRef roundedPath = CGPathCreateWithRoundedRect(artRect, cornerRadius, cornerRadius, NULL);
+            CGContextAddPath(context, roundedPath);
+            CGContextClip(context);
+            CGContextDrawImage(context, artRect, cgImage);
+            CGPathRelease(roundedPath);
+            CGContextRestoreGState(context);
+
+            // Draw track title and artist below the album art using NSGraphicsContext
+            NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
+            [NSGraphicsContext saveGraphicsState];
+            [NSGraphicsContext setCurrentContext:nsContext];
+
+            // Create attributed strings for title and artist
+            NSString *titleStr = g_track_title ? [NSString stringWithUTF8String:g_track_title] : nil;
+            NSString *artistStr = g_track_artist ? [NSString stringWithUTF8String:g_track_artist] : nil;
+
+            if (titleStr || artistStr) {
+                // Title style - larger, bold, white
+                NSMutableParagraphStyle *centerStyle = [[NSMutableParagraphStyle alloc] init];
+                centerStyle.alignment = NSTextAlignmentCenter;
+
+                NSShadow *textShadow = [[NSShadow alloc] init];
+                textShadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.8];
+                textShadow.shadowOffset = NSMakeSize(0, -2);
+                textShadow.shadowBlurRadius = 8;
+
+                NSDictionary *titleAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:52 weight:NSFontWeightBold],
+                    NSForegroundColorAttributeName: [NSColor whiteColor],
+                    NSParagraphStyleAttributeName: centerStyle,
+                    NSShadowAttributeName: textShadow
+                };
+
+                // Artist style - smaller, regular, light gray
+                NSDictionary *artistAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:38 weight:NSFontWeightMedium],
+                    NSForegroundColorAttributeName: [NSColor colorWithWhite:0.85 alpha:1.0],
+                    NSParagraphStyleAttributeName: centerStyle,
+                    NSShadowAttributeName: textShadow
+                };
+
+                // Calculate text positions - below album art (in non-flipped coords, Y=0 at bottom)
+                // artY is from bottom, album art goes from artY to artY+artHeight
+                // Text should be below, so at artY - spacing
+                CGFloat textAreaTop = artY - 50;  // 50px below album art bottom
+                CGFloat textWidth = texWidth * 0.85;
+                CGFloat textX = (texWidth - textWidth) / 2;
+
+                // Draw title first (higher up)
+                if (titleStr) {
+                    NSSize titleSize = [titleStr sizeWithAttributes:titleAttrs];
+                    CGFloat titleY = textAreaTop - titleSize.height;
+                    NSRect titleRect = NSMakeRect(textX, titleY, textWidth, titleSize.height + 10);
+                    [titleStr drawInRect:titleRect withAttributes:titleAttrs];
+                    textAreaTop = titleY - 10;  // Move down for artist
+                }
+
+                // Draw artist below title
+                if (artistStr) {
+                    NSSize artistSize = [artistStr sizeWithAttributes:artistAttrs];
+                    CGFloat artistY = textAreaTop - artistSize.height;
+                    NSRect artistRect = NSMakeRect(textX, artistY, textWidth, artistSize.height + 10);
+                    [artistStr drawInRect:artistRect withAttributes:artistAttrs];
                 }
             }
+
+            [NSGraphicsContext restoreGraphicsState];
+
+            CGColorSpaceRelease(colorSpace);
+            CGContextRelease(context);
+
+            // Create Metal texture
+            MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                                 width:texWidth
+                                                                                                height:texHeight
+                                                                                             mipmapped:NO];
+            descriptor.usage = MTLTextureUsageShaderRead;
+
+            g_cover_art_texture = [g_metal_device newTextureWithDescriptor:descriptor];
+
+            MTLRegion region = MTLRegionMake2D(0, 0, texWidth, texHeight);
+            [g_cover_art_texture replaceRegion:region
+                                   mipmapLevel:0
+                                     withBytes:pixelData
+                                   bytesPerRow:bytesPerRow];
+
+            g_cover_art_texture_created = true;
+            free(pixelData);
+
+            log_msg(LOGGER_INFO, "Cover art texture created with blurred background (%zux%zu)", texWidth, texHeight);
         }
     });
 }
