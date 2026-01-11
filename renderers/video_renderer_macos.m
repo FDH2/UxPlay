@@ -51,11 +51,18 @@ static VTDecompressionSessionRef g_decoder_session = NULL;
 static CMFormatDescriptionRef g_format_desc = NULL;
 static bool g_is_h265 = false;
 
-// SPS/PPS storage for format description
+// SPS/PPS/VPS storage for format description (VPS for HEVC)
+static uint8_t *g_vps = NULL;
+static size_t g_vps_size = 0;
 static uint8_t *g_sps = NULL;
 static size_t g_sps_size = 0;
 static uint8_t *g_pps = NULL;
 static size_t g_pps_size = 0;
+
+// Fullscreen state
+static bool g_fullscreen = false;
+static bool g_initial_fullscreen = false;
+static NSRect g_windowed_frame = {0};
 
 // Display window and layer
 static NSWindow *g_window = NULL;
@@ -111,6 +118,95 @@ static void log_stats(void) {
     }
 }
 
+#pragma mark - Fullscreen Toggle
+
+static void toggle_fullscreen(void) {
+    if (!g_window) return;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_fullscreen) {
+            // Exit fullscreen
+            [g_window setStyleMask:NSWindowStyleMaskTitled |
+                                   NSWindowStyleMaskClosable |
+                                   NSWindowStyleMaskResizable |
+                                   NSWindowStyleMaskMiniaturizable];
+            [g_window setFrame:g_windowed_frame display:YES animate:YES];
+            [NSCursor unhide];
+            g_fullscreen = false;
+            log_msg(LOGGER_INFO, "Exited fullscreen mode");
+        } else {
+            // Enter fullscreen
+            g_windowed_frame = [g_window frame];
+            NSScreen *screen = [g_window screen] ?: [NSScreen mainScreen];
+            NSRect screenFrame = [screen frame];
+            [g_window setStyleMask:NSWindowStyleMaskBorderless];
+            [g_window setFrame:screenFrame display:YES animate:YES];
+            [g_window setLevel:NSScreenSaverWindowLevel];
+            [NSCursor hide];
+            g_fullscreen = true;
+            log_msg(LOGGER_INFO, "Entered fullscreen mode");
+        }
+    });
+}
+
+#pragma mark - Custom Window (Keyboard Handling)
+
+@interface UxPlayWindow : NSWindow
+@end
+
+@implementation UxPlayWindow
+
+- (BOOL)canBecomeKeyWindow {
+    return YES;
+}
+
+- (BOOL)canBecomeMainWindow {
+    return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+    NSString *chars = [event charactersIgnoringModifiers];
+    if ([chars length] == 1) {
+        unichar c = [chars characterAtIndex:0];
+        if (c == 'f' || c == 'F') {
+            toggle_fullscreen();
+            return;
+        } else if (c == 27) { // ESC
+            if (g_fullscreen) {
+                toggle_fullscreen();
+            }
+            return;
+        } else if (c == 'q' || c == 'Q') {
+            // Quit - send SIGTERM to self
+            kill(getpid(), SIGTERM);
+            return;
+        }
+    }
+    [super keyDown:event];
+}
+
+@end
+
+#pragma mark - Custom Metal View (Double-Click Handling)
+
+@interface UxPlayMetalView : MTKView
+@end
+
+@implementation UxPlayMetalView
+
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    if ([event clickCount] == 2) {
+        toggle_fullscreen();
+    }
+    [super mouseDown:event];
+}
+
+@end
+
 #pragma mark - Metal Renderer
 
 @interface MetalRenderer : NSObject <MTKViewDelegate>
@@ -138,8 +234,8 @@ static void log_stats(void) {
 
         if (drawable && commandBuffer) {
             // Create texture from pixel buffer
-            size_t width = CVPixelBufferGetWidth(pixelBuffer);
-            size_t height = CVPixelBufferGetHeight(pixelBuffer);
+            size_t srcWidth = CVPixelBufferGetWidth(pixelBuffer);
+            size_t srcHeight = CVPixelBufferGetHeight(pixelBuffer);
 
             CVMetalTextureRef metalTexture = NULL;
             CVReturn result = CVMetalTextureCacheCreateTextureFromImage(
@@ -148,7 +244,7 @@ static void log_stats(void) {
                 pixelBuffer,
                 NULL,
                 MTLPixelFormatBGRA8Unorm,
-                width, height,
+                srcWidth, srcHeight,
                 0,
                 &metalTexture
             );
@@ -159,22 +255,72 @@ static void log_stats(void) {
                 // Use Metal Performance Shaders for high-quality scaling
                 MPSImageBilinearScale *scaler = [[MPSImageBilinearScale alloc] initWithDevice:g_metal_device];
 
-                // Calculate scale transform to fit drawable while maintaining aspect ratio
+                // Determine effective dimensions after rotation
+                size_t width = srcWidth;
+                size_t height = srcHeight;
+                bool swapDimensions = (g_rotation == LEFT || g_rotation == RIGHT);
+                if (swapDimensions) {
+                    width = srcHeight;
+                    height = srcWidth;
+                }
+
+                // Calculate base scale transform to fit drawable while maintaining aspect ratio
                 double srcAspect = (double)width / (double)height;
                 double dstAspect = (double)drawable.texture.width / (double)drawable.texture.height;
 
-                double scaleX, scaleY, translateX = 0, translateY = 0;
+                double baseScaleX, baseScaleY;
+                double translateX = 0, translateY = 0;
 
                 if (srcAspect > dstAspect) {
                     // Source is wider - fit to width
-                    scaleX = (double)drawable.texture.width / (double)width;
-                    scaleY = scaleX;
-                    translateY = (drawable.texture.height - height * scaleY) / 2.0;
+                    baseScaleX = (double)drawable.texture.width / (double)width;
+                    baseScaleY = baseScaleX;
+                    translateY = (drawable.texture.height - height * baseScaleY) / 2.0;
                 } else {
                     // Source is taller - fit to height
-                    scaleY = (double)drawable.texture.height / (double)height;
-                    scaleX = scaleY;
-                    translateX = (drawable.texture.width - width * scaleX) / 2.0;
+                    baseScaleY = (double)drawable.texture.height / (double)height;
+                    baseScaleX = baseScaleY;
+                    translateX = (drawable.texture.width - width * baseScaleX) / 2.0;
+                }
+
+                // Apply flip transforms
+                // For MPS: negative scale + adjusted translate = flip
+                double scaleX = baseScaleX;
+                double scaleY = baseScaleY;
+
+                // Apply horizontal flip (HFLIP)
+                if (g_flip == HFLIP) {
+                    scaleX = -scaleX;
+                    translateX = drawable.texture.width - translateX;
+                }
+
+                // Apply vertical flip (VFLIP)
+                if (g_flip == VFLIP) {
+                    scaleY = -scaleY;
+                    translateY = drawable.texture.height - translateY;
+                }
+
+                // Apply rotation transforms
+                // INVERT (180 degrees) = HFLIP + VFLIP
+                if (g_rotation == INVERT) {
+                    scaleX = -scaleX;
+                    scaleY = -scaleY;
+                    if (g_flip != HFLIP) {
+                        translateX = drawable.texture.width - translateX;
+                    }
+                    if (g_flip != VFLIP) {
+                        translateY = drawable.texture.height - translateY;
+                    }
+                }
+
+                // Note: LEFT (90 CCW) and RIGHT (90 CW) require texture coordinate rotation
+                // which MPS doesn't support directly. For now, log a warning.
+                if (swapDimensions) {
+                    static bool warned = false;
+                    if (!warned) {
+                        log_msg(LOGGER_WARNING, "90/270 degree rotation (-vf left/right) not fully supported in native renderer - use -vf invert or hflip/vflip instead");
+                        warned = true;
+                    }
                 }
 
                 MPSScaleTransform transform = {
@@ -227,10 +373,11 @@ static void create_window(const char *title) {
                                       NSWindowStyleMaskResizable |
                                       NSWindowStyleMaskMiniaturizable;
 
-            g_window = [[NSWindow alloc] initWithContentRect:frame
-                                                   styleMask:style
-                                                     backing:NSBackingStoreBuffered
-                                                       defer:NO];
+            // Use custom window class for keyboard handling
+            g_window = [[UxPlayWindow alloc] initWithContentRect:frame
+                                                       styleMask:style
+                                                         backing:NSBackingStoreBuffered
+                                                           defer:NO];
 
             [g_window setTitle:[NSString stringWithUTF8String:title ?: "UxPlay"]];
             [g_window setReleasedWhenClosed:NO];
@@ -242,7 +389,8 @@ static void create_window(const char *title) {
                 return;
             }
 
-            g_metal_view = [[MTKView alloc] initWithFrame:frame device:g_metal_device];
+            // Use custom Metal view for double-click handling
+            g_metal_view = [[UxPlayMetalView alloc] initWithFrame:frame device:g_metal_device];
             g_metal_view.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
             g_metal_view.framebufferOnly = NO;
             g_metal_view.preferredFramesPerSecond = 60;
@@ -260,6 +408,7 @@ static void create_window(const char *title) {
                                       &g_texture_cache);
 
             [g_window setContentView:g_metal_view];
+            [g_window makeFirstResponder:g_metal_view];
 
             // Make app appear in dock and bring window to front
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
@@ -287,7 +436,20 @@ static void create_window(const char *title) {
                 [NSApp setApplicationIconImage:[NSImage imageNamed:NSImageNameNetwork]];
             }
 
-            log_msg(LOGGER_INFO, "Native macOS window created with Metal rendering");
+            // Apply initial fullscreen if requested via -fs flag
+            if (g_initial_fullscreen) {
+                g_windowed_frame = frame;
+                NSScreen *screen = [g_window screen] ?: [NSScreen mainScreen];
+                NSRect screenFrame = [screen frame];
+                [g_window setStyleMask:NSWindowStyleMaskBorderless];
+                [g_window setFrame:screenFrame display:YES];
+                [g_window setLevel:NSScreenSaverWindowLevel];
+                [NSCursor hide];
+                g_fullscreen = true;
+                log_msg(LOGGER_INFO, "Starting in fullscreen mode");
+            }
+
+            log_msg(LOGGER_INFO, "Native macOS window created with Metal rendering (F=fullscreen, ESC=exit fullscreen, Q=quit)");
         }
     });
 }
@@ -314,8 +476,14 @@ static void destroy_window(void) {
 #pragma mark - VideoToolbox Decoder
 
 static bool parse_sps_pps(const uint8_t *data, size_t length) {
-    // Find SPS and PPS NAL units in the data
+    // Find SPS and PPS NAL units in the data (supports both H.264 and HEVC)
     // NAL units are separated by 0x00 0x00 0x00 0x01
+    //
+    // H.264 NAL types (5 bits, mask 0x1F):
+    //   7 = SPS, 8 = PPS
+    //
+    // HEVC NAL types (6 bits, shifted right by 1):
+    //   32 = VPS, 33 = SPS, 34 = PPS
 
     size_t i = 0;
     while (i + 4 < length) {
@@ -333,20 +501,46 @@ static bool parse_sps_pps(const uint8_t *data, size_t length) {
 
             size_t nal_size = nal_end - nal_start;
             if (nal_size > 0) {
-                uint8_t nal_type = data[nal_start] & 0x1F;
+                if (g_is_h265) {
+                    // HEVC: NAL type is in bits 1-6 of first byte
+                    uint8_t nal_type = (data[nal_start] >> 1) & 0x3F;
 
-                if (nal_type == 7) { // SPS
-                    if (g_sps) free(g_sps);
-                    g_sps = malloc(nal_size);
-                    memcpy(g_sps, &data[nal_start], nal_size);
-                    g_sps_size = nal_size;
-                    log_msg(LOGGER_DEBUG, "Found SPS, size=%zu", nal_size);
-                } else if (nal_type == 8) { // PPS
-                    if (g_pps) free(g_pps);
-                    g_pps = malloc(nal_size);
-                    memcpy(g_pps, &data[nal_start], nal_size);
-                    g_pps_size = nal_size;
-                    log_msg(LOGGER_DEBUG, "Found PPS, size=%zu", nal_size);
+                    if (nal_type == 32) { // VPS
+                        if (g_vps) free(g_vps);
+                        g_vps = malloc(nal_size);
+                        memcpy(g_vps, &data[nal_start], nal_size);
+                        g_vps_size = nal_size;
+                        log_msg(LOGGER_DEBUG, "Found HEVC VPS, size=%zu", nal_size);
+                    } else if (nal_type == 33) { // SPS
+                        if (g_sps) free(g_sps);
+                        g_sps = malloc(nal_size);
+                        memcpy(g_sps, &data[nal_start], nal_size);
+                        g_sps_size = nal_size;
+                        log_msg(LOGGER_DEBUG, "Found HEVC SPS, size=%zu", nal_size);
+                    } else if (nal_type == 34) { // PPS
+                        if (g_pps) free(g_pps);
+                        g_pps = malloc(nal_size);
+                        memcpy(g_pps, &data[nal_start], nal_size);
+                        g_pps_size = nal_size;
+                        log_msg(LOGGER_DEBUG, "Found HEVC PPS, size=%zu", nal_size);
+                    }
+                } else {
+                    // H.264: NAL type is in bits 0-4
+                    uint8_t nal_type = data[nal_start] & 0x1F;
+
+                    if (nal_type == 7) { // SPS
+                        if (g_sps) free(g_sps);
+                        g_sps = malloc(nal_size);
+                        memcpy(g_sps, &data[nal_start], nal_size);
+                        g_sps_size = nal_size;
+                        log_msg(LOGGER_DEBUG, "Found H.264 SPS, size=%zu", nal_size);
+                    } else if (nal_type == 8) { // PPS
+                        if (g_pps) free(g_pps);
+                        g_pps = malloc(nal_size);
+                        memcpy(g_pps, &data[nal_start], nal_size);
+                        g_pps_size = nal_size;
+                        log_msg(LOGGER_DEBUG, "Found H.264 PPS, size=%zu", nal_size);
+                    }
                 }
             }
 
@@ -356,31 +550,67 @@ static bool parse_sps_pps(const uint8_t *data, size_t length) {
         }
     }
 
-    return (g_sps != NULL && g_pps != NULL);
+    // HEVC requires VPS+SPS+PPS, H.264 requires SPS+PPS
+    if (g_is_h265) {
+        return (g_vps != NULL && g_sps != NULL && g_pps != NULL);
+    } else {
+        return (g_sps != NULL && g_pps != NULL);
+    }
 }
 
 static void create_decoder_session(void) {
     if (g_decoder_session) return;
-    if (!g_sps || !g_pps) return;
 
     OSStatus status;
 
-    // Create format description from SPS/PPS
-    const uint8_t *parameterSetPointers[2] = {g_sps, g_pps};
-    const size_t parameterSetSizes[2] = {g_sps_size, g_pps_size};
+    if (g_is_h265) {
+        // HEVC requires VPS, SPS, and PPS
+        if (!g_vps || !g_sps || !g_pps) return;
 
-    status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
-        kCFAllocatorDefault,
-        2,
-        parameterSetPointers,
-        parameterSetSizes,
-        4,  // NAL unit length field size
-        &g_format_desc
-    );
+        const uint8_t *parameterSetPointers[3] = {g_vps, g_sps, g_pps};
+        const size_t parameterSetSizes[3] = {g_vps_size, g_sps_size, g_pps_size};
 
-    if (status != noErr) {
-        log_msg(LOGGER_ERR, "Failed to create format description: %d", (int)status);
-        return;
+        if (@available(macOS 10.13, *)) {
+            status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                kCFAllocatorDefault,
+                3,
+                parameterSetPointers,
+                parameterSetSizes,
+                4,  // NAL unit length field size
+                NULL,  // extensions
+                &g_format_desc
+            );
+        } else {
+            log_msg(LOGGER_ERR, "HEVC decoding requires macOS 10.13 or later");
+            return;
+        }
+
+        if (status != noErr) {
+            log_msg(LOGGER_ERR, "Failed to create HEVC format description: %d", (int)status);
+            return;
+        }
+        log_msg(LOGGER_INFO, "Created HEVC format description");
+    } else {
+        // H.264 requires SPS and PPS
+        if (!g_sps || !g_pps) return;
+
+        const uint8_t *parameterSetPointers[2] = {g_sps, g_pps};
+        const size_t parameterSetSizes[2] = {g_sps_size, g_pps_size};
+
+        status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+            kCFAllocatorDefault,
+            2,
+            parameterSetPointers,
+            parameterSetSizes,
+            4,  // NAL unit length field size
+            &g_format_desc
+        );
+
+        if (status != noErr) {
+            log_msg(LOGGER_ERR, "Failed to create H.264 format description: %d", (int)status);
+            return;
+        }
+        log_msg(LOGGER_INFO, "Created H.264 format description");
     }
 
     // Get dimensions
@@ -515,11 +745,24 @@ static void decompress_callback(void *decompressionOutputRefCon,
     log_stats();
 }
 
+// Helper: check if NAL is a parameter set (should be skipped in bitstream)
+static bool is_parameter_set_nal(uint8_t first_byte) {
+    if (g_is_h265) {
+        // HEVC: NAL type in bits 1-6
+        uint8_t nal_type = (first_byte >> 1) & 0x3F;
+        return (nal_type == 32 || nal_type == 33 || nal_type == 34); // VPS, SPS, PPS
+    } else {
+        // H.264: NAL type in bits 0-4
+        uint8_t nal_type = first_byte & 0x1F;
+        return (nal_type == 7 || nal_type == 8); // SPS, PPS
+    }
+}
+
 static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
     if (!g_decoder_session) return false;
 
-    // Convert Annex-B to AVCC format (replace start codes with length)
-    // For simplicity, we'll create a copy with AVCC format
+    // Convert Annex-B to AVCC/HVCC format (replace start codes with length)
+    // For simplicity, we'll create a copy with length-prefixed format
 
     // Find all NAL units and calculate total size
     size_t avcc_size = 0;
@@ -538,10 +781,9 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
             }
 
             size_t nal_size = nal_end - nal_start;
-            uint8_t nal_type = data[nal_start] & 0x1F;
 
-            // Skip SPS/PPS, only include VCL NALs
-            if (nal_type != 7 && nal_type != 8) {
+            // Skip parameter set NALs (VPS/SPS/PPS), only include VCL NALs
+            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start])) {
                 avcc_size += 4 + nal_size;  // 4-byte length + NAL
                 nal_count++;
             }
@@ -554,7 +796,7 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
 
     if (avcc_size == 0) return false;
 
-    // Create AVCC buffer
+    // Create AVCC/HVCC buffer
     uint8_t *avcc_data = malloc(avcc_size);
     size_t offset = 0;
 
@@ -571,9 +813,8 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
             }
 
             size_t nal_size = nal_end - nal_start;
-            uint8_t nal_type = data[nal_start] & 0x1F;
 
-            if (nal_type != 7 && nal_type != 8) {
+            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start])) {
                 // Write length (big-endian)
                 avcc_data[offset++] = (nal_size >> 24) & 0xFF;
                 avcc_data[offset++] = (nal_size >> 16) & 0xFF;
@@ -667,6 +908,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     g_flip = videoflip[0];
     g_rotation = videoflip[1];
     g_is_h265 = h265_support;
+    g_initial_fullscreen = initial_fullscreen;
     g_first_frame = true;
     g_base_time = 0;
 
@@ -779,6 +1021,7 @@ void video_renderer_destroy(void) {
     destroy_decoder_session();
     destroy_window();
 
+    if (g_vps) { free(g_vps); g_vps = NULL; }
     if (g_sps) { free(g_sps); g_sps = NULL; }
     if (g_pps) { free(g_pps); g_pps = NULL; }
 
