@@ -71,6 +71,10 @@ static char *g_server_name = NULL;
 static NSImage *g_cover_art = NULL;
 static bool g_showing_cover_art = false;
 
+// Idle screen texture
+static id<MTLTexture> g_idle_texture = NULL;
+static bool g_idle_texture_created = false;
+
 // Display window and layer
 static NSWindow *g_window = NULL;
 static MTKView *g_metal_view = NULL;
@@ -220,7 +224,7 @@ static void toggle_fullscreen(void) {
 
 #pragma mark - Menu Bar
 
-@interface UxPlayMenuHandler : NSObject
+@interface UxPlayMenuHandler : NSObject <NSWindowDelegate>
 - (void)toggleFullscreen:(id)sender;
 - (void)togglePause:(id)sender;
 - (void)quit:(id)sender;
@@ -239,6 +243,31 @@ static void toggle_fullscreen(void) {
 
 - (void)quit:(id)sender {
     kill(getpid(), SIGTERM);
+}
+
+// NSWindowDelegate - handle window close button
+- (BOOL)windowShouldClose:(NSWindow *)sender {
+    NSArray *screens = [NSScreen screens];
+    if ([screens count] > 1) {
+        // Multiple displays - warn user
+        NSAlert *alert = [[NSAlert alloc] init];
+        [alert setMessageText:@"Quit UxPlay?"];
+        [alert setInformativeText:@"You have multiple displays connected. Are you sure you want to quit?"];
+        [alert addButtonWithTitle:@"Quit"];
+        [alert addButtonWithTitle:@"Cancel"];
+        [alert setAlertStyle:NSAlertStyleWarning];
+
+        NSModalResponse response = [alert runModal];
+        if (response == NSAlertFirstButtonReturn) {
+            kill(getpid(), SIGTERM);
+            return YES;
+        }
+        return NO;
+    }
+
+    // Single display - quit immediately
+    kill(getpid(), SIGTERM);
+    return YES;
 }
 
 @end
@@ -303,6 +332,136 @@ static void create_menu_bar(void) {
     [NSApp setMainMenu:menuBar];
 }
 
+#pragma mark - Idle Screen
+
+static void create_idle_texture(size_t width, size_t height) {
+    if (!g_metal_device) return;
+
+    @autoreleasepool {
+        // Create bitmap context directly with BGRA format for Metal
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        size_t bytesPerRow = width * 4;
+        uint8_t *pixelData = (uint8_t *)calloc(height * bytesPerRow, 1);
+
+        CGContextRef cgContext = CGBitmapContextCreate(pixelData,
+                                                       width, height,
+                                                       8, bytesPerRow,
+                                                       colorSpace,
+                                                       kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(colorSpace);
+
+        if (!cgContext) {
+            free(pixelData);
+            return;
+        }
+
+        // Flip coordinate system so Y=0 is at top (matching Metal's coordinate system)
+        CGContextTranslateCTM(cgContext, 0, height);
+        CGContextScaleCTM(cgContext, 1.0, -1.0);
+
+        // Create NSGraphicsContext from CGContext for drawing with AppKit
+        NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:cgContext flipped:YES];
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:nsContext];
+
+        // Draw gradient background (dark gray to darker gray)
+        NSGradient *gradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithWhite:0.15 alpha:1.0]
+                                                             endingColor:[NSColor colorWithWhite:0.08 alpha:1.0]];
+        [gradient drawInRect:NSMakeRect(0, 0, width, height) angle:90];
+
+        // Draw AirPlay icon (SF Symbol) in center
+        CGFloat iconSize = MIN(width, height) * 0.25;
+        NSImage *airplayIcon = nil;
+
+        if (@available(macOS 11.0, *)) {
+            NSImageSymbolConfiguration *config = [NSImageSymbolConfiguration configurationWithPointSize:iconSize weight:NSFontWeightUltraLight];
+            airplayIcon = [NSImage imageWithSystemSymbolName:@"airplayvideo" accessibilityDescription:@"AirPlay"];
+            airplayIcon = [airplayIcon imageWithSymbolConfiguration:config];
+        }
+
+        if (airplayIcon) {
+            NSSize iconActualSize = [airplayIcon size];
+            CGFloat iconX = (width - iconActualSize.width) / 2;
+            CGFloat iconY = (height - iconActualSize.height) / 2 - height * 0.08;
+
+            // Save graphics state, flip the icon drawing area, then restore
+            [NSGraphicsContext saveGraphicsState];
+            NSAffineTransform *transform = [NSAffineTransform transform];
+            [transform translateXBy:iconX + iconActualSize.width / 2 yBy:iconY + iconActualSize.height / 2];
+            [transform scaleXBy:1.0 yBy:-1.0];
+            [transform translateXBy:-(iconX + iconActualSize.width / 2) yBy:-(iconY + iconActualSize.height / 2)];
+            [transform concat];
+
+            NSRect iconRect = NSMakeRect(iconX, iconY, iconActualSize.width, iconActualSize.height);
+            [airplayIcon drawInRect:iconRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:0.6];
+            [NSGraphicsContext restoreGraphicsState];
+        }
+
+        // Draw "Waiting for AirPlay..." text
+        NSString *waitingText = @"Waiting for AirPlay...";
+        NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
+        [paragraphStyle setAlignment:NSTextAlignmentCenter];
+
+        NSDictionary *textAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.035 weight:NSFontWeightLight],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.5],
+            NSParagraphStyleAttributeName: paragraphStyle
+        };
+
+        NSSize textSize = [waitingText sizeWithAttributes:textAttrs];
+        CGFloat textY = height * 0.75 - textSize.height;
+        NSRect textRect = NSMakeRect(0, textY, width, textSize.height);
+        [waitingText drawInRect:textRect withAttributes:textAttrs];
+
+        // Draw server name below
+        if (g_server_name) {
+            NSString *serverText = [NSString stringWithUTF8String:g_server_name];
+            NSDictionary *serverAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:width * 0.025 weight:NSFontWeightLight],
+                NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.3],
+                NSParagraphStyleAttributeName: paragraphStyle
+            };
+            NSSize serverSize = [serverText sizeWithAttributes:serverAttrs];
+            NSRect serverRect = NSMakeRect(0, textY + textSize.height + 10, width, serverSize.height);
+            [serverText drawInRect:serverRect withAttributes:serverAttrs];
+        }
+
+        // Draw subtle hint at top
+        NSString *hintText = @"Press F for fullscreen  |  Q to quit";
+        NSDictionary *hintAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.018 weight:NSFontWeightLight],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.2],
+            NSParagraphStyleAttributeName: paragraphStyle
+        };
+        NSSize hintSize = [hintText sizeWithAttributes:hintAttrs];
+        NSRect hintRect = NSMakeRect(0, height * 0.95 - hintSize.height, width, hintSize.height);
+        [hintText drawInRect:hintRect withAttributes:hintAttrs];
+
+        [NSGraphicsContext restoreGraphicsState];
+        CGContextRelease(cgContext);
+
+        // Create Metal texture from the bitmap data
+        MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                             width:width
+                                                                                            height:height
+                                                                                         mipmapped:NO];
+        descriptor.usage = MTLTextureUsageShaderRead;
+
+        g_idle_texture = [g_metal_device newTextureWithDescriptor:descriptor];
+
+        MTLRegion region = MTLRegionMake2D(0, 0, width, height);
+        [g_idle_texture replaceRegion:region
+                          mipmapLevel:0
+                            withBytes:pixelData
+                          bytesPerRow:bytesPerRow];
+
+        g_idle_texture_created = true;
+        log_msg(LOGGER_DEBUG, "Idle screen texture created (%zux%zu)", width, height);
+
+        free(pixelData);
+    }
+}
+
 #pragma mark - Metal Renderer
 
 @interface MetalRenderer : NSObject <MTKViewDelegate>
@@ -311,7 +470,9 @@ static void create_menu_bar(void) {
 @implementation MetalRenderer
 
 - (void)mtkView:(MTKView *)view drawableSizeWillChange:(CGSize)size {
-    // Handle resize if needed
+    // Recreate idle texture when size changes
+    g_idle_texture_created = false;
+    g_idle_texture = nil;
 }
 
 - (void)drawInMTKView:(MTKView *)view {
@@ -322,7 +483,39 @@ static void create_menu_bar(void) {
     }
     pthread_mutex_unlock(&g_frame_mutex);
 
-    if (!pixelBuffer) return;
+    // If no frame, show idle screen
+    if (!pixelBuffer) {
+        @autoreleasepool {
+            id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+            id<CAMetalDrawable> drawable = [view currentDrawable];
+
+            if (drawable && commandBuffer && g_metal_device) {
+                // Create idle texture if needed
+                if (!g_idle_texture_created || !g_idle_texture) {
+                    create_idle_texture(drawable.texture.width, drawable.texture.height);
+                }
+
+                if (g_idle_texture) {
+                    // Blit idle texture to drawable
+                    id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
+                    [blitEncoder copyFromTexture:g_idle_texture
+                                     sourceSlice:0
+                                     sourceLevel:0
+                                    sourceOrigin:MTLOriginMake(0, 0, 0)
+                                      sourceSize:MTLSizeMake(g_idle_texture.width, g_idle_texture.height, 1)
+                                       toTexture:drawable.texture
+                                destinationSlice:0
+                                destinationLevel:0
+                               destinationOrigin:MTLOriginMake(0, 0, 0)];
+                    [blitEncoder endEncoding];
+
+                    [commandBuffer presentDrawable:drawable];
+                    [commandBuffer commit];
+                }
+            }
+        }
+        return;
+    }
 
     @autoreleasepool {
         id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
@@ -360,7 +553,7 @@ static void create_menu_bar(void) {
                     height = srcWidth;
                 }
 
-                // Calculate base scale transform to fit drawable while maintaining aspect ratio
+                // Calculate scale transform to fit drawable while maintaining aspect ratio
                 double srcAspect = (double)width / (double)height;
                 double dstAspect = (double)drawable.texture.width / (double)drawable.texture.height;
 
@@ -532,8 +725,9 @@ static void create_window(const char *title) {
                 [NSApp setApplicationIconImage:[NSImage imageNamed:NSImageNameNetwork]];
             }
 
-            // Create menu bar
+            // Create menu bar and set window delegate for close button handling
             g_menu_handler = [[UxPlayMenuHandler alloc] init];
+            [g_window setDelegate:g_menu_handler];
             create_menu_bar();
 
             // Apply initial fullscreen if requested via -fs flag
@@ -565,6 +759,8 @@ static void destroy_window(void) {
                 CFRelease(g_texture_cache);
                 g_texture_cache = NULL;
             }
+            g_idle_texture = nil;
+            g_idle_texture_created = false;
             g_metal_view = nil;
             g_metal_renderer = nil;
             g_metal_device = nil;
@@ -1028,16 +1224,62 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
 }
 
 void video_renderer_start(void) {
+    log_msg(LOGGER_INFO, "video_renderer_start called");
     g_running = true;
     g_paused = false;
-    log_msg(LOGGER_DEBUG, "Video renderer started");
+    log_msg(LOGGER_INFO, "Video renderer started");
 }
 
 void video_renderer_stop(void) {
-    g_running = false;
+    log_msg(LOGGER_INFO, "video_renderer_stop called");
+    // Don't set g_running = false - renderer stays active for new connections
+    // video_renderer_start is only called once at init, not per-connection
     destroy_decoder_session();
+
+    // Clear pending frame so idle screen is shown
+    pthread_mutex_lock(&g_frame_mutex);
+    if (g_pending_frame) {
+        CVPixelBufferRelease(g_pending_frame);
+        g_pending_frame = NULL;
+    }
+    pthread_mutex_unlock(&g_frame_mutex);
+
+    // Reset state for next stream
+    g_first_frame = true;
+    g_base_time = 0;
+    g_frames_received = 0;
+    g_frames_decoded = 0;
+    g_frames_rendered = 0;
+    g_decode_errors = 0;
+
+    // Clear old SPS/PPS/VPS so new stream can set them
+    if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
+    if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
+    if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
+
+    // Reset idle texture so it regenerates at the correct size
+    g_idle_texture_created = false;
+    g_idle_texture = nil;
+
+    // Restore window to original size
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_window && !g_fullscreen) {
+            NSRect frame = [g_window frame];
+            frame.size.width = 1280;
+            frame.size.height = 720;
+            [g_window setFrame:frame display:YES animate:YES];
+        }
+    });
+
     update_window_title("Ready");
-    log_msg(LOGGER_DEBUG, "Video renderer stopped");
+    log_msg(LOGGER_INFO, "Video renderer stopped - ready for new stream");
+}
+
+void video_renderer_set_device_model(const char *model, const char *name) {
+    // Update window title with device name
+    if (name) {
+        update_window_title(name);
+    }
 }
 
 void video_renderer_pause(void) {

@@ -2251,6 +2251,10 @@ extern "C" void report_client_request(void *cls, char *deviceid, char * model, c
         *admit = false;
         LOGI("*** attempt to connect by blocked client (clientID %s): DENIED\n", deviceid);
     }
+    // Pass device model to renderer for device frame display
+    if (*admit && use_video) {
+        video_renderer_set_device_model(model, name);
+    }
 }
 
 extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *data) {
