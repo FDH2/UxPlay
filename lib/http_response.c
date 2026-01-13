@@ -38,7 +38,7 @@ http_response_add_data(http_response_t *response, const char *data, int datalen)
     assert(datalen > 0);
 
     int newdatasize = response->data_size;
-    while (response->data_size+datalen > newdatasize) {
+    while (response->data_length + datalen > newdatasize) {
         newdatasize *= 2;
     }
     if (newdatasize != response->data_size) {
