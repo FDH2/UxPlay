@@ -65,6 +65,9 @@ static bool g_fullscreen = false;
 static bool g_initial_fullscreen = false;
 static NSRect g_windowed_frame = {0};
 
+// Always on top state
+static bool g_always_on_top = false;
+
 // Server name for window title
 static char *g_server_name = NULL;
 
@@ -150,6 +153,7 @@ static void toggle_fullscreen(void) {
                                    NSWindowStyleMaskResizable |
                                    NSWindowStyleMaskMiniaturizable];
             [g_window setFrame:g_windowed_frame display:YES animate:YES];
+            [g_window setLevel:g_always_on_top ? NSFloatingWindowLevel : NSNormalWindowLevel];
             [NSCursor unhide];
             g_fullscreen = false;
             log_msg(LOGGER_INFO, "Exited fullscreen mode");
@@ -234,6 +238,7 @@ static void toggle_fullscreen(void) {
 
 @interface UxPlayMenuHandler : NSObject <NSWindowDelegate>
 - (void)toggleFullscreen:(id)sender;
+- (void)toggleAlwaysOnTop:(id)sender;
 - (void)togglePause:(id)sender;
 - (void)quit:(id)sender;
 @end
@@ -242,6 +247,26 @@ static void toggle_fullscreen(void) {
 
 - (void)toggleFullscreen:(id)sender {
     toggle_fullscreen();
+}
+
+- (void)toggleAlwaysOnTop:(id)sender {
+    g_always_on_top = !g_always_on_top;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_window && !g_fullscreen) {
+            if (g_always_on_top) {
+                [g_window setLevel:NSFloatingWindowLevel];
+            } else {
+                [g_window setLevel:NSNormalWindowLevel];
+            }
+        }
+    });
+
+    // Update menu item checkmark
+    NSMenuItem *menuItem = (NSMenuItem *)sender;
+    [menuItem setState:g_always_on_top ? NSControlStateValueOn : NSControlStateValueOff];
+
+    log_msg(LOGGER_INFO, "Always on top %s", g_always_on_top ? "enabled" : "disabled");
 }
 
 - (void)togglePause:(id)sender {
@@ -320,6 +345,13 @@ static void create_menu_bar(void) {
                                                      keyEquivalent:@"f"];
     [fullscreenItem setTarget:g_menu_handler];
     [viewMenu addItem:fullscreenItem];
+
+    NSMenuItem *alwaysOnTopItem = [[NSMenuItem alloc] initWithTitle:@"Always on Top"
+                                                             action:@selector(toggleAlwaysOnTop:)
+                                                      keyEquivalent:@"t"];
+    [alwaysOnTopItem setTarget:g_menu_handler];
+    [alwaysOnTopItem setState:g_always_on_top ? NSControlStateValueOn : NSControlStateValueOff];
+    [viewMenu addItem:alwaysOnTopItem];
 
     [viewMenuItem setSubmenu:viewMenu];
     [menuBar addItem:viewMenuItem];
