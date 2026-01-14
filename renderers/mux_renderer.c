@@ -33,7 +33,8 @@ typedef struct mux_renderer_s {
     GstElement *audio_appsrc;
     GstElement *filesink;
     GstBus *bus;
-    GstClockTime base_time;
+    GstClockTime video_base_time;
+    GstClockTime audio_base_time;
     gboolean is_h265;
     unsigned char audio_ct;
 } mux_renderer_t;
@@ -64,7 +65,8 @@ void mux_renderer_choose_audio_codec(unsigned char audio_ct) {
     }
     if (!renderer) {
         renderer = g_new0(mux_renderer_t, 1);
-        renderer->base_time = GST_CLOCK_TIME_NONE;
+        renderer->video_base_time = GST_CLOCK_TIME_NONE;
+        renderer->audio_base_time = GST_CLOCK_TIME_NONE;
         renderer->audio_ct = 8;
     }
     renderer->audio_ct = audio_ct;
@@ -78,7 +80,8 @@ void mux_renderer_choose_video_codec(bool is_h265) {
     }
     if (!renderer) {
         renderer = g_new0(mux_renderer_t, 1);
-        renderer->base_time = GST_CLOCK_TIME_NONE;
+        renderer->video_base_time = GST_CLOCK_TIME_NONE;
+        renderer->audio_base_time = GST_CLOCK_TIME_NONE;
         renderer->audio_ct = 8;
     }
     renderer->is_h265 = is_h265;
@@ -173,7 +176,8 @@ void mux_renderer_start(void) {
     gst_caps_unref(audio_caps);
     
     gst_element_set_state(renderer->pipeline, GST_STATE_PLAYING);
-    renderer->base_time = GST_CLOCK_TIME_NONE;
+    renderer->video_base_time = GST_CLOCK_TIME_NONE;
+    renderer->audio_base_time = GST_CLOCK_TIME_NONE;
     
     logger_log(logger, LOGGER_INFO, "Started recording to: %s", filename);
     g_free(filename);
@@ -187,11 +191,11 @@ void mux_renderer_push_video(unsigned char *data, int data_len, uint64_t ntp_tim
     
     gst_buffer_fill(buffer, 0, data, data_len);
     
-    if (renderer->base_time == GST_CLOCK_TIME_NONE) {
-        renderer->base_time = (GstClockTime)ntp_time;
+    if (renderer->video_base_time == GST_CLOCK_TIME_NONE) {
+        renderer->video_base_time = (GstClockTime)ntp_time;
     }
     
-    GstClockTime pts = (GstClockTime)ntp_time - renderer->base_time;
+    GstClockTime pts = (GstClockTime)ntp_time - renderer->video_base_time;
     GST_BUFFER_PTS(buffer) = pts;
     GST_BUFFER_DTS(buffer) = pts;
     
@@ -206,11 +210,11 @@ void mux_renderer_push_audio(unsigned char *data, int data_len, uint64_t ntp_tim
     
     gst_buffer_fill(buffer, 0, data, data_len);
     
-    if (renderer->base_time == GST_CLOCK_TIME_NONE) {
-        renderer->base_time = (GstClockTime)ntp_time;
+    if (renderer->audio_base_time == GST_CLOCK_TIME_NONE) {
+        renderer->audio_base_time = (GstClockTime)ntp_time;
     }
     
-    GstClockTime pts = (GstClockTime)ntp_time - renderer->base_time;
+    GstClockTime pts = (GstClockTime)ntp_time - renderer->audio_base_time;
     GST_BUFFER_PTS(buffer) = pts;
     GST_BUFFER_DTS(buffer) = pts;
     
@@ -242,7 +246,8 @@ void mux_renderer_stop(void) {
     gst_object_unref(renderer->pipeline);
     renderer->pipeline = NULL;
     
-    renderer->base_time = GST_CLOCK_TIME_NONE;
+    renderer->video_base_time = GST_CLOCK_TIME_NONE;
+    renderer->audio_base_time = GST_CLOCK_TIME_NONE;
     logger_log(logger, LOGGER_INFO, "Stopped recording");
 }
 
