@@ -25,11 +25,12 @@ struct http_response_s {
     int disconnect;
 
     char *data;
-    int data_size;
+    int buffer_size;
     int data_length;
 };
 
 
+#define MAX_RESPONSE_SIZE (64 * 1024)
 static void
 http_response_add_data(http_response_t *response, const char *data, int datalen)
 {
@@ -37,13 +38,24 @@ http_response_add_data(http_response_t *response, const char *data, int datalen)
     assert(data);
     assert(datalen > 0);
 
-    int newdatasize = response->data_size;
-    while (response->data_length + datalen > newdatasize) {
-        newdatasize *= 2;
+    if (response->data_length + datalen > MAX_RESPONSE_SIZE) {
+        fprintf(stderr, "ERROR: http_response_add_data: cannot add data as MAX_RESPONSE_SIZE = %d would be exceeded\n",
+                (int) MAX_RESPONSE_SIZE); 
+        return;
     }
-    if (newdatasize != response->data_size) {
-        response->data = realloc(response->data, newdatasize);
+
+    size_t newbufsize = response->buffer_size;
+    while (response->data_length + datalen > newbufsize) {
+        newbufsize *= 2;
+        if (newbufsize > MAX_RESPONSE_SIZE) {
+            newbufsize = MAX_RESPONSE_SIZE;
+            break;
+        }
+    }
+    if (newbufsize != response->buffer_size) {
+        response->data = realloc(response->data, newbufsize);
         assert(response->data);
+        response->buffer_size = newbufsize;
     }
     memcpy(response->data+response->data_length, data, datalen);
     response->data_length += datalen;
@@ -58,8 +70,8 @@ http_response_create()
         return NULL;
     }
     /* Allocate response data */
-    response->data_size = 1024;
-    response->data = (char *) malloc(response->data_size);
+    response->buffer_size = 1024;
+    response->data = (char *) malloc(response->buffer_size);
     if (!response->data) {
         free(response);
         return NULL;
