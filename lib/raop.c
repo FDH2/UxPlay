@@ -219,8 +219,37 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         return;
     }
 
-    /* ¨idenitfy if request is a response to a BLE beaconn */
-    const char *cseq = http_request_get_header(request, "CSeq");
+#define MAX_HDR_FIELDS 20
+#define MAX_HDR_FIELD_LEN 64
+#define MAX_HDR_VALUE_LEN 1024
+    /*impose limits on header sizes to defend against DOS attacks */
+    size_t max_field_len, max_value_len;
+    int num_fields;
+    http_request_header_get_size(request, &num_fields, &max_field_len, &max_value_len);
+    if (num_fields > MAX_HDR_FIELDS || max_field_len > MAX_HDR_FIELD_LEN || max_value_len > MAX_HDR_VALUE_LEN) {
+        logger_log(raop->logger, LOGGER_ERR, "rejecting request with overlong headers: %d fields,"
+                   "max field_name length %d, max field value length %d",
+                   num_fields, (int) max_field_len, (int) max_value_len);
+        *response = http_response_create();
+        http_response_init(*response, protocol, 431, "Request Header Fields Too Large");
+        return;
+    }
+
+    /* handle CSeq header carefully, as it will be included in response: value should be non-negative int */
+    char *cseq = NULL;
+    char cseq_buf[11] = {0};
+    const char *cseq_req = http_request_get_header(request, "CSeq");
+    if (cseq_req) {
+        int cseq_val = parse_int(cseq_req);
+        if (cseq_val < 0) {
+            logger_log(raop->logger, LOGGER_ERR, "rejecting request with invalid CSeq value %s", cseq_req);
+            return;   //CSeq header field had invalid value
+        }
+        snprintf(cseq_buf, sizeof(cseq_buf), "%u", (unsigned int) cseq_val);
+        cseq = cseq_buf;
+    }
+
+    /* ¨identify if request is a response to a BLE beacon */    
     bool ble = false;
     if (!strcmp(protocol,"RTSP/1.0") && !cseq  && (strstr(url, "txtAirPlay") || strstr(url, "txtRAOP") )) {
         logger_log(raop->logger, LOGGER_INFO, "response to Bluetooth LE beacon advertisement received)");

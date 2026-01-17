@@ -21,6 +21,8 @@
 #include <assert.h>
 #include <time.h>
 #include <stdint.h>
+#include <limits.h>
+
 #define SECOND_IN_NSECS 1000000000UL
 
 char *
@@ -343,4 +345,18 @@ const char *gmt_time_string() {
     } else {
         return "";
     }
+}
+
+int parse_int(const char * str) {
+    /* verify that a string represents a non-negative int, and return it, or return -1 */
+    char *end_ptr;
+    assert(str);
+    long val = strtol(str, &end_ptr, 10);
+    if ((val == 0 && end_ptr == str) || *end_ptr != '\0') {
+        return -1;
+    }
+    if (val < 0 || val > INT_MAX) {
+        return -1;
+    }
+    return (int) val;
 }
