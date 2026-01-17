@@ -219,8 +219,21 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         return;
     }
 
-    /* ¨idenitfy if request is a response to a BLE beaconn */
-    const char *cseq = http_request_get_header(request, "CSeq");
+    /* handle CSeq header carefully, as it will be included in response: value should be non-negative int */
+    char *cseq = NULL;
+    char cseq_buf[11] = {0};
+    const char *cseq_req = http_request_get_header(request, "CSeq");
+    if (cseq_req) {
+        int cseq_val = parse_int(cseq_req);
+        if (cseq_val < 0) {
+            logger_log(raop->logger, LOGGER_ERR, "rejecting request with invalid CSeq value %s", cseq_req);
+            return;   //CSeq header had invalid value
+	}
+	snprintf(cseq_buf, sizeof(cseq_buf), "%u", (unsigned int) cseq_val);
+	cseq = cseq_buf;
+    }
+
+    /* ¨identify if request is a response to a BLE beacon */    
     bool ble = false;
     if (!strcmp(protocol,"RTSP/1.0") && !cseq  && (strstr(url, "txtAirPlay") || strstr(url, "txtRAOP") )) {
         logger_log(raop->logger, LOGGER_INFO, "response to Bluetooth LE beacon advertisement received)");
