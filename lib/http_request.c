@@ -273,6 +273,30 @@ http_request_get_header(http_request_t *request, const char *name)
     return NULL;
 }
 
+size_t
+http_request_header_get_size(http_request_t *request, int *num_fields, size_t *max_field_len, size_t *max_value_len) {
+    size_t total = 0;
+    if (max_field_len) {
+        *max_field_len = 0;
+    }
+    if (max_value_len) {
+        *max_value_len = 0;
+    }
+    if (num_fields) {
+        *num_fields = request->headers_size / 2;
+    }
+    for (int i = 0; i < request->headers_size; i +=2) {
+        size_t len = strlen(request->headers[i]);
+        total += len;
+        if (i % 2 == 0 && max_field_len && len > *max_field_len) {
+            *max_field_len = len;
+        } else if (max_value_len && len > *max_value_len) {
+            *max_value_len = len;
+        }
+    }
+    return total;
+}
+
 const char *
 http_request_get_data(http_request_t *request, int *datalen)
 {
