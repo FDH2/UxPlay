@@ -107,6 +107,12 @@ UxPlay 1.73: An open\-source AirPlay mirroring (+ audio streaming) server:
    is the remaining pipeline, starting with rtph26*pay options:
 .IP
    e.g. "config-interval=1 ! udpsink host=127.0.0.1 port=5000"
+.TP
+\fB\-artp\fI pl\fR  Use rtpL16pay to send decoded audio elsewhere: "pl"
+.IP
+   is the remaining pipeline, starting with rtpL16pay options:
+.IP
+   e.g. "pt=96 ! udpsink host=127.0.0.1 port=5002"
 .PP
 .TP
 \fB\-v4l2\fR     Use Video4Linux2 for GPU hardware h264 video decoding.

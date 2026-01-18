@@ -40,6 +40,7 @@ static gboolean render_audio = FALSE;
 static gboolean async = FALSE;
 static gboolean vsync = FALSE;
 static gboolean sync = FALSE;
+static gboolean audio_rtp = FALSE;
 
 typedef struct audio_renderer_s {
     GstElement *appsrc; 
@@ -124,11 +125,16 @@ bool gstreamer_init(){
     return (bool) check_plugins ();
 }
 
-void audio_renderer_init(logger_t *render_logger, const char* audiosink, const bool* audio_sync, const bool* video_sync) {
+void audio_renderer_init(logger_t *render_logger, const char* audiosink, const bool* audio_sync, const bool* video_sync, const char *artp_pipeline) {
     GError *error = NULL;
     GstCaps *caps = NULL;
     GstClock *clock = gst_system_clock_obtain();
     g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
+
+    audio_rtp = (bool) strlen(artp_pipeline);
+    if (audio_rtp) {
+        g_print("*** Audio RTP mode enabled: sending to %s\n", artp_pipeline);
+    }
 
     logger = render_logger;
     
@@ -155,27 +161,38 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         }
         g_string_append (launch, "audioconvert ! ");
         g_string_append (launch, "audioresample ! ");    /* wasapisink must resample from 44.1 kHz to 48 kHz */
-        g_string_append (launch, "volume name=volume ! level ! ");
-        g_string_append (launch, audiosink);
-        switch(i) {
-        case 1:  /*ALAC*/
-            if (*audio_sync) {
-                g_string_append (launch, " sync=true");
-                async = TRUE;
-            } else {
-                g_string_append (launch, " sync=false");
-                async = FALSE;
+        g_string_append (launch, "volume name=volume ! ");
+
+        if (!audio_rtp) {
+            /* Normal path: local audio output */
+            g_string_append (launch, "level ! ");
+            g_string_append (launch, audiosink);
+            switch(i) {
+            case 1:  /*ALAC*/
+                if (*audio_sync) {
+                    g_string_append (launch, " sync=true");
+                    async = TRUE;
+                } else {
+                    g_string_append (launch, " sync=false");
+                    async = FALSE;
+                }
+                break;
+            default:
+                if (*video_sync) {
+                    g_string_append (launch, " sync=true");
+                    vsync = TRUE;
+                } else {
+                    g_string_append (launch, " sync=false");
+                    vsync = FALSE;
+                }
+                break;
             }
-            break;
-        default:
-	    if (*video_sync) {
-                g_string_append (launch, " sync=true");
-                vsync = TRUE;
-            } else {
-                g_string_append (launch, " sync=false");
-                vsync = FALSE;
-            }
-            break;
+        } else {
+            /* RTP path: send decoded PCM over RTP */
+            /* rtpL16pay requires S16BE (big-endian) format */
+            g_string_append (launch, "audioconvert ! audio/x-raw,format=S16BE,rate=44100,channels=2 ! ");
+            g_string_append (launch, "rtpL16pay ");
+            g_string_append (launch, artp_pipeline);
         }
         renderer_type[i]->pipeline  = gst_parse_launch(launch->str, &error);
 	if (error) {

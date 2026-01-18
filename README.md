@@ -20,7 +20,9 @@
 -   option `-vrtp <rest-of-pipeline>`  bypasses rendering by UxPlay, and instead
     transmits rtp packets of decrypted h264 or h265 video to
     an external renderer (e.g. OBS Studio) at an address specified in `rest-of-pipeline`.
-    (Note: this is video only, an option "-rtp" which muxes audio and video into a mpeg4 container still needs to be created:
+    Similarly, `-artp <rest-of-pipeline>` forwards decoded audio as L16 RTP packets.
+    Both options can be used together to forward video and audio (as separate concurrent streams) to external applications.
+    (Note: an option "-rtp" which muxes audio and video into a mpeg4 container still needs to be created:
     Pull Requests welcomed).
     
 -   (for Linux/*BSD Desktop Environments using D-Bus). New option `-scrsv <n>` provides screensaver inhibition (e.g., to
@@ -1312,6 +1314,11 @@ superior-quality ALAC Apple Lossless audio in Airplay audio-only mode.
 Uses rtph264pay or rtph265pay as appropriate: *pipeline* should start with any
 rtph26xpay options (such as config_interval= or aggregate-mode =), followed by
 a sending method:  *e.g.*, `"config-interval=1 ! udpsink host=127.0.0.1 port=5000`".
+
+**-artp *pipeline***:  forward decoded audio as L16 RTP packets to somewhere else, without local playback.
+Uses rtpL16pay (16-bit signed big-endian PCM, 44100Hz stereo): *pipeline* should start with any
+rtpL16pay options (such as pt=), followed by a sending method:
+*e.g.*, `"pt=96 ! udpsink host=127.0.0.1 port=5002"`.  iOS volume control still works over RTP.
 
 **-v4l2** Video settings for hardware h264 video decoding in the GPU by
 Video4Linux2. Equivalent to `-vd v4l2h264dec -vc v4l2convert`.
