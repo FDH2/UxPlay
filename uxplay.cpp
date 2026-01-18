@@ -195,6 +195,7 @@ static std::string artist;
 static std::string coverart_artist;
 static std::string ble_filename = "";
 static std::string rtp_pipeline = "";
+static std::string audio_rtp_pipeline = "";
 static GMainLoop *gmainloop = NULL;
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
@@ -959,6 +960,9 @@ static void print_info (char *name) {
     printf("          some choices:pulsesink,alsasink,pipewiresink,jackaudiosink,\n");
     printf("          osssink,oss4sink,osxaudiosink,wasapisink,directsoundsink.\n");
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
+    printf("-artp pl  Use rtpL16pay to send decoded audio elsewhere: \"pl\"\n");
+    printf("          is the remaining pipeline, starting with rtpL16pay options:\n");
+    printf("          e.g. \"pt=96 ! udpsink host=127.0.0.1 port=5002\"\n");
     printf("-al x     Audio latency in seconds (default 0.25) reported to client.\n");
     printf("-ca [<fn>]In Audio (ALAC) mode, render cover-art [or write to file <fn>]\n");
     printf("-md <fn>  In Airplay Audio (ALAC) mode, write metadata text to file <fn>\n");
@@ -1444,7 +1448,15 @@ static void parse_arguments (int argc, char *argv[]) {
           }
 	  rtp_pipeline.erase();
 	  rtp_pipeline.append(argv[++i]);
-        } else if (arg == "-vdmp") {
+	} else if (arg == "-artp") {
+	  if (!option_has_value(i, argc, arg, argv[i+1])) {
+	    fprintf(stderr,"option \"-artp\" must be followed by a pipeline for sending the audio stream:\n"
+		    "e.g., \"<rtpL16pay options> ! udpsink host=127.0.0.1 port=5002\"\n");
+	    exit(1);
+          }
+	  audio_rtp_pipeline.erase();
+	  audio_rtp_pipeline.append(argv[++i]);
+	} else if (arg == "-vdmp") {
             dump_video = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 0;
@@ -3036,7 +3048,7 @@ int main (int argc, char *argv[]) {
     logger_set_level(render_logger, log_level);
 
     if (use_audio) {
-        audio_renderer_init(render_logger, audiosink.c_str(), &audio_sync, &video_sync);
+        audio_renderer_init(render_logger, audiosink.c_str(), &audio_sync, &video_sync, audio_rtp_pipeline.c_str());
     } else {
         LOGI("audio_disabled");
     }
