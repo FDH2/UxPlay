@@ -657,6 +657,19 @@ void video_renderer_stop() {
      }
 }
 
+void video_renderer_set_device_model(const char *model, const char *name) {
+    // Device frame not supported in GStreamer renderer
+    (void)model;
+    (void)name;
+}
+
+void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {
+    // Track metadata display not supported in GStreamer renderer
+    (void)title;
+    (void)artist;
+    (void)album;
+}
+
 static void video_renderer_destroy_instance(video_renderer_t *renderer) {
     if (renderer) {
         logger_log(logger, LOGGER_DEBUG,"destroying renderer instance %p codec=%s ", renderer, renderer->codec);
