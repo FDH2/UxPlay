@@ -3087,7 +3087,7 @@ int main (int argc, char *argv[]) {
     }
 
     if (mux_to_file) {
-        mux_renderer_init(render_logger, mux_filename.c_str());
+        mux_renderer_init(render_logger, mux_filename.c_str(), use_audio);
     }
 
     if (udp[0]) {
