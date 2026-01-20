@@ -908,6 +908,7 @@ static void print_info (char *name) {
     printf("-n name   Specify network name of the AirPlay server (UTF-8/ascii)\n");
     printf("-nh       Do not add \"@hostname\" at the end of AirPlay server name\n");
     printf("-h265     Support h265 (4K) video (with h265 versions of h264 plugins)\n");
+    printf("-mp4 [fn] Record (non-hls) audio/video to mp4; default fn=\"recording\"\n");
     printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
     printf("-lang xx  HLS language preferences (\"fr:es:..\", overrides $LANGUAGE)\n");
@@ -953,7 +954,6 @@ static void print_info (char *name) {
     printf("-vrtp pl  Use rtph26[4,5]pay to send decoded video elsewhere: \"pl\"\n");
     printf("          is the remaining pipeline, starting with rtph26*pay options:\n");
     printf("          e.g. \"config-interval=1 ! udpsink host=127.0.0.1 port=5000\"\n");
-    printf("-rtp [fn] Record audio and video to MP4 file; default fn=\"recording\"\n");
     printf("          Writes output to \"fn.N.mp4\"\n");
     printf("-v4l2     Use Video4Linux2 for GPU hardware h264 decoding\n");
     printf("-bt709    Sometimes needed for Raspberry Pi models using Video4Linux2 \n");
@@ -986,6 +986,9 @@ static void print_info (char *name) {
     printf("-key [fn] Store private key in $HOME/.uxplay.pem (or in file \"fn\")\n");
     printf("-dacp [fn]Export client DACP information to file $HOME/.uxplay.dacp\n");
     printf("          (option to use file \"fn\" instead); used for client remote\n");
+    printf("-ble [fn] For BluetoothLE beacon: write data to file ~/.uxplay.ble\n");
+    printf("          optional: write to file \"fn\" (\"fn\" = \"off\" to cancel)\n");
+    printf("-d [n]    Enable debug logging; optional: n=1 to skip normal packet data\n");
     printf("-vdmp [n] Dump h264 video output to \"fn.h264\"; fn=\"videodump\",change\n");
     printf("          with \"-vdmp [n] filename\". If [n] is given, file fn.x.h264\n");
     printf("          x=1,2,.. opens whenever a new SPS/PPS NAL arrives, and <=n\n");
@@ -994,9 +997,6 @@ static void print_info (char *name) {
     printf("          =1,2,..; fn=\"audiodump\"; change with \"-admp [n] filename\".\n");
     printf("          x increases when audio format changes. If n is given, <= n\n");
     printf("          audio packets are dumped. \"aud\"= unknown format.\n");
-    printf("-ble [fn] For BluetoothLE beacon: write data to file ~/.uxplay.ble\n");
-    printf("          optional: write to file \"fn\" (\"fn\" = \"off\" to cancel)\n");
-    printf("-d [n]    Enable debug logging; optional: n=1 to skip normal packet data\n");
     printf("-v        Displays version information\n");
     printf("-h        Displays this help\n");
     printf("-rc fn    Read startup options from file \"fn\" instead of ~/.uxplayrc, etc\n");
@@ -3087,7 +3087,7 @@ int main (int argc, char *argv[]) {
     }
 
     if (mux_to_file) {
-        mux_renderer_init(render_logger, mux_filename.c_str());
+        mux_renderer_init(render_logger, mux_filename.c_str(), use_audio);
     }
 
     if (udp[0]) {

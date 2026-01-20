@@ -29,7 +29,7 @@ extern "C" {
 #include <stdbool.h>
 #include "../lib/logger.h"
 
-void mux_renderer_init(logger_t *logger, const char *filename);
+  void mux_renderer_init(logger_t *logger, const char *filename, bool use_audio);
 void mux_renderer_choose_audio_codec(unsigned char audio_ct);
 void mux_renderer_choose_video_codec(bool is_h265);
 void mux_renderer_start(void);
