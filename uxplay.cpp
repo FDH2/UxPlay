@@ -2117,6 +2117,9 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
 
 extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     bool video_is_h265 = (codec == VIDEO_CODEC_H265);
+    if (!use_video) {
+        return 0;
+    }
     return video_renderer_choose_codec(false, video_is_h265);
 }
 
