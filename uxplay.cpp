@@ -1485,14 +1485,14 @@ static void parse_arguments (int argc, char *argv[]) {
                     exit(1);
                 }   		
             }
-        } else if (arg == "-rtp"){
+        } else if (arg == "-mp4"){
             mux_to_file = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 mux_filename.erase();
                 mux_filename.append(argv[++i]);
                 const char *fn = mux_filename.c_str();
                 if (!file_has_write_access(fn)) {
-                    fprintf(stderr, "%s cannot be written to:\noption \"-rtp <fn>\" must be to a file with write access\n", fn);
+                    fprintf(stderr, "%s cannot be written to:\noption \"-mp4 <fn>\" must be to a file with write access\n", fn);
                     exit(1);
                 }
             }
@@ -2135,6 +2135,9 @@ extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     bool video_is_h265 = (codec == VIDEO_CODEC_H265);
     if (mux_to_file) {
         mux_renderer_choose_video_codec(video_is_h265);
+    }
+    if (!use_video) {
+        return 0;
     }
     return video_renderer_choose_codec(false, video_is_h265);
 }
@@ -3099,7 +3102,7 @@ int main (int argc, char *argv[]) {
     }
 
     if (mux_to_file) {
-        mux_renderer_init(render_logger, mux_filename.c_str(), use_audio);
+        mux_renderer_init(render_logger, mux_filename.c_str(), use_audio, use_video);
     }
 
     if (udp[0]) {
