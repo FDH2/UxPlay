@@ -12,6 +12,9 @@
     ("es"), etc. \$LANGUAGE has the same format: `-lang` (by itself)
     suppresses playing of dubbed audio if \$LANGUAGE is set.
 
+-   Support for recording Mirror-mode/Audio-mode (but not HLS) Audio and
+    Video to mp4 file (new option -mp4 \[fn\]).
+
 -   Support for **service discovery using a Bluetooth LE "beacon"** for
     both Linux/\*BSD and Windows (as an alternative to
     Bonjour/Rendezvous DNS-SD service discovery). **This can be used on
@@ -30,9 +33,10 @@
 -   option `-vrtp <rest-of-pipeline>` bypasses rendering by UxPlay, and
     instead transmits rtp packets of decrypted h264 or h265 video to an
     external renderer (e.g. OBS Studio) at an address specified in
-    `rest-of-pipeline`. (Note: this is video only, an option "-rtp"
-    which muxes audio and video into a mpeg4 container still needs to be
-    created: Pull Requests welcomed).
+    `rest-of-pipeline`. Similarly, `-artp <rest-of-pipeline>` forwards
+    decoded audio as L16 RTP packets. Both options can be used together
+    to forward video and audio (as separate concurrent streams) to
+    external applications.
 
 -   (for Linux/\*BSD Desktop Environments using D-Bus). New option
     `-scrsv <n>` provides screensaver inhibition (e.g., to prevent
@@ -815,9 +819,8 @@ framebuffer video, use `<videosink>` = `kmssink`.
 -   Tip: to start UxPlay on a remote host (such as a Raspberry Pi) using
     ssh:
 
-```{=html}
 <!-- -->
-```
+
     ssh user@remote_host
            export DISPLAY=:0
            nohup uxplay [options] > FILE &
@@ -1137,6 +1140,12 @@ The "-h265" option changes the default resolution ("-s" option) from
 1920x1080 to 3840x2160, and leaves default maximum framerate ("-fps"
 option) at 30fps.
 
+**-mp4 \[fn\]** Record mirror-mode and audio-mode audio/video to a mp4
+file, while watching/listening. File name is fn.n.(format).mp4, (default
+"fn" = "recording"). The number `n` = 1,2,... increments with each new
+connection. "format" (e.g. "H264.AAC") indicates H264/H265 video,
+AAC/ALAC audio.
+
 **-hls \[v\]** Activate HTTP Live Streaming support. With this option
 YouTube videos can be streamed directly from YouTube servers to UxPlay
 (without passing through the client) by clicking on the AirPlay icon in
@@ -1345,6 +1354,13 @@ somewhere else, without rendering. Uses rtph264pay or rtph265pay as
 appropriate: *pipeline* should start with any rtph26xpay options (such
 as config_interval= or aggregate-mode =), followed by a sending method:
 *e.g.*, `"config-interval=1 ! udpsink host=127.0.0.1 port=5000`".
+
+**-artp *pipeline***: forward decoded audio as L16 RTP packets to
+somewhere else, without local playback. Uses rtpL16pay (16-bit signed
+big-endian PCM, 44100Hz stereo): *pipeline* should start with any
+rtpL16pay options (such as pt=), followed by a sending method: *e.g.*,
+`"pt=96 ! udpsink host=127.0.0.1 port=5002"`. iOS volume control still
+works over RTP.
 
 **-v4l2** Video settings for hardware h264 video decoding in the GPU by
 Video4Linux2. Equivalent to `-vd v4l2h264dec -vc v4l2convert`.
@@ -1998,10 +2014,11 @@ screensaver while UxPlay is running (Linux/\*BSD only). Add password
 support (-pw) using a displayed pin code as a password that changes
 every time (and not as a one-time pin). Add support for Service
 Discovery using a Bluetooth LE beacon. Add -vrtp option for forwarding
-decrypted h264/5 video to an external renderer (e.g., OBS Studio). Check
-that option input strings have valid UTF-8 encoding. New option
-`-lang fr:es:en` to specify language preferences for YouTube HLS videos
-when they offer a choice.
+decrypted h264/5 video to an external renderer (e.g., OBS Studio), and
+-artp for audio. Check that option input strings have valid UTF-8
+encoding. New option `-lang fr:es:en` to specify language preferences
+for YouTube HLS videos when they offer a choice. New option -mp4 for
+recording to a mp4 file (Mirror and Audio mode, not HLS)
 
 1.72.2 2025-07-07 Fix bug (typo) in DNS_SD advertisement introduced with
 -pw option. Update llhttp to v 9.3.0
