@@ -621,10 +621,14 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         }
 
         uint_val = 0;
-        char *fcup_response_data = NULL;    
-        plist_get_data_val(req_params_fcup_response_data_node, &fcup_response_data, &uint_val);
+#ifdef PLIST_210
+        const char *fcup_response_data = NULL;
+        fcup_response_data = plist_get_data_ptr(req_params_fcup_response_data_node, &uint_val);
+#else
+        char *fcup_response_data = NULL;       
+        fcup_response_data = plist_get_data_val(req_params_fcup_response_data_node, &fcup_response_data, &uint_val);
+#endif
         fcup_response_datalen = (int) uint_val;
-
         char *playlist = NULL;
         if (!fcup_response_data) {
             plist_mem_free(fcup_response_url);
@@ -637,7 +641,9 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             }
             playlist[fcup_response_datalen] = '\0';
             memcpy(playlist, fcup_response_data, fcup_response_datalen);
+#ifndef PLIST_210
             plist_mem_free(fcup_response_data);
+#endif
         }
         assert(playlist);
         int playlist_len = strlen(playlist);
