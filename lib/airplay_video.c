@@ -26,12 +26,22 @@
 #include "raop.h"
 #include "airplay_video.h"
 
+typedef enum playlist_type_e {
+    NONE,
+    VOD,
+    EVENT
+} playlist_type_t;
+
 struct media_item_s {
-  char *uri;
-  char *playlist;
-  int num;
-  int count;
-  float duration;
+    char *uri;
+    char *playlist;
+    int num;
+    int count;
+    float duration;
+    bool endlist;
+    playlist_type_t playlist_type;
+    int hls_version;
+    int media_sequence;
 };
 
 struct airplay_video_s {
@@ -550,12 +560,68 @@ void create_media_data_store(airplay_video_t * airplay_video, char ** uri_list, 
         media_data_store[i].uri = uri_list[i];
         media_data_store[i].playlist = NULL;
         media_data_store[i].num = i;
+        media_data_store[i].count = 0;
+        media_data_store[i].duration = 0;
+        media_data_store[i].endlist = false;
+        media_data_store[i].playlist_type = NONE;
+        media_data_store[i].hls_version = 0;
+        media_data_store[i].media_sequence = 0;
     }
     airplay_video->media_data_store = media_data_store;
     airplay_video->num_uri = num_uri;
 }
 
-int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, int *count, float *duration, int num) {
+
+static int parse_media_playlist(media_item_t *media_item) {
+    const char *ptr = media_item->playlist;
+    char extm3u[] = "#EXTM3U";
+    char extinf[] = "#EXTINF:";
+    char extx[] = "#EXT-X-";
+    char playlist_type[] = "PLAYLIST-TYPE:";
+    char version[] = "VERSION:";
+    char media_sequence[] = "MEDIA-SEQUENCE:";
+    ptr = strstr(ptr, extm3u);
+    if (!ptr) {
+        return -1;
+    }
+    ptr++;
+    while (ptr) {
+        const char *ptr1 = NULL;
+        ptr = strstr(ptr, "#EXT");
+        if (!ptr || !memcmp(ptr, extinf, strlen(extinf))) {
+            break;
+        }
+        ptr = strstr(ptr, extx);
+        if (!ptr) {
+            break;
+        }
+        if ((ptr1 = strstr(ptr, playlist_type))) {
+            ptr1 += strlen(playlist_type);
+            if (!memcmp(ptr1,"VOD", strlen("VOD"))) {
+                media_item->playlist_type = VOD;
+            } else if (!memcmp(ptr1,"EVENT", strlen("EVENT"))) {
+                media_item->playlist_type = EVENT;
+            }
+            ptr1 = NULL;
+        }
+        if ((ptr1 = strstr(ptr, version))) {
+            char *endptr = NULL;
+            ptr1 += strlen(version);
+            media_item->hls_version = (int) strtol(ptr1, &endptr, 10);
+            ptr1 = NULL;
+        }
+        if ((ptr1 = strstr(ptr, media_sequence))) {
+            char *endptr = NULL;
+            ptr1 += strlen(media_sequence);
+            media_item->media_sequence = (int) strtol(ptr1, &endptr, 10);
+            ptr1 = NULL;
+        }
+        ptr += strlen(extx);
+    }
+    return 0;
+}
+
+int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, int *count, float *duration, bool *endlist, int num) {
     media_item_t *media_data_store = airplay_video->media_data_store;
     if ( num < 0 ||  num >= airplay_video->num_uri) {
         return -1;
@@ -571,9 +637,12 @@ int store_media_playlist(airplay_video_t *airplay_video, char * media_playlist, 
             return 1;
         }
     }
-    media_data_store[num].playlist = media_playlist;
-    media_data_store[num].count = *count;
-    media_data_store[num].duration = *duration;
+    media_item_t *media_item = &media_data_store[num];
+    media_item->playlist = media_playlist;
+    media_item->count = *count;
+    media_item->duration = *duration;
+    media_item->endlist = *endlist;
+    parse_media_playlist(media_item);
     return 0;
 }
 
@@ -600,18 +669,22 @@ char * get_media_uri_by_num(airplay_video_t *airplay_video, int num) {
     return NULL;
 }
 
-int analyze_media_playlist(char *playlist, float *duration) {
+int analyze_media_playlist(char *playlist, float *duration, bool *endlist) {
     float next;
     int count = 0;
     char *ptr = strstr(playlist, "#EXTINF:");
     *duration = 0.0f;
+    *endlist = false;
+    char *end = NULL;
     while (ptr != NULL) {
-        char *end;
         ptr += strlen("#EXTINF:");
         next = strtof(ptr, &end);
         *duration += next;
         count++;
         ptr = strstr(end, "#EXTINF:");
+    }
+    if (end) {
+        *endlist = (strstr(end, "#EXT-X-ENDLIST"));
     }
     return count;
 }

@@ -52,12 +52,12 @@ int get_next_media_uri_id(airplay_video_t *airplay_video);
 int get_num_media_uri(airplay_video_t *airplay_video);
 char *get_media_uri_by_num(airplay_video_t *airplay_video, int num);
 
-int analyze_media_playlist(char *playlist, float *duration);
+int analyze_media_playlist(char *playlist, float *duration, bool *endlist);
 int create_media_uri_table(const char *url_prefix, const char *master_playlist_data,
                            int datalen, char ***media_uri_table, int *num_uri);
 void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist);
 char *select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist);
-int store_media_playlist(airplay_video_t *airplay_video, char *media_playlist, int *count, float *duration, int num);
+int store_media_playlist(airplay_video_t *airplay_video, char *media_playlist, int *count, float *duration, bool*endlist, int num);
 char *get_master_playlist(airplay_video_t *airplay_video);
 char *get_media_playlist(airplay_video_t *airplay_video, int *count, float *duration, const char *uri);
 

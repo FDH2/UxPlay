@@ -672,10 +672,11 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         } else {
             /* this is a media playlist */
             float duration = 0.0f;
-            int count = analyze_media_playlist(playlist, &duration);
+            bool endlist = false;
+            int count = analyze_media_playlist(playlist, &duration, &endlist);
             int uri_num = get_next_media_uri_id(airplay_video);
             --uri_num;    // (next num is current num + 1)
-            int ret = store_media_playlist(airplay_video, playlist, &count, &duration, uri_num);
+            int ret = store_media_playlist(airplay_video, playlist, &count, &duration, &endlist, uri_num);
             if (ret == 1) {
                 logger_log(raop->logger, LOGGER_DEBUG,"media_playlist is a duplicate: do not store");
             } else if (count) {
