@@ -30,7 +30,6 @@ struct http_response_s {
 };
 
 
-#define MAX_RESPONSE_SIZE (64 * 1024)
 static void
 http_response_add_data(http_response_t *response, const char *data, int datalen)
 {
@@ -38,19 +37,9 @@ http_response_add_data(http_response_t *response, const char *data, int datalen)
     assert(data);
     assert(datalen > 0);
 
-    if (response->data_length + datalen > MAX_RESPONSE_SIZE) {
-        fprintf(stderr, "ERROR: http_response_add_data: cannot add data as MAX_RESPONSE_SIZE = %d would be exceeded\n",
-                (int) MAX_RESPONSE_SIZE); 
-        return;
-    }
-
     size_t newbufsize = response->buffer_size;
     while (response->data_length + datalen > newbufsize) {
         newbufsize *= 2;
-        if (newbufsize > MAX_RESPONSE_SIZE) {
-            newbufsize = MAX_RESPONSE_SIZE;
-            break;
-        }
     }
     if (newbufsize != response->buffer_size) {
         response->data = realloc(response->data, newbufsize);
