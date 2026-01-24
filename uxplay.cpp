@@ -202,7 +202,7 @@ static bool mux_to_file = false;
 static std::string mux_filename = "recording";
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
-static unsigned int scrsv;
+static unsigned int scrsv = 0;
 #ifdef DBUS 
 /* these strings can be changed at startup if a non-conforming Desktop Environmemt is detected */
 static std::string dbus_service = "org.freedesktop.ScreenSaver";
@@ -218,6 +218,7 @@ static const char *appname = DEFAULT_NAME;
 static const char *reason_always = "mirroring client: inhibit always";
 static const char *reason_active = "actively receiving video";
 static int activity_count;
+static float previous_hls_position = 0.0f;
 static double activity_threshold = 500000.0;  // threshold for FPSdata item txUsageAvg to classify mirror video as "active"
 #define MAX_ACTIVITY_COUNT 60
 #endif
@@ -2605,6 +2606,19 @@ extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *play
                                                  &playback_info->playback_buffer_full);
     playback_info->ready_to_play = true; //?
     playback_info->playback_likely_to_keep_up = true; //?
+    
+#ifdef DBUS
+    /*  this seems to be  called every second for first 900 secs (15 mins?) of HLS video, and subsequently
+	at 30 second intervals (use it to signal HLS video activity to  the  DBus screensaver inhibitor) */
+    if (scrsv == 1) {
+        if (playback_info->position > previous_hls_position && !dbus_last_message) {
+            dbus_screensaver_inhibiter(true);
+        } else if (playback_info->position == previous_hls_position && dbus_last_message) {
+            dbus_screensaver_inhibiter(false);
+        }
+        previous_hls_position = playback_info->position;
+    }
+#endif
     
     if (!still_playing) {
         LOGI(" video has finished, %f", playback_info->position);
