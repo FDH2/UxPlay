@@ -43,7 +43,7 @@ BuildRequires:  avahi-compat-mDNSResponder-devel
 BuildRequires:  gstreamer-devel
 BuildRequires:  gstreamer-plugins-base-devel
 Requires:       libopenssl3
-Requires:       libplist-2_0-3
+Requires:       libplist-2_0-4
 Requires:       gstreamer-plugins-base
 Requires:       gstreamer-plugins-good
 Requires:       gstreamer-plugins-bad
@@ -123,7 +123,9 @@ cd build
 
 %files
 %{_bindir}/uxplay
+%{_bindir}/uxplay-beacon.py
 %{_mandir}/man1/uxplay.1*
+%{_mandir}/man1/uxplay-beacon.1*
 
 %doc
 %{_docdir}/%{name}/README.txt
@@ -136,7 +138,7 @@ cd build
 %{_docdir}/%{name}/llhttp/LICENSE-MIT
 
 %changelog
-* Mon Nov 10 2025 UxPlay maintainer <https://github.com/FDH2/UxPlay>
+* Tue Jan 27 2026 UxPlay maintainer <https://github.com/FDH2/UxPlay>
   Update for 1.73 release
 * Mon Jul 7 2025 UxPlay maintainer <https://github.com/FDH2/UxPlay>
   Update for 1.72.2 release
