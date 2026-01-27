@@ -945,14 +945,14 @@ static void print_info (char *name) {
     printf("-vp ...   Choose the GSteamer h264 parser: default \"h264parse\"\n");
     printf("-vd ...   Choose the GStreamer h264 decoder; default \"decodebin\"\n");
     printf("          choices: (software) avdec_h264; (hardware) v4l2h264dec,\n");
-    printf("          nvdec, nvh264dec, vaapih64dec, vtdec,etc.\n");
+    printf("          nvdec, nvh264dec, vaapih264dec, vtdec,etc.\n");
     printf("          choices: avdec_h264,vaapih264dec,nvdec,nvh264dec,v4l2h264dec\n");
     printf("-vc ...   Choose the GStreamer videoconverter; default \"videoconvert\"\n");
     printf("          another choice when using v4l2h264dec: v4l2convert\n");
     printf("-vs ...   Choose the GStreamer videosink; default \"autovideosink\"\n");
     printf("          some choices: ximagesink,xvimagesink,vaapisink,glimagesink,\n");
     printf("          gtksink,waylandsink,kmssink,fbdevsink,osxvideosink,\n");
-    printf("          d3d11videosink,d3v12videosink, etc.\n");
+    printf("          d3d11videosink,d3d12videosink, etc.\n");
     printf("-vs 0     Streamed audio only, with no video display window\n");
     printf("-vrtp pl  Use rtph26[4,5]pay to send decoded video elsewhere: \"pl\"\n");
     printf("          is the remaining pipeline, starting with rtph26*pay options:\n");
