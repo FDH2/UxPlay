@@ -1977,6 +1977,9 @@ option input strings have valid UTF-8 encoding.   New option `-lang fr:es:en`
 to specify language preferences for YouTube  HLS videos when they offer a choice. 
 New option -mp4 for recording to a mp4 file (Mirror and Audio mode, not HLS)
 
+1.72.3 2025-12-20 Fix bug reported in CVE-2025-60458 whereby a specially-crafted
+client TEARDOWN request can crash UxPlay (denial of service attack).
+
 1.72.2 2025-07-07  Fix bug (typo) in DNS_SD advertisement introduced with -pw
 option.  Update llhttp to v 9.3.0
 
