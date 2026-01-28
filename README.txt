@@ -1363,8 +1363,8 @@ gstreamer-based test receiver is
     ! rtph264depay   ! h264parse   ! decodebin   ! videoconvert   !
     autovideosink sync=false 
 
-    _(Replace XXXX by the port you will use: make sure it is not blocked by a firewall; replace "264" by "265" if you are
-    streaming h265 video)._ 
+*(Replace XXXX by the port you will use: make sure it is not blocked by
+a firewall; replace "264" by "265" if you are streaming h265 video).*
 
 -   To use the -vrtp option with with OBS-studio, install the
     [obs-gstreamer](https://github.com/fzwoch/obs-gstreamer) plugin;
