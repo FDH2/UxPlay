@@ -859,9 +859,34 @@ static void destroy_window(void) {
 
 #pragma mark - VideoToolbox Decoder
 
+// Helper function to find next start code (supports both 3-byte and 4-byte)
+// Returns the position after the start code, or length if not found
+// Sets *start_code_len to the length of the start code found (3 or 4)
+static size_t find_next_start_code(const uint8_t *data, size_t length, size_t start, int *start_code_len) {
+    for (size_t i = start; i + 2 < length; i++) {
+        // Check for 3-byte start code: 00 00 01
+        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) {
+            // Check if it's actually a 4-byte start code: 00 00 00 01
+            if (i > 0 && data[i-1] == 0) {
+                // This is part of a 4-byte code, skip
+                continue;
+            }
+            *start_code_len = 3;
+            return i + 3;
+        }
+        // Check for 4-byte start code: 00 00 00 01
+        if (i + 3 < length && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
+            *start_code_len = 4;
+            return i + 4;
+        }
+    }
+    *start_code_len = 0;
+    return length;
+}
+
 static bool parse_sps_pps(const uint8_t *data, size_t length) {
     // Find SPS and PPS NAL units in the data (supports both H.264 and HEVC)
-    // NAL units are separated by 0x00 0x00 0x00 0x01
+    // NAL units are separated by start codes: 0x00 0x00 0x01 (3-byte) or 0x00 0x00 0x00 0x01 (4-byte)
     //
     // H.264 NAL types (5 bits, mask 0x1F):
     //   7 = SPS, 8 = PPS
@@ -870,68 +895,80 @@ static bool parse_sps_pps(const uint8_t *data, size_t length) {
     //   32 = VPS, 33 = SPS, 34 = PPS
 
     size_t i = 0;
-    while (i + 4 < length) {
-        if (data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
-            size_t nal_start = i + 4;
+    int start_code_len = 0;
 
-            // Find end of this NAL (next start code or end of data)
-            size_t nal_end = length;
-            for (size_t j = nal_start + 1; j + 3 < length; j++) {
-                if (data[j] == 0 && data[j+1] == 0 && data[j+2] == 0 && data[j+3] == 1) {
-                    nal_end = j;
-                    break;
-                }
-            }
+    // Find first start code
+    size_t nal_start = find_next_start_code(data, length, 0, &start_code_len);
 
-            size_t nal_size = nal_end - nal_start;
-            if (nal_size > 0) {
-                if (g_is_h265) {
-                    // HEVC: NAL type is in bits 1-6 of first byte
-                    uint8_t nal_type = (data[nal_start] >> 1) & 0x3F;
+    while (nal_start < length) {
+        // Find the end of this NAL (next start code or end of data)
+        int next_start_code_len = 0;
+        size_t next_start = nal_start;
+        size_t nal_end = length;
 
-                    if (nal_type == 32) { // VPS
-                        if (g_vps) free(g_vps);
-                        g_vps = malloc(nal_size);
-                        memcpy(g_vps, &data[nal_start], nal_size);
-                        g_vps_size = nal_size;
-                        log_msg(LOGGER_DEBUG, "Found HEVC VPS, size=%zu", nal_size);
-                    } else if (nal_type == 33) { // SPS
-                        if (g_sps) free(g_sps);
-                        g_sps = malloc(nal_size);
-                        memcpy(g_sps, &data[nal_start], nal_size);
-                        g_sps_size = nal_size;
-                        log_msg(LOGGER_DEBUG, "Found HEVC SPS, size=%zu", nal_size);
-                    } else if (nal_type == 34) { // PPS
-                        if (g_pps) free(g_pps);
-                        g_pps = malloc(nal_size);
-                        memcpy(g_pps, &data[nal_start], nal_size);
-                        g_pps_size = nal_size;
-                        log_msg(LOGGER_DEBUG, "Found HEVC PPS, size=%zu", nal_size);
-                    }
+        // Search for next start code
+        for (size_t j = nal_start + 1; j + 2 < length; j++) {
+            // Check for 3-byte start code
+            if (data[j] == 0 && data[j+1] == 0 && data[j+2] == 1) {
+                // Check if it's a 4-byte code
+                if (j > 0 && data[j-1] == 0) {
+                    nal_end = j - 1;  // Exclude the leading 00 of 4-byte code
                 } else {
-                    // H.264: NAL type is in bits 0-4
-                    uint8_t nal_type = data[nal_start] & 0x1F;
+                    nal_end = j;
+                }
+                next_start = (data[j-1] == 0 && j > 0) ? j - 1 : j;
+                break;
+            }
+        }
 
-                    if (nal_type == 7) { // SPS
-                        if (g_sps) free(g_sps);
-                        g_sps = malloc(nal_size);
-                        memcpy(g_sps, &data[nal_start], nal_size);
-                        g_sps_size = nal_size;
-                        log_msg(LOGGER_DEBUG, "Found H.264 SPS, size=%zu", nal_size);
-                    } else if (nal_type == 8) { // PPS
-                        if (g_pps) free(g_pps);
-                        g_pps = malloc(nal_size);
-                        memcpy(g_pps, &data[nal_start], nal_size);
-                        g_pps_size = nal_size;
-                        log_msg(LOGGER_DEBUG, "Found H.264 PPS, size=%zu", nal_size);
-                    }
+        size_t nal_size = nal_end - nal_start;
+        if (nal_size > 0) {
+            if (g_is_h265) {
+                // HEVC: NAL type is in bits 1-6 of first byte
+                uint8_t nal_type = (data[nal_start] >> 1) & 0x3F;
+
+                if (nal_type == 32) { // VPS
+                    if (g_vps) free(g_vps);
+                    g_vps = malloc(nal_size);
+                    memcpy(g_vps, &data[nal_start], nal_size);
+                    g_vps_size = nal_size;
+                    log_msg(LOGGER_DEBUG, "Found HEVC VPS, size=%zu", nal_size);
+                } else if (nal_type == 33) { // SPS
+                    if (g_sps) free(g_sps);
+                    g_sps = malloc(nal_size);
+                    memcpy(g_sps, &data[nal_start], nal_size);
+                    g_sps_size = nal_size;
+                    log_msg(LOGGER_DEBUG, "Found HEVC SPS, size=%zu", nal_size);
+                } else if (nal_type == 34) { // PPS
+                    if (g_pps) free(g_pps);
+                    g_pps = malloc(nal_size);
+                    memcpy(g_pps, &data[nal_start], nal_size);
+                    g_pps_size = nal_size;
+                    log_msg(LOGGER_DEBUG, "Found HEVC PPS, size=%zu", nal_size);
+                }
+            } else {
+                // H.264: NAL type is in bits 0-4
+                uint8_t nal_type = data[nal_start] & 0x1F;
+
+                if (nal_type == 7) { // SPS
+                    if (g_sps) free(g_sps);
+                    g_sps = malloc(nal_size);
+                    memcpy(g_sps, &data[nal_start], nal_size);
+                    g_sps_size = nal_size;
+                    log_msg(LOGGER_DEBUG, "Found H.264 SPS, size=%zu", nal_size);
+                } else if (nal_type == 8) { // PPS
+                    if (g_pps) free(g_pps);
+                    g_pps = malloc(nal_size);
+                    memcpy(g_pps, &data[nal_start], nal_size);
+                    g_pps_size = nal_size;
+                    log_msg(LOGGER_DEBUG, "Found H.264 PPS, size=%zu", nal_size);
                 }
             }
-
-            i = nal_end;
-        } else {
-            i++;
         }
+
+        // Move to next NAL
+        if (nal_end >= length) break;
+        nal_start = find_next_start_code(data, length, nal_end, &start_code_len);
     }
 
     // HEVC requires VPS+SPS+PPS, H.264 requires SPS+PPS
@@ -1312,10 +1349,11 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
 }
 
 void video_renderer_start(void) {
-    log_msg(LOGGER_INFO, "video_renderer_start called");
+    log_msg(LOGGER_INFO, "video_renderer_start called (initialized=%d, running=%d, decoder=%s)",
+            g_initialized, g_running, g_decoder_session ? "exists" : "none");
     g_running = true;
     g_paused = false;
-    log_msg(LOGGER_INFO, "Video renderer started");
+    log_msg(LOGGER_INFO, "Video renderer started and ready for frames");
 }
 
 void video_renderer_stop(void) {
@@ -1345,6 +1383,14 @@ void video_renderer_stop(void) {
     if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
     if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
 
+    // Flush texture cache to ensure clean state for new stream
+    if (g_texture_cache) {
+        CVMetalTextureCacheFlush(g_texture_cache, 0);
+    }
+
+    // Clear current texture reference
+    g_current_texture = nil;
+
     // Reset idle texture so it regenerates at the correct size
     g_idle_texture_created = false;
     g_idle_texture = nil;
@@ -1355,13 +1401,18 @@ void video_renderer_stop(void) {
     g_cover_art_texture = nil;
     g_cover_art = nil;
 
-    // Restore window to original size
+    // Restore window to original size and ensure it's ready for new connections
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (g_window && !g_fullscreen) {
-            NSRect frame = [g_window frame];
-            frame.size.width = 1280;
-            frame.size.height = 720;
-            [g_window setFrame:frame display:YES animate:YES];
+        if (g_window) {
+            if (!g_fullscreen) {
+                NSRect frame = [g_window frame];
+                frame.size.width = 1280;
+                frame.size.height = 720;
+                [g_window setFrame:frame display:YES animate:YES];
+            }
+            // Ensure window stays visible and responsive
+            [g_window makeKeyAndOrderFront:nil];
+            [NSApp activateIgnoringOtherApps:YES];
         }
     });
 
@@ -1432,18 +1483,19 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
         return 0;
     }
 
-    if (data[0] != 0) {
-        log_msg(LOGGER_ERR, "Invalid video data (decryption failed?) first byte=0x%02x", data[0]);
-        return 0;
-    }
-
-    // Log first frame info
+    // Log first frame info (or first frame after reconnection)
     if (g_frames_received == 1) {
-        log_msg(LOGGER_INFO, "=== FIRST VIDEO FRAME RECEIVED ===");
-        log_msg(LOGGER_INFO, "  Size: %d bytes, NAL count: %d", *data_len, *nal_count);
+        log_msg(LOGGER_INFO, "=== FIRST VIDEO FRAME RECEIVED (new stream) ===");
+        log_msg(LOGGER_INFO, "  Size: %d bytes, NAL count: %d, Codec: %s",
+                *data_len, *nal_count, g_is_h265 ? "H.265" : "H.264");
         log_msg(LOGGER_INFO, "  NTP time: %llu", *ntp_time);
+        log_msg(LOGGER_INFO, "  Decoder session: %s, SPS: %s, PPS: %s, VPS: %s",
+                g_decoder_session ? "exists" : "none",
+                g_sps ? "yes" : "no",
+                g_pps ? "yes" : "no",
+                g_vps ? "yes" : "no");
 
-        // Log first few bytes
+        // Log first few bytes to help debug
         char hex[64];
         int hex_len = (*data_len > 20) ? 20 : *data_len;
         for (int i = 0; i < hex_len; i++) {
@@ -1452,14 +1504,30 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
         log_msg(LOGGER_INFO, "  First bytes: %s", hex);
     }
 
+    // Soft validation - log warning but don't drop frame
+    // (some valid frames may not start with 0x00)
+    if (data[0] != 0 && g_frames_received <= 5) {
+        log_msg(LOGGER_WARNING, "Frame #%llu: first byte=0x%02x (expected 0x00 for start code)",
+                g_frames_received, data[0]);
+    }
+
     // Parse SPS/PPS if we don't have a decoder yet
     if (!g_decoder_session) {
-        log_msg(LOGGER_INFO, "No decoder session, looking for SPS/PPS...");
+        if (g_frames_received == 1 || (g_frames_received % 30 == 0)) {
+            log_msg(LOGGER_INFO, "No decoder session (frame #%llu), looking for SPS/PPS...", g_frames_received);
+        }
         if (parse_sps_pps(data, *data_len)) {
-            log_msg(LOGGER_INFO, "Found SPS/PPS, creating decoder session");
+            log_msg(LOGGER_INFO, "Found parameter sets - SPS:%zu bytes, PPS:%zu bytes%s",
+                    g_sps_size, g_pps_size, g_is_h265 ? ", VPS present" : "");
+            log_msg(LOGGER_INFO, "Creating decoder session...");
             create_decoder_session();
-        } else {
-            log_msg(LOGGER_DEBUG, "No SPS/PPS found yet, waiting...");
+            if (g_decoder_session) {
+                log_msg(LOGGER_INFO, "Decoder session created successfully");
+            } else {
+                log_msg(LOGGER_ERR, "Failed to create decoder session!");
+            }
+        } else if (g_frames_received == 1) {
+            log_msg(LOGGER_INFO, "No SPS/PPS found in first frame, waiting for keyframe...");
         }
     }
 
@@ -1775,6 +1843,27 @@ bool video_get_playback_info(double *duration, double *position, double *seek_st
 }
 
 int video_renderer_choose_codec(bool video_is_jpeg, bool video_is_h265) {
+    bool codec_changed = (g_is_h265 != video_is_h265);
     g_is_h265 = video_is_h265;
+
+    log_msg(LOGGER_INFO, "Codec selected: %s%s", video_is_h265 ? "H.265/HEVC" : "H.264",
+            codec_changed ? " (codec changed, will recreate decoder)" : "");
+
+    // If codec changed and we have an existing decoder, destroy it
+    // so a new one will be created with the correct format
+    if (codec_changed && g_decoder_session) {
+        log_msg(LOGGER_INFO, "Destroying existing decoder session due to codec change");
+        destroy_decoder_session();
+
+        // Clear old parameter sets since they're for the wrong codec
+        if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
+        if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
+        if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
+
+        // Reset frame state for new stream
+        g_first_frame = true;
+        g_frames_decoded = 0;
+    }
+
     return 0;
 }
