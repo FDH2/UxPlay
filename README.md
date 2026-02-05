@@ -910,6 +910,15 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
     affect the (small) initial OpenGL mirror window size, but the window
     can be expanded using the mouse or trackpad.
 
+-   **Experimental: Native macOS Renderer** - For potentially lower latency,
+    you can build UxPlay with a native macOS video renderer that uses
+    VideoToolbox (hardware H.264 decoding) and Metal (GPU rendering) instead
+    of GStreamer for video display. Build with:
+    `cmake .. -DUSE_NATIVE_MACOS_RENDERER=ON`
+    This bypasses GStreamer for video rendering while still using GStreamer
+    for audio. Note: This is experimental and may not support all features
+    (HLS video, image transforms, etc.).
+
 ## Building UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64 compiler.
 
 -   tested on Windows 10 and 11, 64-bit.
