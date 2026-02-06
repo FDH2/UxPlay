@@ -97,6 +97,8 @@ static CVMetalTextureCacheRef g_texture_cache = NULL;
 // Threading
 static pthread_mutex_t g_frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pending_frame = NULL;
+static bool g_has_new_frame = false;  // true when decoder has delivered a frame not yet rendered
+static dispatch_semaphore_t g_inflight_semaphore = NULL;  // triple-buffer: max 3 in-flight command buffers
 static uint64_t g_base_time = 0;
 static bool g_first_frame = true;
 
@@ -106,6 +108,22 @@ static uint64_t g_frames_decoded = 0;
 static uint64_t g_frames_rendered = 0;
 static uint64_t g_decode_errors = 0;
 static uint64_t g_last_stats_time = 0;
+static uint64_t g_last_frame_time = 0;  // mach_absolute_time of last decoded frame
+static const double FRAME_STALL_TIMEOUT = 2.0;  // seconds before showing idle screen
+static dispatch_source_t g_stall_timer = NULL;
+
+// Frame pacing
+static double g_source_frame_interval = 0.0;  // estimated source frame interval in seconds
+static uint64_t g_prev_decode_time = 0;        // mach_absolute_time of previous decoded frame
+
+// Debug FPS overlay
+static bool g_show_fps = false;
+static uint64_t g_fps_frame_count = 0;
+static uint64_t g_fps_last_time = 0;
+static double g_fps_display = 0.0;
+static double g_fps_source = 0.0;  // decoded fps
+static uint64_t g_fps_decode_count = 0;
+static uint64_t g_fps_decode_last_time = 0;
 
 // Forward declarations
 static void create_decoder_session(void);
@@ -203,6 +221,10 @@ static void toggle_fullscreen(void) {
                 toggle_fullscreen();
             }
             return;
+        } else if (c == 'd' || c == 'D') {
+            g_show_fps = !g_show_fps;
+            log_msg(LOGGER_INFO, "FPS overlay %s", g_show_fps ? "enabled" : "disabled");
+            return;
         } else if (c == 'q' || c == 'Q') {
             // Quit - send SIGTERM to self
             kill(getpid(), SIGTERM);
@@ -240,6 +262,7 @@ static void toggle_fullscreen(void) {
 - (void)toggleFullscreen:(id)sender;
 - (void)toggleAlwaysOnTop:(id)sender;
 - (void)togglePause:(id)sender;
+- (void)toggleFPS:(id)sender;
 - (void)quit:(id)sender;
 @end
 
@@ -272,6 +295,13 @@ static void toggle_fullscreen(void) {
 - (void)togglePause:(id)sender {
     g_paused = !g_paused;
     log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+}
+
+- (void)toggleFPS:(id)sender {
+    g_show_fps = !g_show_fps;
+    NSMenuItem *menuItem = (NSMenuItem *)sender;
+    [menuItem setState:g_show_fps ? NSControlStateValueOn : NSControlStateValueOff];
+    log_msg(LOGGER_INFO, "FPS overlay %s", g_show_fps ? "enabled" : "disabled");
 }
 
 - (void)quit:(id)sender {
@@ -368,6 +398,20 @@ static void create_menu_bar(void) {
 
     [playbackMenuItem setSubmenu:playbackMenu];
     [menuBar addItem:playbackMenuItem];
+
+    // Debug menu
+    NSMenuItem *debugMenuItem = [[NSMenuItem alloc] init];
+    NSMenu *debugMenu = [[NSMenu alloc] initWithTitle:@"Debug"];
+
+    NSMenuItem *fpsItem = [[NSMenuItem alloc] initWithTitle:@"Show FPS Overlay"
+                                                     action:@selector(toggleFPS:)
+                                              keyEquivalent:@"d"];
+    [fpsItem setTarget:g_menu_handler];
+    [fpsItem setState:g_show_fps ? NSControlStateValueOn : NSControlStateValueOff];
+    [debugMenu addItem:fpsItem];
+
+    [debugMenuItem setSubmenu:debugMenu];
+    [menuBar addItem:debugMenuItem];
 
     [NSApp setMainMenu:menuBar];
 }
@@ -467,9 +511,9 @@ static void create_idle_texture(size_t width, size_t height) {
         }
 
         // Draw subtle hint at top
-        NSString *hintText = @"Press F for fullscreen  |  Q to quit";
+        NSString *hintText = @"Press F to toggle into/out of fullscreen  |  Space to pause/resume  |  Q to quit";
         NSDictionary *hintAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.018 weight:NSFontWeightLight],
+            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.015 weight:NSFontWeightLight],
             NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.2],
             NSParagraphStyleAttributeName: paragraphStyle
         };
@@ -502,6 +546,114 @@ static void create_idle_texture(size_t width, size_t height) {
     }
 }
 
+#pragma mark - FPS Overlay
+
+static void update_fps_counters(void) {
+    mach_timebase_info_data_t timebase;
+    mach_timebase_info(&timebase);
+    uint64_t now = mach_absolute_time();
+
+    g_fps_frame_count++;
+    if (g_fps_last_time == 0) {
+        g_fps_last_time = now;
+        return;
+    }
+
+    double elapsed = (double)(now - g_fps_last_time) * timebase.numer / timebase.denom / 1e9;
+    if (elapsed >= 0.5) {
+        g_fps_display = g_fps_frame_count / elapsed;
+        g_fps_frame_count = 0;
+        g_fps_last_time = now;
+
+        // Snapshot decoded fps
+        double decode_elapsed = (double)(now - g_fps_decode_last_time) * timebase.numer / timebase.denom / 1e9;
+        if (decode_elapsed > 0) {
+            g_fps_source = g_fps_decode_count / decode_elapsed;
+        }
+        g_fps_decode_count = 0;
+        g_fps_decode_last_time = now;
+    }
+}
+
+static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture> drawable) {
+    if (!g_show_fps || !commandBuffer || !drawable) return;
+
+    @autoreleasepool {
+        size_t overlayW = 280;
+        size_t overlayH = 56;
+        size_t bytesPerRow = overlayW * 4;
+        uint8_t *pixels = (uint8_t *)calloc(overlayH * bytesPerRow, 1);
+
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        CGContextRef ctx = CGBitmapContextCreate(pixels, overlayW, overlayH, 8, bytesPerRow,
+                                                  colorSpace,
+                                                  kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        CGColorSpaceRelease(colorSpace);
+        if (!ctx) { free(pixels); return; }
+
+        // Semi-transparent black background with rounded corners
+        CGContextSetRGBFillColor(ctx, 0, 0, 0, 0.6);
+        CGRect bgRect = CGRectMake(0, 0, overlayW, overlayH);
+        CGPathRef path = CGPathCreateWithRoundedRect(bgRect, 8, 8, NULL);
+        CGContextAddPath(ctx, path);
+        CGContextFillPath(ctx);
+        CGPathRelease(path);
+
+        // Draw text
+        NSGraphicsContext *nsCtx = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:nsCtx];
+
+        NSDictionary *attrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:13 weight:NSFontWeightMedium],
+            NSForegroundColorAttributeName: [NSColor colorWithRed:0.2 green:1.0 blue:0.4 alpha:1.0]
+        };
+
+        NSString *fpsText = [NSString stringWithFormat:@" Render: %.1f fps  Source: %.1f fps", g_fps_display, g_fps_source];
+        [fpsText drawAtPoint:NSMakePoint(4, 22) withAttributes:attrs];
+
+        // Second line: frame interval
+        NSDictionary *subAttrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [NSColor colorWithWhite:0.7 alpha:1.0]
+        };
+        NSString *intervalText = [NSString stringWithFormat:@" Interval: %.1fms  Frames: %llu",
+                                  g_source_frame_interval * 1000.0, g_frames_rendered];
+        [intervalText drawAtPoint:NSMakePoint(4, 4) withAttributes:subAttrs];
+
+        [NSGraphicsContext restoreGraphicsState];
+        CGContextRelease(ctx);
+
+        // Create texture and blit to top-left corner of drawable
+        MTLTextureDescriptor *desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                        width:overlayW
+                                                                                       height:overlayH
+                                                                                    mipmapped:NO];
+        desc.usage = MTLTextureUsageShaderRead;
+        id<MTLTexture> overlayTex = [g_metal_device newTextureWithDescriptor:desc];
+        [overlayTex replaceRegion:MTLRegionMake2D(0, 0, overlayW, overlayH)
+                      mipmapLevel:0
+                        withBytes:pixels
+                      bytesPerRow:bytesPerRow];
+        free(pixels);
+
+        // Blit to top-left with 10px margin
+        id<MTLBlitCommandEncoder> blit = [commandBuffer blitCommandEncoder];
+        size_t destX = 10;
+        size_t destY = drawable.height - overlayH - 10;  // top-left (Metal Y is bottom-up)
+        [blit copyFromTexture:overlayTex
+                  sourceSlice:0
+                  sourceLevel:0
+                 sourceOrigin:MTLOriginMake(0, 0, 0)
+                   sourceSize:MTLSizeMake(overlayW, overlayH, 1)
+                    toTexture:drawable
+             destinationSlice:0
+             destinationLevel:0
+            destinationOrigin:MTLOriginMake(destX, destY, 0)];
+        [blit endEncoding];
+    }
+}
+
 #pragma mark - Metal Renderer
 
 @interface MetalRenderer : NSObject <MTKViewDelegate>
@@ -516,21 +668,29 @@ static void create_idle_texture(size_t width, size_t height) {
 }
 
 - (void)drawInMTKView:(MTKView *)view {
+    // Grab the latest frame atomically
     pthread_mutex_lock(&g_frame_mutex);
     CVPixelBufferRef pixelBuffer = g_pending_frame;
+    bool isNewFrame = g_has_new_frame;
     if (pixelBuffer) {
         CVPixelBufferRetain(pixelBuffer);
     }
+    g_has_new_frame = false;
     pthread_mutex_unlock(&g_frame_mutex);
 
-    // If showing cover art, display the cover art texture
+    // Static content (cover art / idle) - only redraw when state changes
     if (g_showing_cover_art && g_cover_art_texture_created && g_cover_art_texture) {
+        if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
         @autoreleasepool {
+            dispatch_semaphore_wait(g_inflight_semaphore, DISPATCH_TIME_FOREVER);
             id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull cb) {
+                (void)cb;
+                dispatch_semaphore_signal(g_inflight_semaphore);
+            }];
             id<CAMetalDrawable> drawable = [view currentDrawable];
 
-            if (drawable && commandBuffer && g_metal_device) {
-                // Use MPS scaler for high-quality scaling to fit drawable
+            if (drawable && g_metal_device) {
                 MPSImageBilinearScale *scaler = [[MPSImageBilinearScale alloc] initWithDevice:g_metal_device];
 
                 double srcAspect = (double)g_cover_art_texture.width / (double)g_cover_art_texture.height;
@@ -550,7 +710,6 @@ static void create_idle_texture(size_t width, size_t height) {
                 MPSScaleTransform transform = { .scaleX = scaleX, .scaleY = scaleY, .translateX = translateX, .translateY = translateY };
                 scaler.scaleTransform = &transform;
 
-                // Clear first
                 MTLRenderPassDescriptor *clearPass = [MTLRenderPassDescriptor renderPassDescriptor];
                 clearPass.colorAttachments[0].texture = drawable.texture;
                 clearPass.colorAttachments[0].loadAction = MTLLoadActionClear;
@@ -565,26 +724,30 @@ static void create_idle_texture(size_t width, size_t height) {
 
                 [commandBuffer presentDrawable:drawable];
                 [commandBuffer commit];
+            } else {
+                dispatch_semaphore_signal(g_inflight_semaphore);
             }
         }
-        if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
         return;
     }
 
-    // If no frame, show idle screen
+    // No frame available - show idle screen
     if (!pixelBuffer) {
         @autoreleasepool {
+            dispatch_semaphore_wait(g_inflight_semaphore, DISPATCH_TIME_FOREVER);
             id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+            [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull cb) {
+                (void)cb;
+                dispatch_semaphore_signal(g_inflight_semaphore);
+            }];
             id<CAMetalDrawable> drawable = [view currentDrawable];
 
-            if (drawable && commandBuffer && g_metal_device) {
-                // Create idle texture if needed
+            if (drawable && g_metal_device) {
                 if (!g_idle_texture_created || !g_idle_texture) {
                     create_idle_texture(drawable.texture.width, drawable.texture.height);
                 }
 
                 if (g_idle_texture) {
-                    // Blit idle texture to drawable
                     id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
                     [blitEncoder copyFromTexture:g_idle_texture
                                      sourceSlice:0
@@ -599,17 +762,32 @@ static void create_idle_texture(size_t width, size_t height) {
 
                     [commandBuffer presentDrawable:drawable];
                     [commandBuffer commit];
+                } else {
+                    dispatch_semaphore_signal(g_inflight_semaphore);
                 }
+            } else {
+                dispatch_semaphore_signal(g_inflight_semaphore);
             }
         }
         return;
     }
 
+    // No new frame since last render - skip GPU work, just release the buffer
+    if (!isNewFrame) {
+        CVPixelBufferRelease(pixelBuffer);
+        return;
+    }
+
     @autoreleasepool {
+        dispatch_semaphore_wait(g_inflight_semaphore, DISPATCH_TIME_FOREVER);
         id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+        [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull cb) {
+                (void)cb;
+            dispatch_semaphore_signal(g_inflight_semaphore);
+        }];
         id<CAMetalDrawable> drawable = [view currentDrawable];
 
-        if (drawable && commandBuffer) {
+        if (drawable) {
             // Create texture from pixel buffer
             size_t srcWidth = CVPixelBufferGetWidth(pixelBuffer);
             size_t srcHeight = CVPixelBufferGetHeight(pixelBuffer);
@@ -626,6 +804,13 @@ static void create_idle_texture(size_t width, size_t height) {
                 &metalTexture
             );
 
+            if (result != kCVReturnSuccess || !metalTexture) {
+                static uint64_t texture_errors = 0;
+                if (++texture_errors <= 5 || texture_errors % 100 == 0) {
+                    log_msg(LOGGER_ERR, "CVMetalTextureCacheCreateTextureFromImage failed: %d (error count: %llu, size: %zux%zu)",
+                            (int)result, texture_errors, srcWidth, srcHeight);
+                }
+            }
             if (result == kCVReturnSuccess && metalTexture) {
                 id<MTLTexture> texture = CVMetalTextureGetTexture(metalTexture);
 
@@ -722,12 +907,23 @@ static void create_idle_texture(size_t width, size_t height) {
                                 sourceTexture:texture
                            destinationTexture:drawable.texture];
 
-                [commandBuffer presentDrawable:drawable];
+                // FPS overlay (drawn on top of video)
+                update_fps_counters();
+                render_fps_overlay(commandBuffer, drawable.texture);
+
+                // Frame pacing: hold each frame for a consistent duration
+                if (g_source_frame_interval > 0.0) {
+                    [commandBuffer presentDrawable:drawable afterMinimumDuration:g_source_frame_interval];
+                } else {
+                    [commandBuffer presentDrawable:drawable];
+                }
                 [commandBuffer commit];
 
                 g_frames_rendered++;
                 CFRelease(metalTexture);
             }
+        } else {
+            dispatch_semaphore_signal(g_inflight_semaphore);
         }
     }
 
@@ -770,7 +966,10 @@ static void create_window(const char *title) {
             g_metal_view = [[UxPlayMetalView alloc] initWithFrame:frame device:g_metal_device];
             g_metal_view.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
             g_metal_view.framebufferOnly = NO;
-            g_metal_view.preferredFramesPerSecond = 60;
+            g_metal_view.preferredFramesPerSecond = NSScreen.mainScreen.maximumFramesPerSecond;
+
+            // Triple-buffer semaphore for smooth GPU pipelining
+            g_inflight_semaphore = dispatch_semaphore_create(3);
 
             g_metal_renderer = [[MetalRenderer alloc] init];
             g_metal_view.delegate = g_metal_renderer;
@@ -831,6 +1030,29 @@ static void create_window(const char *title) {
                 log_msg(LOGGER_INFO, "Starting in fullscreen mode");
             }
 
+            // Start stall detection timer (checks every second)
+            g_stall_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+            dispatch_source_set_timer(g_stall_timer, dispatch_time(DISPATCH_TIME_NOW, 0), NSEC_PER_SEC, NSEC_PER_SEC / 4);
+            dispatch_source_set_event_handler(g_stall_timer, ^{
+                if (g_last_frame_time > 0) {
+                    mach_timebase_info_data_t timebase;
+                    mach_timebase_info(&timebase);
+                    double elapsed = (double)(mach_absolute_time() - g_last_frame_time) * timebase.numer / timebase.denom / 1e9;
+                    if (elapsed > FRAME_STALL_TIMEOUT) {
+                        pthread_mutex_lock(&g_frame_mutex);
+                        if (g_pending_frame) {
+                            CVPixelBufferRelease(g_pending_frame);
+                            g_pending_frame = NULL;
+                        }
+                        pthread_mutex_unlock(&g_frame_mutex);
+                        g_last_frame_time = 0;
+                        update_window_title("Ready");
+                        log_msg(LOGGER_INFO, "Stream stalled, returning to idle screen");
+                    }
+                }
+            });
+            dispatch_resume(g_stall_timer);
+
             log_msg(LOGGER_INFO, "Native macOS window created with Metal rendering (F=fullscreen, ESC=exit fullscreen, Q=quit)");
         }
     });
@@ -853,6 +1075,10 @@ static void destroy_window(void) {
             g_metal_renderer = nil;
             g_metal_device = nil;
             g_command_queue = nil;
+            if (g_stall_timer) {
+                dispatch_source_cancel(g_stall_timer);
+                g_stall_timer = NULL;
+            }
         }
     });
 }
@@ -1057,8 +1283,13 @@ static void create_decoder_session(void) {
     CFDictionarySetValue(buffer_attrs, kCVPixelBufferPixelFormatTypeKey, pixel_format_ref);
     CFRelease(pixel_format_ref);
 
-    // Enable Metal compatibility
+    // Enable Metal compatibility and IOSurface backing (required for CVMetalTextureCache)
     CFDictionarySetValue(buffer_attrs, kCVPixelBufferMetalCompatibilityKey, kCFBooleanTrue);
+    CFDictionaryRef io_surface_props = CFDictionaryCreate(kCFAllocatorDefault, NULL, NULL, 0,
+                                                          &kCFTypeDictionaryKeyCallBacks,
+                                                          &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(buffer_attrs, kCVPixelBufferIOSurfacePropertiesKey, io_surface_props);
+    CFRelease(io_surface_props);
 
     // Callback
     VTDecompressionOutputCallbackRecord callback = {
@@ -1122,6 +1353,26 @@ static void decompress_callback(void *decompressionOutputRefCon,
     }
 
     g_frames_decoded++;
+    g_fps_decode_count++;
+    uint64_t now = mach_absolute_time();
+    g_last_frame_time = now;
+
+    // Estimate source frame interval using exponential moving average
+    if (g_prev_decode_time > 0) {
+        mach_timebase_info_data_t timebase;
+        mach_timebase_info(&timebase);
+        double interval = (double)(now - g_prev_decode_time) * timebase.numer / timebase.denom / 1e9;
+        // Only consider reasonable intervals (8ms to 50ms → 20fps to 120fps)
+        if (interval > 0.008 && interval < 0.050) {
+            if (g_source_frame_interval <= 0.0) {
+                g_source_frame_interval = interval;
+            } else {
+                // Smooth: 90% old, 10% new to absorb jitter
+                g_source_frame_interval = g_source_frame_interval * 0.9 + interval * 0.1;
+            }
+        }
+    }
+    g_prev_decode_time = now;
 
     size_t width = CVPixelBufferGetWidth(imageBuffer);
     size_t height = CVPixelBufferGetHeight(imageBuffer);
@@ -1159,12 +1410,18 @@ static void decompress_callback(void *decompressionOutputRefCon,
         });
     }
 
+    // When paused, keep decoding but don't update the displayed frame
+    if (g_paused) {
+        return;
+    }
+
     // Store frame for rendering
     pthread_mutex_lock(&g_frame_mutex);
     if (g_pending_frame) {
         CVPixelBufferRelease(g_pending_frame);
     }
     g_pending_frame = CVPixelBufferRetain(imageBuffer);
+    g_has_new_frame = true;
     pthread_mutex_unlock(&g_frame_mutex);
 
     log_stats();
@@ -1377,6 +1634,8 @@ void video_renderer_stop(void) {
     g_frames_decoded = 0;
     g_frames_rendered = 0;
     g_decode_errors = 0;
+    g_source_frame_interval = 0.0;
+    g_prev_decode_time = 0;
 
     // Clear old SPS/PPS/VPS so new stream can set them
     if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
@@ -1395,28 +1654,26 @@ void video_renderer_stop(void) {
     g_idle_texture_created = false;
     g_idle_texture = nil;
 
-    // Reset cover art state
-    g_showing_cover_art = false;
-    g_cover_art_texture_created = false;
-    g_cover_art_texture = nil;
-    g_cover_art = nil;
-
-    // Restore window to original size and ensure it's ready for new connections
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (g_window) {
-            if (!g_fullscreen) {
-                NSRect frame = [g_window frame];
-                frame.size.width = 1280;
-                frame.size.height = 720;
-                [g_window setFrame:frame display:YES animate:YES];
+    // Preserve cover art state - cover art should persist across stream resets
+    // It will be cleared when a real video stream starts or the renderer is destroyed
+    if (!g_showing_cover_art) {
+        // Restore window to original size and ensure it's ready for new connections
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (g_window) {
+                if (!g_fullscreen) {
+                    NSRect frame = [g_window frame];
+                    frame.size.width = 1280;
+                    frame.size.height = 720;
+                    [g_window setFrame:frame display:YES animate:YES];
+                }
+                // Ensure window stays visible and responsive
+                [g_window makeKeyAndOrderFront:nil];
+                [NSApp activateIgnoringOtherApps:YES];
             }
-            // Ensure window stays visible and responsive
-            [g_window makeKeyAndOrderFront:nil];
-            [NSApp activateIgnoringOtherApps:YES];
-        }
-    });
+        });
 
-    update_window_title("Ready");
+        update_window_title("Ready");
+    }
     log_msg(LOGGER_INFO, "Video renderer stopped - ready for new stream");
 }
 
@@ -1455,7 +1712,15 @@ void video_renderer_resume(void) {
 }
 
 int video_renderer_cycle(void) {
-    // Nothing needed - Metal view handles its own render loop
+    // Clear expired cover art - called by uxplay when coverart has expired
+    if (g_showing_cover_art) {
+        g_showing_cover_art = false;
+        g_cover_art_texture_created = false;
+        g_cover_art_texture = nil;
+        g_cover_art = nil;
+        log_msg(LOGGER_INFO, "Cover art expired, returning to idle screen");
+        update_window_title(NULL);
+    }
     return 0;
 }
 
@@ -1472,8 +1737,8 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
         log_msg(LOGGER_INFO, "Switching from cover art to video mode");
     }
 
-    if (!g_running || g_paused) {
-        log_msg(LOGGER_DEBUG, "Renderer not running/paused, dropping frame");
+    if (!g_running) {
+        log_msg(LOGGER_DEBUG, "Renderer not running, dropping frame");
         return 0;
     }
 
