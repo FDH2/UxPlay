@@ -946,6 +946,7 @@ raop_handler_setup(raop_conn_t *conn,
             switch (type) {
             case 110: {
                 // Mirroring
+                raop_destroy_airplay_video(raop, -1);  //cleanup any hls data still present when mirror video starts
                 unsigned short dport = raop->mirror_data_lport;
                 plist_t stream_id_node = plist_dict_get_item(req_stream_node, "streamConnectionID");
                 uint64_t stream_connection_id = 0;

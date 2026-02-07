@@ -3225,7 +3225,6 @@ int main (int argc, char *argv[]) {
         if (use_video && (close_window || preserve_connections)) {
             video_renderer_destroy();
             if (!preserve_connections) {
-                raop_destroy_airplay_video(raop, -1);
                 url.erase();
                 raop_remove_known_connections(raop);
             }
