@@ -53,10 +53,10 @@ static gboolean hls_seek_enabled = FALSE;
 static gboolean hls_playing = FALSE;
 static gboolean hls_buffer_empty = FALSE;
 static gboolean hls_buffer_full = FALSE;
-static int type_264 = 0;
-static int type_265 = 0;
-static int type_hls = 0;
-static int type_jpeg = 0;
+static int type_264 = -1;
+static int type_265 = -1;
+static int type_hls = -1;
+static int type_jpeg = -1;
 
 typedef enum {
   //GST_PLAY_FLAG_VIDEO         = (1 << 0),
@@ -74,7 +74,7 @@ typedef enum {
   //GST_PLAY_FLAG_FORCE_SW_DECODERS = (1 << 12),
 } GstPlayFlags;
 
-#define NCODECS  3   /* renderers for h264,h265, and jpeg images */
+#define NCODECS  4  /* renderers for all of h264,h265,jpeg images, and hls */
 
 struct video_renderer_s {
     GstElement *appsrc, *pipeline, *textsrc;
@@ -83,6 +83,7 @@ struct video_renderer_s {
     bool autovideo;
     int id;
     char *uri;
+    gboolean active;
     gboolean eos;
     gint64 duration;
     gint buffering_level;
@@ -223,12 +224,12 @@ GstElement *make_video_sink(const char *videosink, const char *videosink_options
 }
 
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
-                          const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
-                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
+                         const char *decoder, const char *converter, const char *videosink, const char *videosink_options,
+                         bool initial_fullscreen, bool video_sync, bool h265_support, bool hls_support, bool coverart_support,
+                         guint playbin_version) {
     GError *error = NULL;
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
-    hls_video = (uri != NULL);
     /* videosink choices that are auto */
     auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
 
@@ -253,25 +254,19 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     if (!appname || strcmp(appname,server_name))  g_set_application_name(server_name);
     appname = NULL;
     n_renderers = 1;
-    /* the renderer for hls video will only be built if a HLS uri is provided in 
-     * the call to video_renderer_init, in which case the h264/h265 mirror-mode and jpeg
-     * audio-mode renderers will not be built.   This is because it appears that we cannot  
-     * put playbin into GST_STATE_READY before knowing the uri (?), so cannot use a
-     * unified renderer structure with h264, h265, jpeg and hls  */  
-    if (hls_video) {
-        type_hls = 0;
-    } else {
-        type_264 = 0;
-        if (h265_support) {
-            type_265 = n_renderers++;
-        }
-        if (coverart_support) {
-            type_jpeg = n_renderers++;
-        }
+    type_264 = 0;
+    if (h265_support) {
+        type_265 = n_renderers++;
+    }
+    if (coverart_support) {
+        type_jpeg = n_renderers++;
+    }
+    if (hls_support) {
+        type_hls = n_renderers++;
     }
     g_assert (n_renderers <= NCODECS);
     for (int i = 0; i < n_renderers; i++) {
-        g_assert (i < 3);
+        g_assert (i < 4);
         renderer_type[i] = (video_renderer_t *) calloc(1, sizeof(video_renderer_t));
         g_assert(renderer_type[i]);
         renderer_type[i]->autovideo = auto_videosink;
@@ -281,9 +276,12 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         renderer_type[i]->textsrc = NULL;
         renderer_type[i]->uri = NULL;
         renderer_type[i]->eos = FALSE;
-        if (hls_video) {
-            renderer_type[i]->uri = (char *) calloc(strlen(uri) + 1, sizeof(char));
-            memcpy(renderer_type[i]->uri, uri, strlen(uri));
+        renderer_type[i]->active = FALSE;
+        bool jpeg_pipeline = false;
+        bool hls_pipeline = false;
+        bool mirror_pipeline = false;
+        if (i == type_hls) {
+            hls_pipeline = true;
             /* use playbin3 to play HLS video: replace "playbin3" by "playbin" to use playbin2 */
             switch (playbin_version)  {
             case 2:
@@ -296,7 +294,6 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                 logger_log(logger, LOGGER_ERR, "video_renderer_init: invalid playbin version %u", playbin_version);
                 g_assert(0);
             }
-            logger_log(logger, LOGGER_INFO, "Will use GStreamer playbin version %u to play HLS streamed video", playbin_version);	    
             g_assert(renderer_type[i]->pipeline);
             renderer_type[i]->codec = hls;
             /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
@@ -314,26 +311,27 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             flags |= GST_PLAY_FLAG_DOWNLOAD;
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
-            //g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
+            logger_log(logger, LOGGER_DEBUG, "GStreamer video pipeline %d: using playbin version %u to play HLS streamed video", i + 1, playbin_version);
+        } else if (i == type_264) {
+            mirror_pipeline = true;
+            renderer_type[i]->codec = h264;
+            caps = gst_caps_from_string(h264_caps);
+        } else if (i == type_265) {
+            mirror_pipeline = true;
+            renderer_type[i]->codec = h265;
+            caps = gst_caps_from_string(h265_caps);
+        } else if (i == type_jpeg) {
+            jpeg_pipeline = true;
+            renderer_type[i]->codec = jpeg;
+            caps = gst_caps_from_string(jpeg_caps);
         } else {
-            bool jpeg_pipeline = false;
-            if (i == type_264) {
-                renderer_type[i]->codec = h264;
-                caps = gst_caps_from_string(h264_caps);
-            } else if (i == type_265) {
-                renderer_type[i]->codec = h265;
-                caps = gst_caps_from_string(h265_caps);
-            } else if (i == type_jpeg) {
-                jpeg_pipeline = true;
-                renderer_type[i]->codec = jpeg;
-                caps = gst_caps_from_string(jpeg_caps);
-            } else {
-                g_assert(0);
-            }
+            g_assert(0);
+        }
+        if (!hls_pipeline) {
             GString *launch = g_string_new("appsrc name=video_source ! ");
             if (jpeg_pipeline) {
                 g_string_append(launch, "jpegdec ");
-            } else {
+            } else if (mirror_pipeline) {
                 g_string_append(launch, "queue ! ");
                 g_string_append(launch, parser);
                 g_string_append(launch, " ! ");
@@ -344,7 +342,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                     g_string_append(launch, rtp_pipeline);
                 }
             }
-            if (!rtp || jpeg_pipeline) {
+            if ((!rtp && mirror_pipeline) || jpeg_pipeline) {
                 g_string_append(launch, " ! ");
                 append_videoflip(launch, &videoflip[0], &videoflip[1]);
                 g_string_append(launch, converter);
@@ -385,11 +383,11 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             renderer_type[i]->pipeline = gst_parse_launch(launch->str, &error);
             if (error) {
                 logger_log(logger, LOGGER_ERR, "GStreamer gst_parse_launch failed to create video pipeline %d\n"
-                           "*** error message from gst_parse_launch was:\n%s\n"
-                           "launch string parsed was \n[%s]", i + 1, error->message, launch->str);
+                       "*** error message from gst_parse_launch was:\n%s\n"
+                       "launch string parsed was \n[%s]", i + 1, error->message, launch->str);
                 if (strstr(error->message, "no element")) {
                     logger_log(logger, LOGGER_ERR, "This error usually means that a uxplay option was mistyped\n"
-                               "           or some requested part of GStreamer is not installed\n");
+                           "           or some requested part of GStreamer is not installed\n");
                 }
                 g_clear_error (&error);
             }
@@ -443,9 +441,6 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         GstStateChangeReturn ret = gst_element_get_state (renderer_type[i]->pipeline, &state, NULL, 100 * GST_MSECOND);
         if (ret == GST_STATE_CHANGE_SUCCESS) {
             logger_log(logger, LOGGER_DEBUG, "Initialized GStreamer video renderer %d", i + 1);
-            if (hls_video && i == 0) {
-                renderer = renderer_type[i];
-            }
         } else {
             logger_log(logger, LOGGER_ERR, "Failed to initialize GStreamer video renderer %d", i + 1);
             logger_log(logger, LOGGER_INFO, "\nPerhaps your GStreamer installation is missing some required plugins,"
@@ -480,22 +475,34 @@ void video_renderer_resume() {
     }
 }
 
-void video_renderer_start() {
+void video_renderer_start(const char *uri) {
     GstState state;
     const gchar *state_name = NULL;
-    if (hls_video) {
+    if (uri) {
+        hls_video = true;
+        g_assert(type_hls >= 0);
+        renderer = renderer_type[type_hls];
+        renderer->uri = (char *) calloc(strlen(uri) + 1, sizeof(char));
+        memcpy(renderer->uri, uri, strlen(uri));
         g_object_set (G_OBJECT (renderer->pipeline), "uri", renderer->uri, NULL);
         gst_element_set_state (renderer->pipeline, GST_STATE_PAUSED);
-	gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
-	state_name = gst_element_state_get_name(state);
-	logger_log(logger, LOGGER_DEBUG, "video renderer_start: state %s", state_name);
+        gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
+        state_name = gst_element_state_get_name(state);
+        renderer->active = TRUE;
+        logger_log(logger, LOGGER_DEBUG, "video renderer_start: state %s", state_name);
+        video_renderer_choose_codec (false, false, true);
         return;
     } 
-    /* when not hls, start both h264 and h265 pipelines; will shut down the "wrong" one when we know the codec */
+    /* when not hls, start h264, h265, and jpeg  pipelines; will shut down the "wrong" ones when we know the codec */
+    hls_video=false;
     for (int i = 0; i < n_renderers; i++) {
+        if (i == type_hls) {
+            continue;
+        }
         gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_PAUSED);
         gst_element_get_state(renderer_type[i]->pipeline, &state, NULL, 1000 * GST_MSECOND);
         state_name = gst_element_state_get_name(state);
+        renderer_type[i]->active = TRUE; 
         logger_log(logger, LOGGER_DEBUG, "video renderer_start: renderer %d %p state %s", i, renderer_type[i], state_name);
     }
     renderer = NULL;
@@ -658,8 +665,14 @@ void video_renderer_stop() {
             gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
         }
         gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-        //gst_element_set_state (renderer->playbin, GST_STATE_NULL);
-     }
+        renderer->active = FALSE;
+        GstState state;
+        gst_element_get_state(renderer->pipeline, &state, NULL, 100 * GST_MSECOND);
+        while (state != GST_STATE_NULL) {
+            gst_element_get_state(renderer->pipeline, &state, NULL, 100 * GST_MSECOND);
+        }
+        gst_element_set_state (renderer->pipeline, GST_STATE_READY);
+    }
 }
 
 void video_renderer_set_device_model(const char *model, const char *name) {
@@ -696,7 +709,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         gst_element_get_state(renderer->pipeline, &state, NULL, 100 * GST_MSECOND);
         logger_log(logger, LOGGER_DEBUG,"pipeline state is %s", gst_element_state_get_name(state));
         if (state != GST_STATE_NULL) {
-            if (!hls_video) {
+            if (renderer->appsrc) {
                 gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
             }
             ret = gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
@@ -717,7 +730,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         gst_object_unref(renderer->pipeline);
 #ifdef X_DISPLAY_FIX
         if (renderer->gst_window){
-	  // free_X11_Display(renderer->gst_window);   without this, a memory leak; with it, a coredump
+            // free_X11_Display(renderer->gst_window);   without this, a memory leak; with it, a coredump
             free(renderer->gst_window);
             renderer->gst_window = NULL;
         }
@@ -1010,10 +1023,12 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
     return TRUE;
 }
 
-int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
+int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265, bool video_is_hls) {
     video_renderer_t *renderer_used = NULL;
-    g_assert(!hls_video);
-    if (video_is_jpeg) {
+    if (video_is_hls) {
+        g_assert(type_hls != -1);
+        renderer_used = renderer_type[type_hls];	 
+    } else if (video_is_jpeg) {
         g_assert(type_jpeg != -1);
         renderer_used = renderer_type[type_jpeg];
     } else {
@@ -1030,38 +1045,57 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
     }
     if (renderer_used == NULL) {
         return -1;
-    } else if (renderer_used == renderer) {
-        return 0;
-    } else if (renderer) {
-        return -1;
     }
-    renderer = renderer_used;
-    gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
-    GstState old_state, new_state;
-    if (gst_element_get_state(renderer->pipeline, &old_state, &new_state, 100 * GST_MSECOND) == GST_STATE_CHANGE_FAILURE) {
-        g_error("video pipeline failed to go into playing state");
-        return -1;
+
+    if (!video_is_hls) {   // hls renderer is already set to GST_STATE_PLAYING
+        if (renderer_used == renderer) {
+            return 0;
+        } else if (renderer) {
+            return -1;
+        }
+        renderer = renderer_used;
+        gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
+        GstState old_state, new_state;
+        if (gst_element_get_state(renderer->pipeline, &old_state, &new_state, 100 * GST_MSECOND) == GST_STATE_CHANGE_FAILURE) {
+            g_error("video pipeline failed to go into playing state");
+            return -1;
+        }
+        logger_log(logger, LOGGER_DEBUG, "video_pipeline state change from %s to %s\n",
+                   gst_element_state_get_name (old_state),gst_element_state_get_name (new_state));
+        gst_video_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
+        if (strstr(renderer->codec, h265)) {
+            logger_log(logger, LOGGER_INFO, "*** video format is h265 high definition (HD/4K) video %dx%d", width, height);
+        }
     }
-    logger_log(logger, LOGGER_DEBUG, "video_pipeline state change from %s to %s\n",
-               gst_element_state_get_name (old_state),gst_element_state_get_name (new_state));
-    gst_video_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
-    if (strstr(renderer->codec, h265)) {
-        logger_log(logger, LOGGER_INFO, "*** video format is h265 high definition (HD/4K) video %dx%d", width, height);
-    }
-    /* destroy unused renderers */
+
+    /* shut down unused active renderers back to state GST_STATE_READY*/
     for (int i = 0; i < n_renderers; i++) {
         if (renderer_type[i] == renderer) {
             continue;
         }
-	if (renderer_type[i]) {
-            video_renderer_t *renderer_unused = renderer_type[i];
-            renderer_type[i] = NULL;
-            video_renderer_destroy_instance(renderer_unused);
+        if (!renderer_type[i]->active) {
+            continue;
         }
+        if (renderer_type[i]->appsrc) {
+            gst_app_src_end_of_stream (GST_APP_SRC(renderer_type[i]->appsrc));
+        }
+        GstState state;
+        GstStateChangeReturn ret;
+        ret = gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_NULL);
+        renderer_type[i]->active = FALSE;
+        logger_log(logger, LOGGER_DEBUG,"pipeline %d state change to NULL:  %s", i,
+                   gst_element_state_change_return_get_name(ret));
+
+        gst_element_get_state(renderer_type[i]->pipeline, &state, NULL, 100 * GST_MSECOND);
+        while (state != GST_STATE_NULL) {
+            gst_element_get_state(renderer_type[i]->pipeline, &state, NULL, 100 * GST_MSECOND);
+        }
+        ret = gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_READY);
+        logger_log(logger, LOGGER_DEBUG,"pipeline %d state change to READY: %s", i,
+                   gst_element_state_change_return_get_name(ret));
     }
     return 0;
 }
-    
 
 bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full) {
     gint64 pos = 0;

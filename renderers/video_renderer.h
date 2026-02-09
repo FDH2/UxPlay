@@ -49,9 +49,9 @@ typedef struct video_renderer_s video_renderer_t;
 
 void video_renderer_init (logger_t *logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char *rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options,
-                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support,
-                          guint playbin_version,  const char *uri);
-void video_renderer_start ();
+                          bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, bool hls_support,
+                          guint playbin_version);
+void video_renderer_start (const char *uri);
 void video_renderer_stop ();
 void video_renderer_set_device_model(const char *model, const char *name);
 void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album);
@@ -71,7 +71,7 @@ void video_renderer_destroy ();
 void video_renderer_size(float *width_source, float *height_source, float *width, float *height);
 bool waiting_for_x11_window();
 bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full);
-int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265);
+int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265, bool video_is_hls);
 unsigned int video_renderer_listen(void *loop, int id);
 bool video_renderer_eos_watch();
 #ifdef __cplusplus
