@@ -2113,14 +2113,25 @@ static bool check_blocked_client(char *deviceid) {
 
 
 //to be simplified
+
+static const char *reset_name[] = {
+    [RESET_TYPE_NOHOLD] = "Nohold",
+    [RESET_TYPE_RTP_SHUTDOWN] = "RTP_Shutdown",
+    [RESET_TYPE_HLS_SHUTDOWN] = "HLS_Shutdown",
+    [RESET_TYPE_HLS_EOS] = "HLS_eos",
+    [RESET_TYPE_ON_VIDEO_PLAY] = "on_video_play",
+    [RESET_TYPE_RTP_TO_HLS_TEARDOWN] = "RTP_to_HLS_Shutdown" 
+};
+
 extern "C" void video_reset(void *cls, reset_type_t type) {
-    LOGD("video_reset");
+    LOGD("video_reset: type = %s", reset_name[type]);
     switch (type) {
     case RESET_TYPE_NOHOLD:
         if (hls_support) {
 	    url.erase();
             raop_destroy_airplay_video(raop, -1);
         }
+    case RESET_TYPE_HLS_EOS:
         if (use_video) {
             video_renderer_stop();
            /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */ 
@@ -2136,6 +2147,8 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         remote_clock_offset = 0;
         relaunch_video = true;
         break;
+    case RESET_TYPE_RTP_TO_HLS_TEARDOWN:
+        preserve_connections = true;
     case RESET_TYPE_RTP_SHUTDOWN:
         if (use_video) {
             video_renderer_stop();
@@ -2154,27 +2167,6 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         raop_remove_hls_connections(raop);
         preserve_connections = true;
         remote_clock_offset = 0;
-        relaunch_video = true;
-        break;
-    case RESET_TYPE_HLS_EOS:
-        if (use_video) {
-            /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */
-            video_renderer_stop();
-            video_renderer_destroy();
-            video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
-                                video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
-                                videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, NULL);
-            video_renderer_start();
-            close_window = false;  // we already closed the window
-        }
-        remote_clock_offset = 0;
-        relaunch_video = true;
-        break;
-    case RESET_TYPE_TEARDOWN_110:
-        if (use_video) {
-            video_renderer_stop();
-        }
         relaunch_video = true;
         break;
     case RESET_TYPE_ON_VIDEO_PLAY:
@@ -2280,12 +2272,6 @@ extern "C" void conn_reset (void *cls, int reason) {
     reset_httpd = true;
     relaunch_video = true;
     reset_loop = true;
-}
-
-extern "C" void conn_teardown(void *cls, bool *teardown_96, bool *teardown_110) {
-    if (*teardown_110 && close_window) {
-        video_reset(cls,RESET_TYPE_TEARDOWN_110);
-    }
 }
 
 extern "C" void report_client_request(void *cls, char *deviceid, char * model, char *name, bool * admit) {
@@ -2717,7 +2703,6 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.conn_destroy = conn_destroy;
     raop_cbs.conn_reset = conn_reset;
     raop_cbs.conn_feedback = conn_feedback;
-    raop_cbs.conn_teardown = conn_teardown;
     raop_cbs.audio_process = audio_process;
     raop_cbs.video_process = video_process;
     raop_cbs.audio_flush = audio_flush;

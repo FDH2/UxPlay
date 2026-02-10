@@ -87,7 +87,8 @@ struct raop_s {
   
     /* activate support for HLS live streaming */
     bool hls_support;
-
+    bool hls_pending;
+  
     /* used in digest authentication */
     char *nonce;
     char *random_pw;
@@ -424,6 +425,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         } else if (!strcmp(method, "OPTIONS")) {
             handler = &raop_handler_options;
         } else if (!strcmp(method, "SETUP")) {
+            raop->hls_pending = false;
             handler = &raop_handler_setup;
         } else if (!strcmp(method, "GET_PARAMETER")) {
             handler = &raop_handler_get_parameter;
@@ -459,6 +461,7 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             }
         } else if (!strcmp(method, "GET")) {
             if (!strcmp(url, "/server-info")) {
+                raop->hls_pending = true;
                 handler = &http_handler_server_info;
             } else if (!strcmp(url, "/playback-info")) {
                 handler = &http_handler_playback_info;
@@ -487,7 +490,6 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
         }
     }
     http_response_finish(*response, response_data, response_datalen);
-
     int len = 0;
     const char *data = http_response_get_data(*response, &len);
     if (response_data && response_datalen > 0) {
@@ -635,7 +637,8 @@ raop_init(raop_callbacks_t *callbacks) {
     raop->audio_delay_micros = 250000;
 
     raop->hls_support = false;
-
+    raop->hls_pending = false;
+    
     raop->nonce = NULL;
 
     raop->lang = NULL;
