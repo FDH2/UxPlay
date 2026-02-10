@@ -61,10 +61,12 @@ typedef enum video_codec_e {
 } video_codec_t;
 
 typedef enum reset_type_e {
-  RESET_TYPE_NOHOLD,
-  RESET_TYPE_RTP_SHUTDOWN,
-  RESET_TYPE_HLS_SHUTDOWN,
-  RESET_TYPE_HLS_EOS
+    RESET_TYPE_NOHOLD,
+    RESET_TYPE_RTP_SHUTDOWN,
+    RESET_TYPE_HLS_SHUTDOWN,
+    RESET_TYPE_HLS_EOS,
+    RESET_TYPE_ON_VIDEO_PLAY,
+    RESET_TYPE_TEARDOWN_110
 } reset_type_t;
 
 struct raop_callbacks_s {
