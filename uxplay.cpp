@@ -663,7 +663,7 @@ static gboolean video_eos_watch_callback (gpointer loop) {
     return TRUE;
 }
 
-#define MAX_VIDEO_RENDERERS 3
+#define MAX_VIDEO_RENDERERS 4
 #define MAX_AUDIO_RENDERERS 2
 static void main_loop()  {
     guint gst_video_bus_watch_id[MAX_VIDEO_RENDERERS] = { 0 };
@@ -676,21 +676,20 @@ static void main_loop()  {
     preserve_connections = false;
     n_video_renderers = 0;
     n_audio_renderers = 0;
+    gst_x11_window_id = 0;
+    video_eos_watch_id = 0;
+
     if (use_video) {
         n_video_renderers = 1;
         relaunch_video = true;
-        if (url.empty()) {
-            if (h265_support) {
-                n_video_renderers++;
-            }
-            if (render_coverart) {
-                n_video_renderers++;
-            }
-            /* renderer[0] : h264 video; followed by  h265 video (optional) and jpeg (optional)  */
-            gst_x11_window_id = 0;
-	    video_eos_watch_id = 0;
-        } else {
-            /* hls video will be rendered: renderer[0] : hls  */
+        if (h265_support) {
+            n_video_renderers++;
+        }
+        if (render_coverart) {
+            n_video_renderers++;
+        }
+        if (hls_support) {
+            n_video_renderers++;
             url.erase();
             video_eos_watch_id = g_timeout_add(100, (GSourceFunc) video_eos_watch_callback, (gpointer) loop);
             gst_x11_window_id = g_timeout_add(100, (GSourceFunc) x11_window_callback, (gpointer) loop);
@@ -700,6 +699,7 @@ static void main_loop()  {
             gst_video_bus_watch_id[i] = (guint) video_renderer_listen((void *)loop, i);
         }
     }
+
     if (use_audio) {
         rtptime_start = 0;
         rtptime_end = 0;
@@ -2129,9 +2129,9 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         video_renderer_destroy();
         video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
-                            videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                            render_coverart, playbin_version, NULL);
-        video_renderer_start();
+                            videosink_options.c_str(), fullscreen, video_sync, h265_support, hls_support,
+                            render_coverart, playbin_version);
+        video_renderer_start(NULL);
         close_window = false;  // we already closed the window
     }
     if (type == RESET_TYPE_NOHOLD) {
@@ -2151,7 +2151,7 @@ extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     if (!use_video) {
         return 0;
     }
-    return video_renderer_choose_codec(false, video_is_h265);
+    return video_renderer_choose_codec(false, video_is_h265, false);
 }
 
 extern "C" void display_pin(void *cls, char *pin) {
@@ -2470,7 +2470,7 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
         write_coverart(coverart_filename.c_str(), buffer, buflen);
         LOGI("coverart size %d written to %s", buflen,  coverart_filename.c_str());
     } else if (buffer && render_coverart) {
-        video_renderer_choose_codec(true, false);  /* video_is_jpeg = true */
+      video_renderer_choose_codec(true, false, false);  /* video_is_jpeg = true */
         video_renderer_display_jpeg(buffer, &buflen);
         coverart_artist = "_pending_";
     }
@@ -3126,9 +3126,9 @@ int main (int argc, char *argv[]) {
     if (use_video) {
         video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(), rtp_pipeline.c_str(),
                             video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
-                            videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                            render_coverart, playbin_version, NULL);
-        video_renderer_start();
+                            videosink_options.c_str(), fullscreen, video_sync, h265_support, hls_support,
+                            render_coverart, playbin_version);
+        video_renderer_start(NULL);
 #ifdef __OpenBSD__
     } else {
         if (pledge("stdio rpath wpath cpath inet unix prot_exec", NULL) == -1) {
@@ -3231,9 +3231,9 @@ int main (int argc, char *argv[]) {
             const char *uri = (url.empty() ? NULL : url.c_str());
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
-                                videosink_options.c_str(), fullscreen, video_sync, h265_support,
-                                render_coverart, playbin_version, uri);
-            video_renderer_start();
+                                videosink_options.c_str(), fullscreen, video_sync, h265_support, hls_support,
+                                render_coverart, playbin_version);
+            video_renderer_start(uri);
         }
         if (reset_httpd) {
             unsigned short port = raop_get_port(raop);
