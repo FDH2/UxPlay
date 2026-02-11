@@ -684,7 +684,6 @@ void video_renderer_set_track_metadata(const char *title, const char *artist, co
     }
     
     g_string_replace (metadata, "&", "&amp;", 0);   //fix pango problem with "&" in text
-    printf("*************** metadata [%s] \n", metadata->str);
     if (renderer && renderer->textsrc && (artist || title)) {
         g_object_set(G_OBJECT(renderer->textsrc), "text", metadata->str, NULL);
     }
