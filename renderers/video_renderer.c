@@ -405,7 +405,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             gst_object_unref(clock);
             if (jpeg_pipeline) {
                  renderer_type[i]->textsrc = gst_bin_get_by_name(GST_BIN(renderer_type[i]->pipeline), "metadata_overlay");
-                 g_object_set(G_OBJECT(renderer_type[i]->textsrc), "text", "", "shaded-background", TRUE, "font-desc", "Sans, 16", NULL);
+                 g_object_set(G_OBJECT(renderer_type[i]->textsrc), "text", "", "shaded-background", TRUE, "font-desc", "Sans, 16",  NULL);
             }
         }	
 #ifdef X_DISPLAY_FIX
@@ -682,6 +682,9 @@ void video_renderer_set_track_metadata(const char *title, const char *artist, co
         g_string_append(metadata, title);
         g_string_append(metadata, "\"");
     }
+    
+    g_string_replace (metadata, "&", "&amp;", 0);   //fix pango problem with "&" in text
+    printf("*************** metadata [%s] \n", metadata->str);
     if (renderer && renderer->textsrc && (artist || title)) {
         g_object_set(G_OBJECT(renderer->textsrc), "text", metadata->str, NULL);
     }
