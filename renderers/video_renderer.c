@@ -1142,6 +1142,7 @@ void video_renderer_seek(float position) {
 
 unsigned int video_renderer_listen(void *loop, int id) {
     g_assert(id >= 0 && id < n_renderers);
+    g_assert (renderer_type[id] && renderer_type[id]->bus);
     return (unsigned int) gst_bus_add_watch(renderer_type[id]->bus,(GstBusFunc)
                                             gstreamer_video_pipeline_bus_callback, (gpointer) loop);    
 }

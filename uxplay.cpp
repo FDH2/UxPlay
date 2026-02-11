@@ -118,6 +118,7 @@ static bool new_window_closing_behavior = false;
 static bool new_window_closing_behavior = true;
 #endif
 static bool close_window;
+static bool full_video_reset = true;
 static std::string video_parser = "h264parse";
 static std::string video_decoder = "decodebin";
 static std::string video_converter = "videoconvert";
@@ -541,8 +542,9 @@ static gboolean feedback_callback(gpointer loop) {
             if (!nofreeze) {
                 close_window = false; /* leave "frozen" window open if reset_video is false */
             }
-	    reset_httpd = true;
-	    relaunch_video = true;
+            reset_httpd = true;
+            relaunch_video = true;
+            full_video_reset = true;
             g_main_loop_quit((GMainLoop *) loop);
             return TRUE;
         } else if (missed_feedback > 2) {
@@ -3249,7 +3251,7 @@ int main (int argc, char *argv[]) {
         if (use_audio) {
             audio_renderer_stop();
         }
-        if (use_video && (close_window || preserve_connections)) {
+        if (use_video && (close_window || preserve_connections || full_video_reset)) {
             video_renderer_destroy();
             if (!preserve_connections) {
                 url.erase();
@@ -3260,6 +3262,7 @@ int main (int argc, char *argv[]) {
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
+            full_video_reset = false;
             video_renderer_start();
         }
         if (reset_httpd) {
