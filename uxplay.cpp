@@ -1719,6 +1719,11 @@ static void parse_arguments (int argc, char *argv[]) {
             }
             i++;
         } else if (arg == "-hls") {
+#ifdef NATIVE_MACOS_RENDERER
+	    fprintf(stderr, "HLS support is not available when using the  native macos renderer.\n"
+		    "This UxPlay binary was built with cmake option \"-DUSE_NATIVE_MACOS_RENDERER=ON\"\n");
+	    exit(0);
+#endif
             hls_support = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 3;

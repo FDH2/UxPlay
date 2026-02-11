@@ -58,6 +58,11 @@ if  ( GST_MACOS )
      message ( STATUS "define GST_MACOS" )
 endif()
 
+if ( NATIVE_MACOS )
+     add_definitions( -DNATIVE_MACOS_RENDERER )
+     message ( STATUS "define NATIVE_MACOS_RENDERER" )
+endif()
+
 add_executable( uxplay uxplay.cpp )
 target_link_libraries( uxplay
                    renderers

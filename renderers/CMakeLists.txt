@@ -4,7 +4,7 @@ option(USE_NATIVE_MACOS_RENDERER "Use native macOS renderer with VideoToolbox an
 if (APPLE AND USE_NATIVE_MACOS_RENDERER)
   message(STATUS "*** Using NATIVE macOS renderer (VideoToolbox + Metal) ***")
   message(STATUS "*** GStreamer will NOT be used for video rendering ***")
-
+  set( NATIVE_MACOS "1" CACHE STRING "define NATIVE_MACOS_RENDERER in uxplay.cpp" )
   # Still need GStreamer for audio (for now)
   set( ENV{PKG_CONFIG_PATH} "/Library/FrameWorks/GStreamer.framework/Libraries/pkgconfig" )
   set( ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:/usr/local/lib/pkgconfig" )
