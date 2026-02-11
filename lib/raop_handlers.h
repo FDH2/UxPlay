@@ -946,6 +946,7 @@ raop_handler_setup(raop_conn_t *conn,
             switch (type) {
             case 110: {
                 // Mirroring
+                raop_destroy_airplay_video(raop, -1);  //cleanup any hls data still present when mirror video starts
                 unsigned short dport = raop->mirror_data_lport;
                 plist_t stream_id_node = plist_dict_get_item(req_stream_node, "streamConnectionID");
                 uint64_t stream_connection_id = 0;
@@ -1277,7 +1278,11 @@ raop_handler_teardown(raop_conn_t *conn,
             }
         }
     } else if (teardown_110) {
-        raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+        if (raop->hls_pending) {
+            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_TO_HLS_TEARDOWN);
+        } else {
+            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
+        }
         if (conn->raop_rtp_mirror) {
         /* Stop our video RTP session */
             raop_rtp_mirror_stop(conn->raop_rtp_mirror);
@@ -1297,8 +1302,5 @@ raop_handler_teardown(raop_conn_t *conn,
         if (hls_count) {
             raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_HLS_SHUTDOWN);
         }
-    }
-    if (raop->callbacks.conn_teardown) {
-        raop->callbacks.conn_teardown(raop->callbacks.cls, &teardown_96, &teardown_110);
     }
 }

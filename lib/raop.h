@@ -35,7 +35,6 @@ typedef struct raop_s raop_t;
 
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);
 
-
 typedef struct playback_info_s {
   //char * uuid;
     uint32_t stallcount;
@@ -61,10 +60,12 @@ typedef enum video_codec_e {
 } video_codec_t;
 
 typedef enum reset_type_e {
-  RESET_TYPE_NOHOLD,
-  RESET_TYPE_RTP_SHUTDOWN,
-  RESET_TYPE_HLS_SHUTDOWN,
-  RESET_TYPE_HLS_EOS
+    RESET_TYPE_NOHOLD,
+    RESET_TYPE_RTP_SHUTDOWN,
+    RESET_TYPE_HLS_SHUTDOWN,
+    RESET_TYPE_HLS_EOS,
+    RESET_TYPE_ON_VIDEO_PLAY,
+    RESET_TYPE_RTP_TO_HLS_TEARDOWN
 } reset_type_t;
 
 struct raop_callbacks_s {
