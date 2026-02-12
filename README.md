@@ -961,7 +961,7 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
     "`git clone https://github.com/FDH2/UxPlay`")**, then install UxPlay
     dependencies (openssl is already installed with MSYS2):
 
-        `pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base`
+        pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base
 
     If you are trying a different Windows build system, MSVC versions of
     GStreamer for Windows are available from the [official GStreamer
