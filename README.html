@@ -978,7 +978,7 @@ for the build system).</p></li>
 “<code>git clone https://github.com/FDH2/UxPlay</code>”)</strong>, then
 install UxPlay dependencies (openssl is already installed with
 MSYS2):</p>
-<pre><code>`pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base`</code></pre>
+<pre><code>    pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base</code></pre>
 <p>If you are trying a different Windows build system, MSVC versions of
 GStreamer for Windows are available from the <a
 href="https://gstreamer.freedesktop.org/download/">official GStreamer
@@ -999,9 +999,9 @@ offered in the other builds are not available on Windows; instead, you
 can install the uxplay.exe executable in
 <code>C:/msys64/ucrt64/bin</code> (plus manpage and documentation in
 <code>C:/msys64/ucrt64/share/...</code>) with</p>
-<p><code>cmake --install . --prefix $HOME/../../ucrt64</code></p>
-<p>You can later uninstall uxplay by returning to the build directory
-and running</p>
+<p><code>cmake --install . --prefix $HOME/../../ucrt64</code> You can
+later uninstall uxplay by returning to the build directory and
+running</p>
 <p><code>ninja uninstall</code></p>
 <p>(This assumes that certain files in the build directory were not
 deleted since building UxPlay).</p>
