@@ -201,7 +201,7 @@ httpd_remove_connection(httpd_t *httpd, http_connection_t *connection, int sock_
     int socket_fd = connection->socket_fd;
     connection->socket_fd = 0;
     if (sock_err) {
-        logger_log(httpd->logger, LOGGER_INFO, "httpd: recv error %d on socket %d: %s",
+        logger_log(httpd->logger, LOGGER_ERR, "httpd: recv error %d on socket %d: %s",
                    sock_err, socket_fd, SOCKET_ERROR_STRING(sock_err));
     }
     if (connection->request) {
@@ -280,6 +280,9 @@ httpd_accept_connection(httpd_t *httpd, int server_fd, int is_ipv6)
     fd = accept(server_fd, (struct sockaddr *)&remote_saddr, &remote_saddrlen);
     if (fd == -1) {
         /* FIXME: Error happened */
+        int sock_err = SOCKET_GET_ERROR();
+        logger_log(httpd->logger, LOGGER_ERR, "httpd: error in accept: %d %s",
+                   sock_err, SOCKET_ERROR_STRING(sock_err));
         return -1;
     }
 
