@@ -270,8 +270,8 @@ raop_rtp_init_sockets(raop_rtp_t *raop_rtp, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (csock != -1) closesocket(csock);
-    if (dsock != -1) closesocket(dsock);
+    if (csock != -1) CLOSESOCKET(csock);
+    if (dsock != -1) CLOSESOCKET(dsock);
     return -1;
 }
 
@@ -832,11 +832,11 @@ raop_rtp_stop(raop_rtp_t *raop_rtp)
     THREAD_JOIN(raop_rtp->thread);
 
     if (raop_rtp->csock != -1) {
-        closesocket(raop_rtp->csock);
+        CLOSESOCKET(raop_rtp->csock);
         raop_rtp->csock = -1;
     }
     if (raop_rtp->dsock != -1) {
-        closesocket(raop_rtp->dsock);
+        CLOSESOCKET(raop_rtp->dsock);
         raop_rtp->dsock = -1;
     }
 

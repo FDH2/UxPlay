@@ -244,7 +244,7 @@ raop_ntp_init_socket(raop_ntp_t *raop_ntp, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (tsock != -1) closesocket(tsock);
+    if (tsock != -1) CLOSESOCKET(tsock);
     return -1;
 }
 
@@ -252,13 +252,11 @@ static void
 raop_ntp_flush_socket(int fd)
 {
 #ifdef _WIN32
-#define IOCTL ioctlsocket
     u_long bytes_available = 0;
 #else
-#define IOCTL ioctl
     int bytes_available = 0;
 #endif
-    while (IOCTL(fd, FIONREAD, &bytes_available) == 0 && bytes_available > 0)
+    while (IOCTLSOCKET(fd, FIONREAD, &bytes_available) == 0 && bytes_available > 0)
     {
         // We are guaranteed that we won't block, because bytes are available.
         // Read 1 byte. Extra bytes in the datagram will be discarded.
@@ -464,7 +462,7 @@ raop_ntp_stop(raop_ntp_t *raop_ntp)
     THREAD_JOIN(raop_ntp->thread);
 
     if (raop_ntp->tsock != -1) {
-        closesocket(raop_ntp->tsock);
+        CLOSESOCKET(raop_ntp->tsock);
         raop_ntp->tsock = -1;
     }
 

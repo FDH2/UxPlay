@@ -171,7 +171,7 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
     cleanup:
     ret = SOCKET_GET_ERROR();
     if (server_fd != -1) {
-        closesocket(server_fd);
+        CLOSESOCKET(server_fd);
     }
     SOCKET_SET_ERROR(ret);
     return -1;

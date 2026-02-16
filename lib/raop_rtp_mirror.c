@@ -840,7 +840,7 @@ raop_rtp_mirror_thread(void *arg)
     }
     /* Close the stream file descriptor */
     if (stream_fd != -1) {
-        closesocket(stream_fd);
+        CLOSESOCKET(stream_fd);
     }
 
     // Ensure running reflects the actual state
@@ -854,7 +854,7 @@ raop_rtp_mirror_thread(void *arg)
     }
 
     if (unsupported_codec) {
-        closesocket(raop_rtp_mirror->mirror_data_sock);
+        CLOSESOCKET(raop_rtp_mirror->mirror_data_sock);
         raop_rtp_mirror_stop(raop_rtp_mirror);
         raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
     }
@@ -888,7 +888,7 @@ raop_rtp_mirror_init_socket(raop_rtp_mirror_t *raop_rtp_mirror, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (dsock != -1) closesocket(dsock);
+    if (dsock != -1) CLOSESOCKET(dsock);
     return -1;
 }
 
@@ -947,7 +947,7 @@ void raop_rtp_mirror_stop(raop_rtp_mirror_t *raop_rtp_mirror) {
     THREAD_JOIN(raop_rtp_mirror->thread_mirror);
 
     if (raop_rtp_mirror->mirror_data_sock != -1) {
-        closesocket(raop_rtp_mirror->mirror_data_sock);
+        CLOSESOCKET(raop_rtp_mirror->mirror_data_sock);
         raop_rtp_mirror->mirror_data_sock = -1;
     }
 
