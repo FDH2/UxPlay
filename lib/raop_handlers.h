@@ -691,7 +691,7 @@ raop_handler_setup(raop_conn_t *conn,
                 char nonce_string[33] = { '\0' };
                 //bool stale = false;  //not implemented
                 if (len && authorization) {
-                    char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
+                    const char *ptr = strstr(authorization, "nonce=\"") +  strlen("nonce=\"");
                     strncpy(nonce_string, ptr, 32);
                     const char *method = http_request_get_method(request);
                     conn->authenticated = pairing_digest_verify(method, authorization, password);

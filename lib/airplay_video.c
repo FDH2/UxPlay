@@ -334,8 +334,8 @@ language_t* master_playlist_process_language(const char * data, int *slices, int
     size_t length = 0;
     ptr = data;
     for (int i = 1; i <= count; i++) {
-        char *end;
-	int len_name;
+        const char *end;
+        int len_name;
         if (!(ptr = strstr(ptr, "#EXT-X-MEDIA"))) {
             break;
         }
@@ -692,14 +692,14 @@ int analyze_media_playlist(char *playlist, float *duration, bool *endlist) {
 /* parse Master Playlist, make table of Media Playlist uri's that it lists */
 int create_media_uri_table(const char *url_prefix, const char *master_playlist_data,
                            int datalen, char ***media_uri_table, int *num_uri) {
-    char *ptr = strstr(master_playlist_data, url_prefix);
+    const char *ptr = strstr(master_playlist_data, url_prefix);
     char ** table = NULL;
     if (ptr == NULL) {
         return -1;
     }
     int count = 0;
     while (ptr != NULL) {
-        char *end = strstr(ptr, "m3u8");
+        const char *end = strstr(ptr, "m3u8");
         if (end == NULL) {
             return 1;
         }
@@ -717,8 +717,8 @@ int create_media_uri_table(const char *url_prefix, const char *master_playlist_d
     ptr = strstr(master_playlist_data, url_prefix);
     count = 0;
     while (ptr != NULL) {
-        char *end = strstr(ptr, "m3u8");
-	char *uri;
+        const char *end = strstr(ptr, "m3u8");
+        char *uri;
         if (end == NULL) {
             return 0;
         }
@@ -851,7 +851,7 @@ char *adjust_yt_condensed_playlist(const char *media_playlist) {
     const char **params_start = NULL;
     if (strlen(params)) {
         nparams = 1;
-        char * comma = strchr(params, ',');
+        const char * comma = strchr(params, ',');
         while (comma) {
             nparams++;
             comma++;
@@ -909,7 +909,7 @@ char *adjust_yt_condensed_playlist(const char *media_playlist) {
     while (ptr) {
         /* for each chunk */
         const char *end = NULL;
-        char *start = strstr(ptr, prefix);
+        const char *start = strstr(ptr, prefix);
         len = start - ptr;
         /* copy first line of chunk entry */
         memcpy(new_pos, old_pos, len);
