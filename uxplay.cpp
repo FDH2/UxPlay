@@ -536,7 +536,7 @@ static gboolean feedback_callback(gpointer loop) {
     if (open_connections) {
         if (missed_feedback_limit && missed_feedback > missed_feedback_limit) {
             LOGI("***ERROR lost connection with client (network problem?)");
-            LOGI("%u missed client feedback signals exceeds limit of %u", missed_feedback, missed_feedback_limit);
+            LOGI("   Interval since last client feedback request exceeds limit of %u seconds", missed_feedback_limit);
             LOGI("   Sometimes the network connection may recover after a longer delay:\n"
                  "   the default limit n = %d seconds, can be changed with the \"-reset n\" option", MISSED_FEEDBACK_LIMIT);
             if (!nofreeze) {
@@ -548,7 +548,7 @@ static gboolean feedback_callback(gpointer loop) {
             g_main_loop_quit((GMainLoop *) loop);
             return TRUE;
         } else if (missed_feedback > 2) {
-            LOGE("%u missed client feedback signals (expected every two seconds); client may be offline", missed_feedback);
+            LOGE("%3u seconds since last client feedback request (expected every two seconds); client may be offline", missed_feedback);
         }
         missed_feedback++;
     } else {
