@@ -190,6 +190,7 @@ static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
 static bool monitor_progress = false;
 static uint32_t rtptime = 0;
+static uint32_t rtptime_prev = 0;
 static uint32_t rtptime_start = 0;
 static uint32_t rtptime_end = 0;
 static uint32_t rtptime_coverart_expired = 0;
@@ -640,8 +641,9 @@ static void display_progress(uint32_t start, uint32_t curr, uint32_t end) {
 
 static gboolean progress_callback (gpointer loop) {
     if (monitor_progress) {
-        if (rtptime_start || rtptime_end) {
+        if ((rtptime_start || rtptime_end) && rtptime != rtptime_prev ) { //only display if rtptime has changed since last call
             display_progress(rtptime_start, rtptime, rtptime_end);
+            rtptime_prev = rtptime;
         }
         if (render_coverart && coverart_artist == "_expired_" && rtptime - rtptime_coverart_expired > 44100 * 5) {
             /* remove any expired coverart still being rendered more than 5 secs after it expired */ 
