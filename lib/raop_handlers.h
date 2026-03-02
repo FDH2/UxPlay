@@ -165,7 +165,7 @@ raop_handler_info(raop_conn_t *conn,
         goto finished;
     }
 
-    plist_t initial_volume_node = plist_new_real(-15.0);  //inital audio volume: -15.0dB (50% volume) 
+    plist_t initial_volume_node = plist_new_real(raop->callbacks.audio_set_client_volume(raop->callbacks.cls)); 
     plist_dict_set_item(res_node, "initialVolume", initial_volume_node);
       
     plist_t audio_latencies_node = plist_new_array();
