@@ -9,6 +9,7 @@ try:
     from gi.repository import GLib
 except ImportError:
     print(f"ImportError: failed to import GLib")
+    printf("Install PyGObject ('pip3 install PyGobject==3.50.0')")
     raise SystemExit(1)
 
 # Import WinRT APIs

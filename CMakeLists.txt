@@ -89,6 +89,13 @@ install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.py
 install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 endif()
 
+if (APPLE)
+install( FILES Bluetooth_LE_beacon/bleuio/uxplay-beacon.py
+         DESTINATION bin
+         PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
+install( FILES Bluetooth_LE_beacon/bleuio/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+endif()
+
 
 
 # uninstall target

@@ -2,207 +2,123 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # adapted from https://github.com/bluez/bluez/blob/master/test/example-advertisement
 #----------------------------------------------------------------
-# a standalone python-3.6 or later DBus-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
-# (c)  F. Duncanh, October 2025
+# a standalone python-3.6 or later bleuio-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
+# (c)  F. Duncanh, March 2026
+
+
+# **** This implementation requires a blueio dongle https://bleuio.com/bluetooth-low-energy-usb-ssd005.php
+# This device has a self-contained bluetooth LE stack packaged as a usb serial modem.
+# It is needed on macOS because macOS does not permit users to send manufacturer-specific BLE advertisements
+# with its native BlueTooth stack.    It works also on linux and windows.
 
 import gi
 try:
     from gi.repository import GLib
-except ImportError as e:
-    print(f'ImportError: {e}, failed to import GLib from Python GObject Introspection Library ("gi")')
+except ImportError:
+    print(f"ImportError: failed to import GLib")
     printf("Install PyGObject ('pip3 install PyGobject==3.50.0')")
     raise SystemExit(1)
-    
+
 try:
-    import dbus
-    import dbus.exceptions
-    import dbus.mainloop.glib
-    import dbus.service
+    import serial
+    from serial.tools import list_ports
 except ImportError as e:
-    print(f"ImportError: {e}, failed to import required dbus components")
-    printf("install the python3 dbus package")
+    print(f"ImportError: {e}, failed to import required serial port support")
+    printf("install pyserial")
     raise SystemExit(1)
 
-ad_manager = None
-airplay_advertisement = None
 advertised_port = None
 advertised_address = None
-
-BLUEZ_SERVICE_NAME = 'org.bluez'
-LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
-DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
-DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
-
-LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
+serial_port = None
+advertisement_parameters = None
+airplay_advertisement = None
 
 
-class InvalidArgsException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.freedesktop.DBus.Error.InvalidArgs'
+# --- Serial Communication Helper Functions ---
+def send_at_command(serial_port, command):
+    # Sends an AT command and reads the response.
+    serial_port.write(f"{command}\r\n".encode('utf-8'))
+    time.sleep(0.1) # Give the dongle a moment to respond
+    response = ""
+    while serial_port.in_waiting:
+        response += serial_port.readline().decode('utf-8')
+    response_without_empty_lines = os.linesep.join(
+        [line for line in response.splitlines() if line]
+    )
+    return response_without_empty_lines
 
-
-class NotSupportedException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.NotSupported'
-
-
-class NotPermittedException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.NotPermitted'
-
-
-class InvalidValueLengthException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.InvalidValueLength'
-
-
-class FailedException(dbus.exceptions.DBusException):
-    _dbus_error_name = 'org.bluez.Error.Failed'
-
-
-class AirPlay_Service_Discovery_Advertisement(dbus.service.Object):
-    PATH_BASE = '/org/bluez/airplay_service_discovery_advertisement'
-
-    def __init__(self, bus, index):
-        self.path = self.PATH_BASE + str(index)
-        self.bus = bus
-        self.manufacturer_data = None
-        self.min_intrvl = 0
-        self.max_intrvl = 0
-
-        dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_properties(self):
-        properties = dict()
-        properties['Type'] = 'broadcast'
-        if self.manufacturer_data is not None:
-            properties['ManufacturerData'] = dbus.Dictionary(
-                self.manufacturer_data, signature='qv')
-        if self.min_intrvl > 0:
-            properties['MinInterval'] = dbus.UInt32(self.min_intrvl)
-        if self.max_intrvl > 0:
-            properties['MaxInterval'] = dbus.UInt32(self.max_intrvl)
-        return {LE_ADVERTISEMENT_IFACE: properties}
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    def add_manufacturer_data(self, manuf_code, manuf_data):
-        if not self.manufacturer_data:
-            self.manufacturer_data = dbus.Dictionary({}, signature='qv')
-        self.manufacturer_data[manuf_code] = dbus.Array(manuf_data, signature='y')
-
-    def set_min_intrvl(self, min_intrvl):
-        if self.min_intrvl == 0:
-            self.min_intrvl = 100
-        self.min_intrvl = max(min_intrvl, 100)
-            
-    def set_max_intrvl(self, max_intrvl):
-        if self.max_intrvl == 0:
-            self.max_intrvl = 100
-        self.max_intrvl = max(max_intrvl, 100)
-
-    @dbus.service.method(DBUS_PROP_IFACE,
-                         in_signature='s',
-                         out_signature='a{sv}')
-    def GetAll(self, interface):
-        if interface != LE_ADVERTISEMENT_IFACE:
-            raise InvalidArgsException()
-        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
-
-    @dbus.service.method(LE_ADVERTISEMENT_IFACE,
-                         in_signature='',
-                         out_signature='')
-    def Release(self):
-        print(f'{self.path}: Released!')
-
-
-class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
-
-    def __init__(self, bus, index, ipv4_str, port, min_intrvl, max_intrvl):
-        AirPlay_Service_Discovery_Advertisement.__init__(self, bus, index)
-        assert port > 0
-        assert port <= 65535
-        mfg_data = bytearray([0x09, 0x08, 0x13, 0x30]) # Apple Data Unit type 9 (Airplay), length 8, flags 0001 0011, seed 30
-        import ipaddress
-        ipv4_address = ipaddress.ip_address(ipv4_str)
-        ipv4 = bytearray(ipv4_address.packed)
-        mfg_data.extend(ipv4)
-        port_bytes = port.to_bytes(2, 'big')
-        mfg_data.extend(port_bytes)
-        self.add_manufacturer_data(0x004c, mfg_data)
-        self.set_min_intrvl(min_intrvl)
-        self.set_max_intrvl(max_intrvl)
-
-
-def register_ad_cb():
-    print(f'AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered')
-
-
-def register_ad_error_cb(error):
-    print(f'Failed to register advertisement: {error}')
-    global ad_manager
+def setup_beacon(ipv4_str, port, advmin, advmax):
     global advertised_port
     global advertised_address
-    ad_manager = None
-    advertised_port = None
-    advertised_address = None
-
-def find_adapter(bus):
-    remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-                               DBUS_OM_IFACE)
-    objects = remote_om.GetManagedObjects()
-
-    for o, props in objects.items():
-        if LE_ADVERTISING_MANAGER_IFACE in props:
-            return o
-
-    return None
-
-
-def setup_beacon(ipv4_str, port, advmin, advmax, index):
-    global ad_manager
     global airplay_advertisement
-    global advertised_address
-    global advertised_port
-    advertised_port = port
+    global advertisement_parameters
+    
+    #  set up advertising message:
+    assert port > 0
+    assert port <= 65535
+    import ipaddress
+    ipv4_address = ipaddress.ip_address(ipv4_str)
+    port_bytes = port.to_bytes(2, 'big')
+    data = bytearray([0xff, 0x4c, 0x00]) # ( 3 bytes) type manufacturer_specific 0xff, manufacturer id Apple 0x004c
+    data.extend(bytearray([0x09, 0x08, 0x13, 0x30])) #  (4 bytes) Apple Data Unit type 9 (Airplay),  Apple data length 8, Apple flags 0001 0011, seed 30
+    data.extend(bytearray(ipv4_address.packed))  # (4 bytes) ipv4 address
+    data.extend(port_bytes) # (2 bytes) port
+    length = len(data)   # 13 bytes                                                                                                                                 
+    adv_data = bytearray([length])   # first byte of message data unit is length of meaningful data that follows (0x0d = 13)
+    adv_data.extend(data)
+    airplay_advertisement = ':'.join(format(b,'02x') for b in adv_data)
+    advertisement_parameters = "0;" + str(advmin) + ";" + str(advmax) + ";0;"  # non-connectable mode, min ad internal, max ad interval, time = unlimited
     advertised_address = ipv4_str
-    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)    
-    bus = dbus.SystemBus()    
-    adapter = find_adapter(bus)
-    if not adapter:
-        print(f'LEAdvertisingManager1 interface not found')
-        return
-    adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
-                                   "org.freedesktop.DBus.Properties")
+    advertised_port = port
 
-    adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
-
-    ad_manager = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
-                                LE_ADVERTISING_MANAGER_IFACE)
-    airplay_advertisement = AirPlayAdvertisement(bus, index, ipv4_str, port, advmin, advmax)
     
 def beacon_on():
     global airplay_advertisement
-    ad_manager.RegisterAdvertisement(airplay_advertisement.get_path(), {},
-                                     reply_handler=register_ad_cb,
-                                     error_handler=register_ad_error_cb)
-    if ad_manager is None:
-        airplay_advertisement = None
+    global advertisement_parameters
+    global serial_port
+    try:
+        print("Connecting to BleuIO dongle on ", serial_port, "....")
+        with serial.Serial(serial_port, 115200, timeout = 1) as ser:
+            print ("Connection established")
+            #Start advertising
+            response = send_at_command(ser, "AT+ADVDATA=" +  airplay_advertisement)
+            print(response)
+            response = send_at_command(ser, "AT+ADVSTART=" + advertisement_parameters)
+            print(response)
+            print("AirPlay Service Discovery advertising started, port = ", advertised_port, "ip address = ", advertised_address)
+            
+            return True
+    except serial.SerialException as e:
+        print(f"beacon_on: Serial port error: {e}")
         return  False
-    else:
-        return True
+    except Exception as e:
+        print(f"beacon_on: An unexpected error occurred: {e}")
+        return  False
     
 def beacon_off():
-    global ad_manager
+    global advertisement_parameters
     global airplay_advertisement
     global advertised_port
     global advertised_address
-    ad_manager.UnregisterAdvertisement(airplay_advertisement)
-    print(f'AirPlay Service-Discovery beacon advertisement unregistered')
-    ad_manager = None
-    dbus.service.Object.remove_from_connection(airplay_advertisement)
-    airplay_advertisement = None
-    advertised_Port = None
-    advertised_address = None
+    global serial_port
+    
+    # Stop advertising
+    try:
+        with serial.Serial(serial_port, 115200, timeout = 1) as ser:
+            response = send_at_command(ser, "AT+ADVSTOP")
+            print(response)
+            print("AirPlay Service-Discovery beacon advertisement stopped")
+            airplay_advertisement = None
+            advertised_Port = None
+            advertised_address = None
+            advertisement_parameters = None
+    except serial.SerialException as e:
+        print(f"beacon_off: Serial port error: {e}")
+    except Exception as e:
+        print(f"beacon_ff: An unexpected error occurred: {e}")
+    
 
-
+            
 #==generic code (non-dbus) below here =============
 
 def check_port(port):
@@ -228,6 +144,7 @@ except ImportError as e:
 beacon_is_running = False
 beacon_is_pending_on = False
 beacon_is_pending_off = False
+serial_port = None
 
 port = int(0)
 advmin = int(100)
@@ -241,8 +158,7 @@ def start_beacon():
     global ipv4_str
     global advmin
     global advmax
-    global index
-    setup_beacon(ipv4_str, port, advmin, advmax, index)
+    setup_beacon(ipv4_str, port, advmin, advmax)
     beacon_is_running = beacon_on()
 
 def stop_beacon():
@@ -276,7 +192,6 @@ def check_pending():
             beacon_is_pending_on = False
     return True
             
-
 def check_file_exists(file_path):
     global port
     global beacon_is_pending_on
@@ -330,24 +245,15 @@ def on_timeout(file_path):
     check_file_exists(file_path)
     return True
 
-
-def process_input(value):
-    try:
-        my_integer = int(value)
-        return my_integer
-    except ValueError:
-        print(f'Error: could not convert "{value}" to integer: {my_integer}')
-        return None
-
-def main(file_path, ipv4_str_in, advmin_in, advmax_in, index_in):
+def main(file_path, ipv4_str_in, advmin_in, advmax_in, serial_port_in):
     global ipv4_str
     global advmin
     global advmax
-    global index 
+    global serial_port
     ipv4_str = ipv4_str_in
     advmin = advmin_in
-    advmax = advmax_in    
-    index = index_in
+    advmax = advmax_in
+    serial_port = serial_port_in
 
     try:
         while True:
@@ -359,6 +265,7 @@ def main(file_path, ipv4_str_in, advmin_in, advmax_in, index_in):
         print(f'\nExiting ...')
         sys.exit(0)
         
+
 #check AdvInterval
 def check_adv_intrvl(min, max):
     if not (100 <= min):
@@ -368,6 +275,7 @@ def check_adv_intrvl(min, max):
     if not (max <= 10240):
         raise ValueError('AdvMax was larger than 10240 msecs')
 
+#get_ipv4 
 def get_ipv4():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -390,14 +298,13 @@ def get_ipv4():
 
 if __name__ == '__main__':
 
-
     if not sys.version_info >= (3,6):
         print("uxplay-beacon.py requires Python 3.6 or higher")
     
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(
-        description='A program that runs an AirPlay service discovery BLE beacon.',
-        epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble" --AdvMin 100 --AdvMax 100"'
+        description='A program that runs an AirPlay service discovery BLE beacon on a BleuIO USB device.',
+        epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble" --AdvMin 100 --AdvMax 100 --serial_port="/dev/cu.usbmodem4048FDE123456'
     )
 
     home_dir = os.path.expanduser("~")
@@ -437,19 +344,19 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--index',
+        '--serial',
         type=str,
-        default="0", 
-        help='use index >= 0 to distinguish multiple AirPlay Service Discovery beacons, (default 0)'
+        default=None, 
+        help='Specify port at which the BleuIO device can be found, (default None)'
     )
 
-    # Parse the command-line argunts
+    # Parse the command-line arguments
     args = parser.parse_args()
     ipv4_str = None
     path = None
     advmin  = int(100)
     advmax  = int(100)
-    index = int(0)
+    serial_port = None
     
     if args.file:
         if os.path.exists(args.file):
@@ -480,12 +387,12 @@ if __name__ == '__main__':
                         else:
                              print(f'Invalid config file input (--AdvMax) {value} in {args.file}')
                              raise SystemExit(1)
-                    elif key == "--index":
-                        if value.isdigit():
-                            index = int(value)
-                        else:
-                             print(f'Invalid config file input (--index) {value} in {args.file}')
-                             raise SystemExit(1)
+                    elif key == "--serial":
+                        if not os.path.isfile(value):
+                            print("specified serial_port ", value, " is not a valid path to a serial port")
+                            raise SystemExit(1)
+                        serial_port = value
+                        
                     else:
                         print(f'Unknown key "{key}" in config file {args.file}')
                         raise SystemExit(1)
@@ -513,23 +420,47 @@ if __name__ == '__main__':
         else:
             print(f'Invalid input (AdvMin) {args.AdvMin}')
             raise SystemExit(1)
-        
-    if args.index != "0":
-        if args.index.isdigit():
-            index = int(args.index)
-        else:
-            print(f'Invalid input (AdvMin) {args.AdvMin}')
+
+    if args.serial is not None:
+        if not os.path.isfile(args.serial):
+            print("specified serial_port ", args.serial, " is not a valid path to a serial port")
             raise SystemExit(1)
-    if index <  0:  
-        raise ValueError('index was negative (forbidden)')
+        serial_port = args.serial
 
     try:
         check_adv_intrvl(advmin, advmax)
     except ValueError as e:
         print(f'Error: {e}')
-        raise SystemExit(1)      
-    
-    print(f'AirPlay Service-Discovery Bluetooth LE beacon: using BLE file {args.path}, advmin:advmax {advmin}:{advmax} index:{index}')
+        raise SystemExit(1) 
+                
+    serial_ports = list(list_ports.comports())
+    count = 0
+    serial_port_found = False
+    for p in serial_ports:
+        if "BleuIO" not in p.description:
+            continue
+        count+=1
+        if serial_port is None:
+            serial_port = p.device
+        if serial_port == p.device:
+            serial_port_found = True
+        print ("=== detected BlueuIO port ", count,': ', p.description, p.device)
+
+    if serial_port is not None and serial_port_found is False:
+        print("The serial port ", serial_port, " specified as an optional argument is not a detected  BleuIO device")
+        raise SystemExit(1)
+
+    if serial_port_found is False:
+        print("No BleuIO device was found: stopping")
+        print("If a BleuIO device is in fact present, you can specify its port with the \"--serial=...\" option.")
+        raise SystemExit(1)
+
+    if count>1:
+        print("warning: ", count, " BleueIO devices were found, the first found will be used")
+        print("(to override this choice, specify \"--serial_port=...\"in optional arguments")
+
+    print( "using ", serial_port, " as the BleuIO device")
+
+    print(f'AirPlay Service-Discovery Bluetooth LE beacon: using BLE file {args.path}, advmin:advmax {advmin}:{advmax} BleueIO port:{serial_port}')
     print(f'(Press Ctrl+C to exit)')
-    main(args.path, ipv4_str, advmin, advmax, index)
- 
+    main(args.path, ipv4_str, advmin, advmax, serial_port)
