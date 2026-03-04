@@ -21,14 +21,16 @@
     networks that do not allow the user to run a DNS_SD service.** The
     user must run a Bluetooth LE "beacon", (a USB 4.0 or later "dongle"
     can be used). The beacon is managed by a Python3 script
-    `uxplay-beacon.py` (available in two versions, a BlueZ/DBus version
-    for Linux/\*BSD, and a winrt version for Windows). The beacon runs
-    independently of UxPlay: while UxPlay is running, it regularly
-    broadcasts a Bluetooth LE ("Low Energy") 46 byte legacy-type
-    advertisement informing nearby iOS/macOS devices of the local IPv4
-    network address of the UxPlay server, and which TCP port to contact
-    UxPlay on. Instructions are [given
-    below](#bluetooth-le-beacon-setup).
+    `uxplay-beacon.py` (available in three versions, a BlueZ/DBus
+    version for Linux/\*BSD, a winrt version for Windows, and a version
+    for the BlueIO usb-serial dongle (which has its own BlueTooth-LE
+    stack independent of that of the host system) that runs on all
+    systems including macOS). The beacon runs independently of UxPlay:
+    while UxPlay is running, it regularly broadcasts a Bluetooth LE
+    ("Low Energy") 46 byte legacy-type advertisement informing nearby
+    iOS/macOS devices of the local IPv4 network address of the UxPlay
+    server, and which TCP port to contact UxPlay on. Instructions are
+    [given below](#bluetooth-le-beacon-setup).
 
 -   option `-vrtp <rest-of-pipeline>` bypasses rendering by UxPlay, and
     instead transmits rtp packets of decrypted h264 or h265 video to an
@@ -948,11 +950,12 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
     site). This should install the Bonjour SDK as
     `C:\Program Files\Bonjour SDK`.
 
--   **NEW: while you still need to install the Bonjour SDK to build
+-   \*\*NEW: while you still need to install the Bonjour SDK to build
     UxPlay, there is now an alternative method for Service Discovery
-    using a Bluetooth Low Energy (BLE) beacon. A Windows-based python
-    script for running the beacon is available for this.** See
-    [instructions below](#bluetooth-le-beacon-setup).
+    using a Bluetooth Low Energy (BLE) beacon. (Dfferent) Python3
+    scripts for running the beacon is on Linux/BSD\*, Windows and macOS
+    available for this.\*\* See [instructions
+    below](#bluetooth-le-beacon-setup).
 
 2.  (This is for 64-bit Windows; a build for 32-bit Windows should be
     possible, but is not tested.) The unix-like MSYS2 build environment
@@ -1635,7 +1638,7 @@ are
     This also requires that uxplay is run with option
     "`uxplay -ble <BLE data file>`".
 
-The BlueZ/Dbus version has thee more options not offered by the Windows
+The BlueZ/Dbus version has three more options not offered by the Windows
 version (the Windows operating system chooses their values):
 
 -   `--AdvMin x`, `--AdvMax y`. These controls the interval between BLE
@@ -1654,6 +1657,13 @@ version (the Windows operating system chooses their values):
     instance of UxPlay must also have its own MAC address and ports).
     *Note: running multiple beacons simultaneously on the same host has
     not been tested, and this option might not be useful or needed.*
+
+**NEW** While the native macOS BlueTooth-LE does not allow users to send
+"manufacturer-specific" advertisements like the uxplay service discovery
+announcement, this can be achieved using the BleuIO dongle, which is a
+usb-serial device with its own full BlueTooth-LE implementation (the
+bleuio version of uxplay-beacon.py is installed in macOS systems, but
+works on all operating systems).
 
 If you wish to test Bluetooth LE Service Discovery on Linux/\*BSD, you
 can disable DNS_SD Service discovery by the avahi-daemon with
