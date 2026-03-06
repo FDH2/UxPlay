@@ -12,13 +12,15 @@ except ImportError:
     printf("Install PyGObject ('pip3 install PyGobject==3.50.0')")
     raise SystemExit(1)
 
-# Import WinRT APIs
+# Import WinRT APIs (see https://pypi.org/project/winrt-Windows.Foundation.Collections/)
 
 try:
     import winrt.windows.foundation.collections
 except ImportError:
     print(f"ImportError from winrt-Windows.Foundation.Collections")
-    print(f"Install with 'pip install winrt-Windows.Foundation.Collections'")
+    print(f"Install with 'pip install winrt-Windows.Foundation'")
+    print(f"and with 'pip install winrt-Windows.Foundation.Collections'")
+    print(f'You may need to use pip option "--break-system-packages" (disregard the warning)')
     raise SystemExit(1)
 
 try:
@@ -26,6 +28,7 @@ try:
 except ImportError:
     print(f"ImportError from winrt-Windows.Devices.Bluetooth.Advertisement")
     print(f"Install with 'pip install winrt-Windows.Devices.Bluetooth.Advertisement'")
+    print(f'You may need to use pip option "--break-system-packages" (disregard the warning)')
     raise SystemExit(1)
 
 try:
@@ -33,6 +36,7 @@ try:
 except ImportError:
     print(f"ImportError from winrt-Windows.Storage.Streams")
     print(f"Install with 'pip install winrt-Windows.Storage.Streams'")
+    print(f'You may need to use pip option "--break-system-packages" (disregard the warning)')
     raise SystemExit(1)
 
 import struct
@@ -243,26 +247,44 @@ def main(file_path, ipv4_str_in):
     except KeyboardInterrupt:
         print(f'\nExiting ...')
         sys.exit(0)
-        
+
+#get ipv4  
+def get_ipv4():
+    ipv4  = socket.gethostbyname(socket.gethostname())
+    return ipv4
 
 if __name__ == '__main__':
     if not sys.version_info >= (3,6):
-        print("uxplay-beacon.py requires Python 3.6 or higher")
+        print(f"uxplay-beacon.py requires Python 3.6 or higher")
     
     # Create an ArgumentParser object
+    epilog_text = '''
+    Example: python beacon.py --ipv4 192.168.1.100 --advmax 200 --path = ~/my_ble
+
+    Optional arguments in the beacon startup file (if present) will be processed first.
+    and will be overridden by any command-line entries.
+    Format: one entry (key, value) per line, e.g.:
+      --ipv4   192.168.1.100   
+    (lines startng with with # are ignored)
+
+    '''
+    
     parser = argparse.ArgumentParser(
         description='A program (for MS Windows systems only) that runs an AirPlay service discovery BLE beacon.',
-        epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble"'
+        epilog=epilog_text,
+        formatter_class=argparse.RawTextHelpFormatter
     )
 
     home_dir = os.environ.get("HOME")
+    if home_dir is None:
+        home_dir = os.path.expander("~")
     default_file = home_dir+"/.uxplay.beacon"
     print(f"homedir = {home_dir}")
     # Add arguments
     parser.add_argument(
         '--file',
         type=str,
-        default= default_file,
+        default=default_file,
         help='beacon startup file (optional): one entry (key, value) per line, e.g. --ipv4 192.168.1.100, (lines startng with with # are ignored)'
     )
     
@@ -311,7 +333,7 @@ if __name__ == '__main__':
 
     if args.ipv4 == "use gethostbyname":
         if (ipv4_str is None):
-            ipv4_str = socket.gethostbyname(socket.gethostname())
+            ipv4_str = get_ipv4()
     else:
         ipv4_str = args.ipv4
 

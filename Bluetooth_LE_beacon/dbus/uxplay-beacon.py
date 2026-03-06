@@ -10,7 +10,7 @@ try:
     from gi.repository import GLib
 except ImportError as e:
     print(f'ImportError: {e}, failed to import GLib from Python GObject Introspection Library ("gi")')
-    printf("Install PyGObject ('pip3 install PyGobject==3.50.0')")
+    print(f"Install PyGObject ('pip3 install PyGobject==3.50.0')")
     raise SystemExit(1)
     
 try:
@@ -20,7 +20,7 @@ try:
     import dbus.service
 except ImportError as e:
     print(f"ImportError: {e}, failed to import required dbus components")
-    printf("install the python3 dbus package")
+    print(f"install the python3 dbus package")
     raise SystemExit(1)
 
 ad_manager = None
@@ -356,7 +356,7 @@ def main(file_path, ipv4_str_in, advmin_in, advmax_in, index_in):
             mainloop = GLib.MainLoop()
             mainloop.run()
     except KeyboardInterrupt:
-        print(f'\nExiting ...')
+        print('\nExiting ...')
         sys.exit(0)
         
 #check AdvInterval
@@ -375,7 +375,7 @@ def get_ipv4():
         ipv4 = s.getsockname()[0]
         s.close()
     except socket.error as e:
-        print("socket error {e}, will try to get ipv4 with gethostbyname");
+        print(f"socket error {e}, will try to get ipv4 with gethostbyname");
         ipv4 = None
     if (ipv4 is not None and ipv4 != "127.0.0.1"):
         return ipv4
@@ -392,12 +392,25 @@ if __name__ == '__main__':
 
 
     if not sys.version_info >= (3,6):
-        print("uxplay-beacon.py requires Python 3.6 or higher")
+        print(f"uxplay-beacon.py requires Python 3.6 or higher")
     
     # Create an ArgumentParser object
+
+    epilog_text = '''
+    Example: python beacon.py --ipv4 192.168.1.100 --advmax 200 --path = ~/my_ble
+
+    Optional arguments in the beacon startup file (if present) will be processed first.
+    and will be overridden by any command-line entries.
+    Format: one entry (key, value) per line, e.g.:
+      --ipv4   192.168.1.100   
+    (lines startng with with # are ignored)
+
+    '''
+    
     parser = argparse.ArgumentParser(
         description='A program that runs an AirPlay service discovery BLE beacon.',
-        epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble" --AdvMin 100 --AdvMax 100"'
+        epilog=epilog_text,
+        formatter_class=argparse.RawTextHelpFormatter
     )
 
     home_dir = os.path.expanduser("~")
@@ -407,7 +420,7 @@ if __name__ == '__main__':
         '--file',
         type=str,
         default= default_file,
-        help='beacon startup file (optional): one entry (key, value) per line, e.g. --ipv4 192.168.1.100, (lines startng with with # are ignored)'
+        help='beacon startup file (default ~/.uxplay.beacon)'
     )
     
     parser.add_argument(

@@ -15,16 +15,16 @@ import gi
 try:
     from gi.repository import GLib
 except ImportError:
-    print(f"ImportError: failed to import GLib")
-    printf("Install PyGObject ('pip3 install PyGobject==3.50.0')")
+    print(f'ImportError: failed to import GLib')
+    print(f'Install PyGObject ("pip3 install PyGobject==3.50.0")')
     raise SystemExit(1)
 
 try:
     import serial
     from serial.tools import list_ports
 except ImportError as e:
-    print(f"ImportError: {e}, failed to import required serial port support")
-    printf("install pyserial")
+    print(f'ImportError: {e}, failed to import required serial port support')
+    print(f'install pyserial')
     raise SystemExit(1)
 
 advertised_port = None
@@ -76,24 +76,27 @@ def beacon_on():
     global airplay_advertisement
     global advertisement_parameters
     global serial_port
+    success = False
     try:
-        print("Connecting to BleuIO dongle on ", serial_port, "....")
+        print(f'Connecting to BleuIO dongle on {serial_port} ....')
         with serial.Serial(serial_port, 115200, timeout = 1) as ser:
-            print ("Connection established")
+            print(f'Connection established')
             #Start advertising
             response = send_at_command(ser, "AT+ADVDATA=" +  airplay_advertisement)
-            print(response)
+            #print(response)
             response = send_at_command(ser, "AT+ADVSTART=" + advertisement_parameters)
-            print(response)
-            print("AirPlay Service Discovery advertising started, port = ", advertised_port, "ip address = ", advertised_address)
-            
-            return True
+            #print(f'{response}')
+            print(f'AirPlay Service Discovery advertising started, port = {advertised_port} ip address = {advertised_address}')
+            success = True
     except serial.SerialException as e:
         print(f"beacon_on: Serial port error: {e}")
-        return  False
+        raise SystemExit(1)
     except Exception as e:
         print(f"beacon_on: An unexpected error occurred: {e}")
-        return  False
+        raise SystemExit(1)
+    finally:
+        ser.close()
+    return success
     
 def beacon_off():
     global advertisement_parameters
@@ -101,23 +104,25 @@ def beacon_off():
     global advertised_port
     global advertised_address
     global serial_port
-    
-    # Stop advertising
+     # Stop advertising
     try:
         with serial.Serial(serial_port, 115200, timeout = 1) as ser:
             response = send_at_command(ser, "AT+ADVSTOP")
-            print(response)
-            print("AirPlay Service-Discovery beacon advertisement stopped")
+            #print(f'{response}')
+            print(f'AirPlay Service-Discovery beacon advertisement stopped')
             airplay_advertisement = None
             advertised_Port = None
             advertised_address = None
             advertisement_parameters = None
+            resullt = True
     except serial.SerialException as e:
         print(f"beacon_off: Serial port error: {e}")
+        raise SystemExit(1)
     except Exception as e:
-        print(f"beacon_ff: An unexpected error occurred: {e}")
-    
-
+        print(f"beacon_off: An unexpected error occurred: {e}")
+        raise SystemExit(1)
+    finally:
+        ser.close()
             
 #==generic code (non-dbus) below here =============
 
@@ -128,6 +133,7 @@ def check_port(port):
         return False
 
 import argparse
+import textwrap
 import os
 import sys
 import struct
@@ -245,6 +251,31 @@ def on_timeout(file_path):
     check_file_exists(file_path)
     return True
 
+def find_bleuio(serial_port_in):
+    serial_ports = list(list_ports.comports())
+    count = 0
+    serial_port_found = False
+    serial_port = None
+    TARGET_VID = 0x2DCF   # used by BleuIO and BleuIO Pro
+    if serial_port_in is not None:
+        for p in serial_ports:
+            if p.vid is None:
+                continue
+            if p.vid == TARGET_VID and p.device == serial_port_in:
+                return serial_port_in
+    for p in serial_ports:
+        if p.vid is not None and p.vid == TARGET_VID:
+            count+=1
+            if count == 1:
+                serial_port = p.device
+            print(f'=== detected BlueuIO {count}. port: {p.device} desc: {p.description} hwid: {p.hwid}')
+            
+    if count>1:
+        print(f'warning: {count} BleueIO devices were found, the first found will be used')
+        print(f'(to override this choice, specify "--serial_port=..." in optional arguments')
+
+    return serial_port
+
 def main(file_path, ipv4_str_in, advmin_in, advmax_in, serial_port_in):
     global ipv4_str
     global advmin
@@ -262,18 +293,18 @@ def main(file_path, ipv4_str_in, advmin_in, advmax_in, serial_port_in):
             mainloop = GLib.MainLoop()
             mainloop.run()
     except KeyboardInterrupt:
-        print(f'\nExiting ...')
+        print('\nExiting ...')
         sys.exit(0)
         
 
 #check AdvInterval
 def check_adv_intrvl(min, max):
     if not (100 <= min):
-        raise ValueError('AdvMin was smaller than 100 msecs')
+        raise ValueError('advmin was smaller than 100 msecs')
     if not (max >= min):
-        raise ValueError('AdvMax  was smaller than AdvMin')
+        raise ValueError('advmax  was smaller than advmin')
     if not (max <= 10240):
-        raise ValueError('AdvMax was larger than 10240 msecs')
+        raise ValueError('advmax was larger than 10240 msecs')
 
 #get_ipv4 
 def get_ipv4():
@@ -283,7 +314,7 @@ def get_ipv4():
         ipv4 = s.getsockname()[0]
         s.close()
     except socket.error as e:
-        print("socket error {e}, will try to get ipv4 with gethostbyname");
+        print(f'socket error {e}, will try to get ipv4 with gethostbyname');
         ipv4 = None
     if (ipv4 is not None and ipv4 != "127.0.0.1"):
         return ipv4
@@ -292,36 +323,54 @@ def get_ipv4():
         try:
             ipv4 = socket.gethostbyname(socket.gethostname()+".local")
         except socket_error:
-            print(f"failed to obtain local ipv4 address: enter it with option --ipv4 ... ")
+            print(f'failed to obtain local ipv4 address: enter it with option --ipv4 ... ')
             raise SystemExit(1)
     return ipv4
 
 if __name__ == '__main__':
 
     if not sys.version_info >= (3,6):
-        print("uxplay-beacon.py requires Python 3.6 or higher")
-    
+        print(f'uxplay-beacon.py requires Python 3.6 or higher')
+
+
     # Create an ArgumentParser object
+
+    epilog_text = '''
+    Example: python beacon.py --ipv4 192.168.1.100 --advmax 200 --path = ~/my_ble
+
+    Optional arguments in the beacon startup file (if present) will be processed first.
+    and will be overridden by any command-line entries.
+    Format: one entry (key, value) per line, e.g.:
+      --ipv4   192.168.1.100   
+    (lines startng with with # are ignored)
+
+    '''
+    
     parser = argparse.ArgumentParser(
         description='A program that runs an AirPlay service discovery BLE beacon on a BleuIO USB device.',
-        epilog='Example: python beacon.py --ipv4 "192.168.1.100" --path "/home/user/ble" --AdvMin 100 --AdvMax 100 --serial_port="/dev/cu.usbmodem4048FDE123456'
-    )
+        epilog=epilog_text,
+        formatter_class=argparse.RawTextHelpFormatter
+     )
 
-    home_dir = os.path.expanduser("~")
+    home_dir = os.environ.get('HOME')
+    if home_dir is None:
+        home_dir = os.path.expanduser("~")
     default_file = home_dir+"/.uxplay.beacon"  
+
     # Add arguments
     parser.add_argument(
         '--file',
         type=str,
-        default= default_file,
-        help='beacon startup file (optional): one entry (key, value) per line, e.g. --ipv4 192.168.1.100, (lines startng with with # are ignored)'
+        default=default_file,
+        help='beacon startup file (default:  ~/.uxplay.beacon)'
     )
-    
+ 
+
     parser.add_argument(
         '--path',
         type=str,
         default= home_dir + "/.uxplay.ble", 
-        help='path to AirPlay server BLE beacon information file (default: ~/.uxplay.ble)).'
+        help='path to AirPlay server BLE beacon information file (default: ~/.uxplay.ble).'
     )
     parser.add_argument(
         '--ipv4',
@@ -331,16 +380,16 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--AdvMin',
+        '--advmin',
         type=str,
         default="0", 
         help='The minimum Advertising Interval (>= 100) units=msec, (default 100)'
     )
     parser.add_argument(
-        '--AdvMax',
+        '--advmax',
         type=str,
         default="0", 
-        help='The maximum Advertising Interval (>= AdvMin, <= 10240) units=msec, (default 100)'
+        help='The maximum Advertising Interval (>= advmin, <= 10240) units=msec, (default 100)'
     )
 
     parser.add_argument(
@@ -375,21 +424,21 @@ if __name__ == '__main__':
                         path = value
                     elif key == "--ipv4":
                         ipv4_str = value
-                    elif key == "--AdvMin":
+                    elif key == "--advmin":
                         if value.isdigit():
                             advmin = int(value)
                         else:
-                             print(f'Invalid config file input (--AdvMin) {value} in {args.file}')
+                             print(f'Invalid config file input (--advmin) {value} in {args.file}')
                              raise SystemExit(1)
-                    elif key == "--AdvMax":
+                    elif key == "--advmax":
                         if value.isdigit():
                             advmax = int(value)
                         else:
-                             print(f'Invalid config file input (--AdvMax) {value} in {args.file}')
+                             print(f'Invalid config file input (--advmax) {value} in {args.file}')
                              raise SystemExit(1)
                     elif key == "--serial":
                         if not os.path.isfile(value):
-                            print("specified serial_port ", value, " is not a valid path to a serial port")
+                            print(f'specified serial_port {value} is not a valid path to a serial port')
                             raise SystemExit(1)
                         serial_port = value
                         
@@ -407,24 +456,21 @@ if __name__ == '__main__':
     else:
         ipv4_str = args.ipv4
 
-    if args.AdvMin != "0":
-        if args.AdvMin.isdigit():
-            advmin = int(args.AdvMin)
+    if args.advmin != "0":
+        if args.advmin.isdigit():
+            advmin = int(args.advmin)
         else:
-            print(f'Invalid input (AdvMin) {args.AdvMin}')
+            print(f'Invalid input (advmin) {args.advmin}')
             raise SystemExit(1)
         
-    if args.AdvMax != "0":
-        if args.AdvMax.isdigit():
-            advmax = int(args.AdvMax)
+    if args.advmax != "0":
+        if args.advmax.isdigit():
+            advmax = int(args.advmax)
         else:
-            print(f'Invalid input (AdvMin) {args.AdvMin}')
+            print(f'Invalid input (advmin) {args.advmin}')
             raise SystemExit(1)
 
     if args.serial is not None:
-        if not os.path.isfile(args.serial):
-            print("specified serial_port ", args.serial, " is not a valid path to a serial port")
-            raise SystemExit(1)
         serial_port = args.serial
 
     try:
@@ -432,35 +478,18 @@ if __name__ == '__main__':
     except ValueError as e:
         print(f'Error: {e}')
         raise SystemExit(1) 
-                
-    serial_ports = list(list_ports.comports())
-    count = 0
-    serial_port_found = False
-    for p in serial_ports:
-        if "BleuIO" not in p.description:
-            continue
-        count+=1
-        if serial_port is None:
-            serial_port = p.device
-        if serial_port == p.device:
-            serial_port_found = True
-        print ("=== detected BlueuIO port ", count,': ', p.description, p.device)
 
-    if serial_port is not None and serial_port_found is False:
-        print("The serial port ", serial_port, " specified as an optional argument is not a detected  BleuIO device")
+    bleuio_port = find_bleuio(serial_port)
+    if bleuio_port is None:
+        print(f'No BleuIO devices were found')
         raise SystemExit(1)
-
-    if serial_port_found is False:
-        print("No BleuIO device was found: stopping")
-        print("If a BleuIO device is in fact present, you can specify its port with the \"--serial=...\" option.")
+    if serial_port is not None and bleuio_port != serial_port:
+        print(f'Error: A BlueuIO device was NOT found at the port {serial_port} given as an optional argument')
+        print(f'(however BleuIO devices WERE found and are listed above')
         raise SystemExit(1)
+    
+    print(f'using {bleuio_port} as the BleuIO device')
 
-    if count>1:
-        print("warning: ", count, " BleueIO devices were found, the first found will be used")
-        print("(to override this choice, specify \"--serial_port=...\"in optional arguments")
-
-    print( "using ", serial_port, " as the BleuIO device")
-
-    print(f'AirPlay Service-Discovery Bluetooth LE beacon: using BLE file {args.path}, advmin:advmax {advmin}:{advmax} BleueIO port:{serial_port}')
+    print(f'AirPlay Service-Discovery Bluetooth LE beacon: BLE file {args.path}, advmin:advmax {advmin}:{advmax} BleueIO port:{bleuio_port}')
     print(f'(Press Ctrl+C to exit)')
-    main(args.path, ipv4_str, advmin, advmax, serial_port)
+    main(args.path, ipv4_str, advmin, advmax, bleuio_port)
