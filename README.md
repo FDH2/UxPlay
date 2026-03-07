@@ -19,7 +19,8 @@
     on all systems including macOS).   The beacon
     runs independently of UxPlay: while UxPlay is running, it regularly broadcasts a Bluetooth LE ("Low Energy") 46 byte
     legacy-type advertisement  informing nearby iOS/macOS devices of
-    the local IPv4 network address of the UxPlay server, and which TCP port to contact UxPlay on. Instructions are [given below](#bluetooth-le-beacon-setup).
+    the local IPv4 network address of the UxPlay server, and which TCP port to contact UxPlay on.  Instructions
+    are [given below](#bluetooth-le-beacon-setup).
 
 -   option `-vrtp <rest-of-pipeline>`  bypasses rendering by UxPlay, and instead
     transmits rtp packets of decrypted h264 or h265 video to
@@ -464,9 +465,8 @@ package](#building-an-installable-rpm-package).
 
 First-time RPM builders should first install the rpm-build and
 rpmdevtools packages, then create the rpmbuild tree with
-"`rpmdev-setuptree`". Then download and copy uxplay.spec into
-`~/rpmbuild/SPECS`. In that directory, run
-"`rpmdev-spectool -g -R  uxplay.spec`" to download the corresponding
+"`rpmdev-setuptree`". Then download and copy uxplay.spec into `~/rpmbuild/SPECS`. In
+that directory, run "`pmdev-spectool -g -R  uxplay.spec`" to download the corresponding
 source file `uxplay-*.tar.gz` into `~/rpmbuild/SOURCES`
 ("rpmdev-spectool" may also be just called "spectool"); then run
 "`rpmbuild -ba uxplay.spec`" (you will need to install any required
@@ -1534,8 +1534,8 @@ debugging, as it is not containerized to make it playable with standard
 audio players.*
 
 **-ble [*filename*]**.  Enable Bluetooth beacon Service Discovery.
-The port, PID and process name of the UxPlay process is recorded by default in
-`~/.uxplay.ble` : (this file is created
+The port, PID and process name of the UxPlay process is recorded by default
+in `~/.uxplay.ble` : (this file is created
 when UxPlay starts and deleted when it stops.)
 Optionally the  file
 *filename*, which must be the  full path to a  writeable file can instead be used.
@@ -1554,12 +1554,17 @@ GStreamer inner workings.
 # Bluetooth LE beacon setup
 
 The python>=3.6 script for running a Bluetooth-LE Service Discovery beacon is uxplay-beacon.py.
-It comes in two versions, one  (for Linux and *BSD) is only installed on systems which
-support DBUS, and another only for Windows 10/11.    Bluetooth >= 4.0 hardware on the host computer is required: a cheap USB bluetooth dongle
-can be used.    
+It comes in three versions, one  (for Linux) is only installed on systems which
+support DBUS, and another only for Windows 10/11. Bluetooth >= 4.0 hardware on the host computer is required: a cheap USB bluetooth dongle
+can be used if necessary.    The third version is only for the [BleuIO (or BleuIO Pro) USB
+dongle](https://www.bleuio.com)  with its own on-board Bluetooth-LE Stack that
+does not use the host operating system Bluetooth (the Host sees the device as a USB serial modem).   This is needed for macOS where the
+operating system does not allow users to send  Bluetooth-LE advertisements of the type we require.  If a BleuIO  dongle is
+available, the bleuio version of the python script
+can be used on many operating systems including macOS, Windows and Linux, and perhaps *BSD (not tested):
+it requires python library `python3-pyserial` to be installed.
 
-On Linux/*BSD,
-Bluetooth support (BlueZ) must be installed (on Debian-based systems: `sudo apt install bluez bluez-tools`;
+On Linux, Bluetooth support (using the offical Linux Bluetooth stack BlueZ) must be installed (on Debian-based systems: `sudo apt install bluez bluez-tools`;
 recent Ubuntu releases provide bluez as a snap package).
 In addition to standard Python3 libraries, you may need to install the gi, dbus, and psutil Python libraries used by
 uxplay-beacon.py.  On Debian-based systems:
@@ -1567,13 +1572,22 @@ uxplay-beacon.py.  On Debian-based systems:
 ```
 sudo apt install python3-gi python3-dbus python3-psutil
 ```
+If a python3-gi package is not found, install the PyGObject package.
 
-For Windows support on MSYS2 UCRT systems, use pacman -S to
+For Windows support in the  MSYS2 UCRT64 environment,, use pacman -S to
 install `mingw-w64-ucrt-x86_64-python`, ``*-python-gobject``,
 `*-python-psutil`, and ``*-python-pip``.   Then install **winrt**
-bindings: "`pip install winrt-Windows.Foundation.Collections`", also
-``winrt-Windows.Devices.Bluetooth.Advertisement`` and
-``winrt-Windows.Storage.Streams``.
+bindings using pip (or pip3):
+
+```
+pip install winrt-Windows.Foundation --break-system-packages
+pip install winrt-Windows.Foundation.Collections --break-system-packages
+pip install winrt-Windows.Devices.Bluetooth.Advertisement --break-system-packages
+pip install winrt-Windows.Storage.Streams --break-system-packages
+```
+(Recently pip on MSYS2 has started to require the
+pip option "`--break-system-packages`" to install these, as they are not MSYS2 packages:
+_this is unnecessarily scary, as no breakage will occur when the winrt packages are installed using pip_.)
 
 If uxplay will be  run with option "`uxplay -ble`" (so it writes data for the Bluetooth beacon in the default BLE data file
 `~/.uxplay.ble`), just run ``uxplay-beacon.py`` in a separate terminal.    The python script will start
