@@ -186,6 +186,10 @@ static guint gst_hls_position_id = 0;
 static bool preserve_connections = false;
 static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
+#ifdef NATIVE_MACOS_RENDERER
+static guint native_cover_art_disconnect_timer_id = 0;
+static const guint native_cover_art_disconnect_timeout_secs = 10;
+#endif
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
 static bool monitor_progress = false;
@@ -564,6 +568,42 @@ static gboolean reset_callback(gpointer loop) {
     return TRUE;
 }
 
+#ifdef NATIVE_MACOS_RENDERER
+static gboolean native_cover_art_disconnect_callback(gpointer data) {
+    native_cover_art_disconnect_timer_id = 0;
+
+    if (open_connections != 0 || !use_video || !render_coverart) {
+        return FALSE;
+    }
+
+    coverart_artist.erase();
+    artist.erase();
+    track_title.erase();
+    track_album.erase();
+    video_renderer_cycle();
+    return FALSE;
+}
+
+static void cancel_native_cover_art_disconnect_timer() {
+    if (native_cover_art_disconnect_timer_id > 0) {
+        g_source_remove(native_cover_art_disconnect_timer_id);
+        native_cover_art_disconnect_timer_id = 0;
+    }
+}
+
+static void schedule_native_cover_art_disconnect_timer() {
+    if (!use_video || !render_coverart) {
+        return;
+    }
+    cancel_native_cover_art_disconnect_timer();
+    native_cover_art_disconnect_timer_id = g_timeout_add_seconds(
+        native_cover_art_disconnect_timeout_secs,
+        (GSourceFunc) native_cover_art_disconnect_callback,
+        NULL
+    );
+}
+#endif
+
 static gboolean x11_window_callback(gpointer loop) {
     /* called while trying to find an x11 window used by playbin (HLS mode) */
     if (waiting_for_x11_window()) {
@@ -754,6 +794,9 @@ static void main_loop()  {
     if (progress_id > 0) g_source_remove(progress_id);
     if (video_eos_watch_id > 0) g_source_remove(video_eos_watch_id);
     if (feedback_watch_id > 0) g_source_remove(feedback_watch_id);
+#ifdef NATIVE_MACOS_RENDERER
+    cancel_native_cover_art_disconnect_timer();
+#endif
     g_main_loop_unref(loop);
 }    
 
@@ -2235,6 +2278,9 @@ extern "C" void export_dacp(void *cls, const char *active_remote, const char *da
 extern "C" void conn_init (void *cls) {
     open_connections++;
     LOGD("Open connections: %i", open_connections);
+#ifdef NATIVE_MACOS_RENDERER
+    cancel_native_cover_art_disconnect_timer();
+#endif
     //video_renderer_update_background(1);
 }
 
@@ -2247,6 +2293,9 @@ extern "C" void conn_destroy (void *cls) {
         if (use_audio) {
             audio_renderer_stop();
         }
+#ifdef NATIVE_MACOS_RENDERER
+        schedule_native_cover_art_disconnect_timer();
+#endif
         if (dacpfile.length()) {
             remove (dacpfile.c_str());
         }
@@ -2513,7 +2562,15 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
 
 extern "C" void audio_stop_coverart_rendering(void *cls) {
     if (render_coverart) {
+#ifdef NATIVE_MACOS_RENDERER
+        LOGD("preserving native macOS cover art window after audio teardown");
+        if (use_video) {
+            video_renderer_pause();
+        }
+        schedule_native_cover_art_disconnect_timer();
+#else
         video_reset(cls, RESET_TYPE_RTP_SHUTDOWN);
+#endif
     }
 }
 
