@@ -26,6 +26,7 @@
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 #import <MetalPerformanceShaders/MetalPerformanceShaders.h>
+#import <QuartzCore/QuartzCore.h>
 #import <VideoToolbox/VideoToolbox.h>
 #import <CoreVideo/CoreVideo.h>
 #import <CoreMedia/CoreMedia.h>
@@ -52,6 +53,10 @@ static VTDecompressionSessionRef g_decoder_session = NULL;
 static CMFormatDescriptionRef g_format_desc = NULL;
 static bool g_is_h265 = false;
 
+// Current decoded video dimensions (for detecting rotation/resolution changes)
+static size_t g_current_width = 0;
+static size_t g_current_height = 0;
+
 // SPS/PPS/VPS storage for format description (VPS for HEVC)
 static uint8_t *g_vps = NULL;
 static size_t g_vps_size = 0;
@@ -68,14 +73,25 @@ static NSRect g_windowed_frame = {0};
 // Always on top state
 static bool g_always_on_top = false;
 
+// Manual rotation (CA layer transform, degrees: 0/90/180/270)
+
 // Server name for window title
 static char *g_server_name = NULL;
+typedef enum {
+    WINDOW_TITLE_MODE_NONE = 0,
+    WINDOW_TITLE_MODE_READY,
+    WINDOW_TITLE_MODE_STREAMING,
+    WINDOW_TITLE_MODE_CUSTOM
+} window_title_mode_t;
+static window_title_mode_t g_window_title_mode = WINDOW_TITLE_MODE_NONE;
+static char *g_window_title_custom_status = NULL;
 
 // Cover art storage
 static NSImage *g_cover_art = NULL;
 static bool g_showing_cover_art = false;
 static id<MTLTexture> g_cover_art_texture = NULL;
 static bool g_cover_art_texture_created = false;
+static bool g_cover_art_texture_rebuild_pending = false;
 
 // Track metadata for cover art display
 static char *g_track_title = NULL;
@@ -88,11 +104,17 @@ static bool g_idle_texture_created = false;
 
 // Display window and layer
 static NSWindow *g_window = NULL;
+static NSView *g_container_view = NULL;        // Outer container (fills window, black bg, clips)
+static NSView *g_rotation_host_view = NULL;    // Intermediate view that receives CA rotation transform
 static MTKView *g_metal_view = NULL;
+static NSArray<NSLayoutConstraint *> *g_rotation_host_fill_constraints = nil;
+static NSArray<NSLayoutConstraint *> *g_metal_view_fill_constraints = nil;
+static bool g_rotation_host_constraints_active = false;
 static id<MTLDevice> g_metal_device = NULL;
 static id<MTLCommandQueue> g_command_queue = NULL;
 static id<MTLTexture> g_current_texture = NULL;
 static CVMetalTextureCacheRef g_texture_cache = NULL;
+static id<MTLTexture> g_rotation_texture = NULL;
 
 // Threading
 static pthread_mutex_t g_frame_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -109,14 +131,15 @@ static uint64_t g_frames_rendered = 0;
 static uint64_t g_decode_errors = 0;
 static uint64_t g_last_stats_time = 0;
 static uint64_t g_last_frame_time = 0;  // mach_absolute_time of last decoded frame
-static const double FRAME_STALL_TIMEOUT = 2.0;  // seconds before showing idle screen
+static const double FRAME_STALL_TIMEOUT = 30.0;  // seconds before showing idle screen
 static dispatch_source_t g_stall_timer = NULL;
+static uint64_t g_last_stall_log_time = 0;  // throttle stall log messages
 
 // Frame pacing
 static double g_source_frame_interval = 0.0;  // estimated source frame interval in seconds
 static uint64_t g_prev_decode_time = 0;        // mach_absolute_time of previous decoded frame
 
-// Debug FPS overlay
+// Debug info overlay
 static bool g_show_fps = false;
 static uint64_t g_fps_frame_count = 0;
 static uint64_t g_fps_last_time = 0;
@@ -128,6 +151,8 @@ static uint64_t g_fps_decode_last_time = 0;
 // Forward declarations
 static void create_decoder_session(void);
 static void destroy_decoder_session(void);
+static void layout_video_views_on_main_thread(void);
+static void set_video_paused(bool paused, bool should_log);
 static void decompress_callback(void *decompressionOutputRefCon,
                                 void *sourceFrameRefCon,
                                 OSStatus status,
@@ -158,12 +183,299 @@ static void log_stats(void) {
     }
 }
 
+static void set_owned_string(char **slot, const char *value) {
+    if (*slot) {
+        free(*slot);
+        *slot = NULL;
+    }
+    if (value && value[0] != '\0') {
+        *slot = strdup(value);
+    }
+}
+
+#pragma mark - Manual Rotation (Core Animation layer transform, like Reflector 4)
+
+// Manual rotation angle in degrees (0, 90, 180, 270)
+static int g_manual_rotation_degrees = 0;
+static bool g_manual_rotation_animation_inflight = false;
+static uint64_t g_manual_rotation_animation_generation = 0;
+static const NSTimeInterval MANUAL_ROTATION_ANIMATION_DURATION = 0.22;
+
+static const char *rotation_degrees_name(int degrees) {
+    switch (degrees) {
+        case 90:  return "90° CW";
+        case 180: return "180°";
+        case 270: return "90° CCW";
+        default:  return "None";
+    }
+}
+
+static void get_base_display_dimensions(CGFloat *width, CGFloat *height) {
+    CGFloat display_width = (CGFloat)g_current_width;
+    CGFloat display_height = (CGFloat)g_current_height;
+
+    if (g_rotation == LEFT || g_rotation == RIGHT) {
+        display_width = (CGFloat)g_current_height;
+        display_height = (CGFloat)g_current_width;
+    }
+
+    if (width) *width = display_width;
+    if (height) *height = display_height;
+}
+
+static NSSize scaled_content_size_for_display(CGFloat display_width, CGFloat display_height) {
+    if (display_width <= 0.0 || display_height <= 0.0) {
+        return NSMakeSize(0.0, 0.0);
+    }
+
+    CGFloat scale = (display_height > display_width)
+        ? 900.0 / display_height
+        : 1200.0 / display_width;
+
+    return NSMakeSize(round(display_width * scale), round(display_height * scale));
+}
+
+static NSRect window_frame_for_content_size(CGFloat width, CGFloat height) {
+    if (!g_window || width <= 0.0 || height <= 0.0) {
+        return NSZeroRect;
+    }
+
+    NSRect window_frame = [g_window frame];
+    NSRect content_rect = [g_window contentRectForFrameRect:window_frame];
+    content_rect.size = NSMakeSize(width, height);
+
+    NSRect target_frame = [g_window frameRectForContentRect:content_rect];
+    target_frame.origin.x = window_frame.origin.x;
+    target_frame.origin.y = window_frame.origin.y + NSHeight(window_frame) - NSHeight(target_frame);
+    return target_frame;
+}
+
+static void resize_window_content(CGFloat width, CGFloat height, BOOL animate) {
+    if (!g_window || g_fullscreen || width <= 0.0 || height <= 0.0) return;
+    NSRect target_frame = window_frame_for_content_size(width, height);
+    [g_window setFrame:target_frame display:YES animate:animate];
+}
+
+static void animate_window_content_resize(CGFloat width, CGFloat height, NSTimeInterval duration) {
+    if (!g_window || g_fullscreen || width <= 0.0 || height <= 0.0) return;
+
+    NSRect target_frame = window_frame_for_content_size(width, height);
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = duration;
+        context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+        [[g_window animator] setFrame:target_frame display:YES];
+    } completionHandler:^{
+        layout_video_views_on_main_thread();
+    }];
+}
+
+static CATransform3D rotation_transform_for_degrees(int degrees) {
+    if (degrees == 0) {
+        return CATransform3DIdentity;
+    }
+
+    CGFloat angle = -(CGFloat)degrees * M_PI / 180.0;
+    return CATransform3DMakeRotation(angle, 0, 0, 1);
+}
+
+static NSRect rotation_host_frame_for_container_bounds(NSRect container_bounds, int degrees) {
+    CGFloat container_width = NSWidth(container_bounds);
+    CGFloat container_height = NSHeight(container_bounds);
+    if (container_width <= 0.0 || container_height <= 0.0) {
+        return NSZeroRect;
+    }
+
+    if (degrees == 0 || g_current_width == 0 || g_current_height == 0) {
+        return container_bounds;
+    }
+
+    CGFloat base_width = 0.0;
+    CGFloat base_height = 0.0;
+    get_base_display_dimensions(&base_width, &base_height);
+    if (base_width <= 0.0 || base_height <= 0.0) {
+        return container_bounds;
+    }
+
+    bool swap_dims = (degrees == 90 || degrees == 270);
+    CGFloat fit_scale = swap_dims
+        ? fmin(container_width / base_height, container_height / base_width)
+        : fmin(container_width / base_width, container_height / base_height);
+    CGFloat host_width = round(base_width * fit_scale);
+    CGFloat host_height = round(base_height * fit_scale);
+    CGFloat host_x = round((container_width - host_width) / 2.0);
+    CGFloat host_y = round((container_height - host_height) / 2.0);
+
+    return NSMakeRect(host_x, host_y, host_width, host_height);
+}
+
+static void set_rotation_host_fill_constraints_active(BOOL active) {
+    if (!g_rotation_host_fill_constraints || g_rotation_host_constraints_active == (bool)active) {
+        return;
+    }
+
+    if (active) {
+        g_rotation_host_view.translatesAutoresizingMaskIntoConstraints = NO;
+        [NSLayoutConstraint activateConstraints:g_rotation_host_fill_constraints];
+    } else {
+        [NSLayoutConstraint deactivateConstraints:g_rotation_host_fill_constraints];
+        g_rotation_host_view.translatesAutoresizingMaskIntoConstraints = YES;
+    }
+
+    g_rotation_host_constraints_active = active;
+}
+
+static void sync_rotation_host_layer_geometry(void) {
+    if (!g_rotation_host_view || !g_rotation_host_view.layer) return;
+
+    g_rotation_host_view.layer.anchorPoint = CGPointMake(0.5, 0.5);
+    g_rotation_host_view.layer.position = CGPointMake(NSMidX(g_rotation_host_view.frame),
+                                                      NSMidY(g_rotation_host_view.frame));
+}
+
+static void cancel_manual_rotation_animation_on_main_thread(void) {
+    if (!g_rotation_host_view || !g_rotation_host_view.layer) return;
+
+    g_manual_rotation_animation_generation++;
+    g_manual_rotation_animation_inflight = false;
+    [g_rotation_host_view.layer removeAnimationForKey:@"manualRotationTransform"];
+}
+
+static void layout_video_views_on_main_thread(void) {
+    if (!g_window || !g_container_view || !g_rotation_host_view || !g_metal_view) return;
+
+    [g_container_view layoutSubtreeIfNeeded];
+
+    NSRect container_bounds = g_container_view.bounds;
+    CGFloat container_width = NSWidth(container_bounds);
+    CGFloat container_height = NSHeight(container_bounds);
+    if (container_width <= 0.0 || container_height <= 0.0) return;
+
+    if (g_manual_rotation_degrees == 0 || g_current_width == 0 || g_current_height == 0) {
+        set_rotation_host_fill_constraints_active(YES);
+        g_rotation_host_view.layer.transform = CATransform3DIdentity;
+        g_rotation_host_view.frame = container_bounds;
+        sync_rotation_host_layer_geometry();
+        [g_container_view layoutSubtreeIfNeeded];
+        return;
+    }
+
+    set_rotation_host_fill_constraints_active(NO);
+    g_rotation_host_view.autoresizingMask = 0;
+    g_rotation_host_view.layer.transform = CATransform3DIdentity;
+    g_rotation_host_view.frame = rotation_host_frame_for_container_bounds(container_bounds, g_manual_rotation_degrees);
+    sync_rotation_host_layer_geometry();
+    g_rotation_host_view.layer.transform = rotation_transform_for_degrees(g_manual_rotation_degrees);
+}
+
+static void apply_manual_rotation_on_main_thread(void) {
+    if (!g_window || !g_container_view || !g_rotation_host_view || !g_metal_view) return;
+    if (g_current_width == 0 || g_current_height == 0) return;
+
+    CGFloat base_width = 0.0;
+    CGFloat base_height = 0.0;
+    get_base_display_dimensions(&base_width, &base_height);
+    if (base_width <= 0.0 || base_height <= 0.0) return;
+
+    bool swap_dims = (g_manual_rotation_degrees == 90 || g_manual_rotation_degrees == 270);
+    CGFloat display_width = swap_dims ? base_height : base_width;
+    CGFloat display_height = swap_dims ? base_width : base_height;
+    NSRect target_container_bounds = g_container_view.bounds;
+    NSRect target_window_frame = NSZeroRect;
+
+    if (!g_fullscreen) {
+        NSSize target_size = scaled_content_size_for_display(display_width, display_height);
+        target_container_bounds = NSMakeRect(0, 0, target_size.width, target_size.height);
+        target_window_frame = window_frame_for_content_size(target_size.width, target_size.height);
+    }
+
+    cancel_manual_rotation_animation_on_main_thread();
+
+    NSRect target_host_frame = rotation_host_frame_for_container_bounds(target_container_bounds, g_manual_rotation_degrees);
+    CATransform3D target_transform = rotation_transform_for_degrees(g_manual_rotation_degrees);
+    uint64_t animation_generation = ++g_manual_rotation_animation_generation;
+    g_manual_rotation_animation_inflight = true;
+
+    set_rotation_host_fill_constraints_active(NO);
+    g_rotation_host_view.autoresizingMask = 0;
+    sync_rotation_host_layer_geometry();
+
+    CALayer *host_layer = g_rotation_host_view.layer;
+    [host_layer removeAnimationForKey:@"manualRotationTransform"];
+
+    CABasicAnimation *rotation_animation = [CABasicAnimation animationWithKeyPath:@"transform"];
+    rotation_animation.fromValue = [NSValue valueWithCATransform3D:host_layer.transform];
+    rotation_animation.toValue = [NSValue valueWithCATransform3D:target_transform];
+    rotation_animation.duration = MANUAL_ROTATION_ANIMATION_DURATION;
+    rotation_animation.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+    [host_layer addAnimation:rotation_animation forKey:@"manualRotationTransform"];
+    host_layer.transform = target_transform;
+
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext *context) {
+        context.duration = MANUAL_ROTATION_ANIMATION_DURATION;
+        context.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
+
+        if (!g_fullscreen) {
+            [[g_window animator] setFrame:target_window_frame display:YES];
+        }
+
+        [[g_rotation_host_view animator] setFrame:target_host_frame];
+    } completionHandler:^{
+        if (animation_generation != g_manual_rotation_animation_generation) {
+            return;
+        }
+
+        g_manual_rotation_animation_inflight = false;
+        layout_video_views_on_main_thread();
+    }];
+
+    NSRect container_bounds = target_container_bounds;
+    NSRect host_frame = target_host_frame;
+    log_msg(LOGGER_INFO,
+            "Manual rotation %s animated: container %.0fx%.0f, host %.0fx%.0f at (%.0f,%.0f)",
+            rotation_degrees_name(g_manual_rotation_degrees),
+            NSWidth(container_bounds), NSHeight(container_bounds),
+            NSWidth(host_frame), NSHeight(host_frame),
+            host_frame.origin.x, host_frame.origin.y);
+}
+
+static void apply_manual_rotation(void) {
+    if ([NSThread isMainThread]) {
+        apply_manual_rotation_on_main_thread();
+        return;
+    }
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        apply_manual_rotation_on_main_thread();
+    });
+}
+
+static void rotate_cw(void) {
+    g_manual_rotation_degrees = (g_manual_rotation_degrees + 90) % 360;
+    log_msg(LOGGER_INFO, "Manual rotation: %s", rotation_degrees_name(g_manual_rotation_degrees));
+    apply_manual_rotation();
+}
+
+static void rotate_ccw(void) {
+    g_manual_rotation_degrees = (g_manual_rotation_degrees + 270) % 360;
+    log_msg(LOGGER_INFO, "Manual rotation: %s", rotation_degrees_name(g_manual_rotation_degrees));
+    apply_manual_rotation();
+}
+
+static void rotate_reset(void) {
+    g_manual_rotation_degrees = 0;
+    log_msg(LOGGER_INFO, "Manual rotation reset");
+    apply_manual_rotation();
+}
+
 #pragma mark - Fullscreen Toggle
 
 static void toggle_fullscreen(void) {
     if (!g_window) return;
 
     dispatch_async(dispatch_get_main_queue(), ^{
+        cancel_manual_rotation_animation_on_main_thread();
+        g_idle_texture_created = false;
+        g_idle_texture = nil;
         if (g_fullscreen) {
             // Exit fullscreen
             [g_window setStyleMask:NSWindowStyleMaskTitled |
@@ -213,17 +525,25 @@ static void toggle_fullscreen(void) {
             toggle_fullscreen();
             return;
         } else if (c == ' ') { // Space - toggle pause
-            g_paused = !g_paused;
-            log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+            set_video_paused(!g_paused, true);
             return;
         } else if (c == 27) { // ESC
             if (g_fullscreen) {
                 toggle_fullscreen();
             }
             return;
+        } else if (c == 'r') {
+            rotate_cw();
+            return;
+        } else if (c == 'R') {
+            rotate_ccw();
+            return;
+        } else if (c == '0') {
+            rotate_reset();
+            return;
         } else if (c == 'd' || c == 'D') {
             g_show_fps = !g_show_fps;
-            log_msg(LOGGER_INFO, "FPS overlay %s", g_show_fps ? "enabled" : "disabled");
+            log_msg(LOGGER_INFO, "Debug info overlay %s", g_show_fps ? "enabled" : "disabled");
             return;
         } else if (c == 'q' || c == 'Q') {
             // Quit - send SIGTERM to self
@@ -263,6 +583,9 @@ static void toggle_fullscreen(void) {
 - (void)toggleAlwaysOnTop:(id)sender;
 - (void)togglePause:(id)sender;
 - (void)toggleFPS:(id)sender;
+- (void)rotateCW:(id)sender;
+- (void)rotateCCW:(id)sender;
+- (void)rotateReset:(id)sender;
 - (void)quit:(id)sender;
 @end
 
@@ -293,15 +616,26 @@ static void toggle_fullscreen(void) {
 }
 
 - (void)togglePause:(id)sender {
-    g_paused = !g_paused;
-    log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+    set_video_paused(!g_paused, true);
 }
 
 - (void)toggleFPS:(id)sender {
     g_show_fps = !g_show_fps;
     NSMenuItem *menuItem = (NSMenuItem *)sender;
     [menuItem setState:g_show_fps ? NSControlStateValueOn : NSControlStateValueOff];
-    log_msg(LOGGER_INFO, "FPS overlay %s", g_show_fps ? "enabled" : "disabled");
+    log_msg(LOGGER_INFO, "Debug info overlay %s", g_show_fps ? "enabled" : "disabled");
+}
+
+- (void)rotateCW:(id)sender {
+    rotate_cw();
+}
+
+- (void)rotateCCW:(id)sender {
+    rotate_ccw();
+}
+
+- (void)rotateReset:(id)sender {
+    rotate_reset();
 }
 
 - (void)quit:(id)sender {
@@ -333,23 +667,102 @@ static void toggle_fullscreen(void) {
     return YES;
 }
 
+- (void)windowDidResize:(NSNotification *)notification {
+    if (g_manual_rotation_animation_inflight) {
+        return;
+    }
+    layout_video_views_on_main_thread();
+}
+
 @end
 
 static UxPlayMenuHandler *g_menu_handler = NULL;
 
-static void update_window_title(const char *status) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (g_window) {
-            NSString *title;
-            if (status && strlen(status) > 0) {
-                title = [NSString stringWithFormat:@"%s - %s",
-                         g_server_name ?: "UxPlay", status];
-            } else {
-                title = [NSString stringWithUTF8String:g_server_name ?: "UxPlay"];
+static void apply_window_title_on_main_thread(void) {
+    if (!g_window) return;
+
+    const char *base_title = g_server_name ?: "UxPlay";
+    NSString *status = nil;
+
+    switch (g_window_title_mode) {
+        case WINDOW_TITLE_MODE_READY:
+            status = @"Ready";
+            break;
+        case WINDOW_TITLE_MODE_STREAMING:
+            {
+                const char *state = g_paused ? "Paused" : "Streaming";
+                CGFloat display_width = 0.0;
+                CGFloat display_height = 0.0;
+                get_base_display_dimensions(&display_width, &display_height);
+                double title_fps = g_fps_source;
+                if (title_fps <= 0.0 && g_source_frame_interval > 0.0) {
+                    title_fps = 1.0 / g_source_frame_interval;
+                }
+
+                if (display_width > 0.0 && display_height > 0.0 && title_fps > 0.0) {
+                    status = [NSString stringWithFormat:@"%s | %.0fx%.0f | %.1f fps",
+                              state, display_width, display_height, title_fps];
+                } else if (display_width > 0.0 && display_height > 0.0) {
+                    status = [NSString stringWithFormat:@"%s | %.0fx%.0f",
+                              state, display_width, display_height];
+                } else if (title_fps > 0.0) {
+                    status = [NSString stringWithFormat:@"%s | %.1f fps", state, title_fps];
+                } else {
+                    status = [NSString stringWithUTF8String:state];
+                }
             }
-            [g_window setTitle:title];
-        }
+            break;
+        case WINDOW_TITLE_MODE_CUSTOM:
+            if (g_window_title_custom_status && g_window_title_custom_status[0] != '\0') {
+                status = [NSString stringWithUTF8String:g_window_title_custom_status];
+            }
+            break;
+        case WINDOW_TITLE_MODE_NONE:
+        default:
+            status = nil;
+            break;
+    }
+
+    NSString *title;
+    if (status && [status length] > 0) {
+        title = [NSString stringWithFormat:@"%s - %@", base_title, status];
+    } else {
+        title = [NSString stringWithUTF8String:base_title];
+    }
+
+    [g_window setTitle:title];
+}
+
+static void refresh_window_title(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        apply_window_title_on_main_thread();
     });
+}
+
+static void update_window_title(const char *status) {
+    if (!status || status[0] == '\0') {
+        g_window_title_mode = WINDOW_TITLE_MODE_NONE;
+        set_owned_string(&g_window_title_custom_status, NULL);
+    } else if (strcmp(status, "Ready") == 0) {
+        g_window_title_mode = WINDOW_TITLE_MODE_READY;
+        set_owned_string(&g_window_title_custom_status, NULL);
+    } else if (strcmp(status, "Streaming") == 0) {
+        g_window_title_mode = WINDOW_TITLE_MODE_STREAMING;
+        set_owned_string(&g_window_title_custom_status, NULL);
+    } else {
+        g_window_title_mode = WINDOW_TITLE_MODE_CUSTOM;
+        set_owned_string(&g_window_title_custom_status, status);
+    }
+
+    refresh_window_title();
+}
+
+static void set_video_paused(bool paused, bool should_log) {
+    g_paused = paused;
+    if (should_log) {
+        log_msg(LOGGER_INFO, "Video %s", g_paused ? "paused" : "resumed");
+    }
+    refresh_window_title();
 }
 
 static void create_menu_bar(void) {
@@ -383,6 +796,28 @@ static void create_menu_bar(void) {
     [alwaysOnTopItem setState:g_always_on_top ? NSControlStateValueOn : NSControlStateValueOff];
     [viewMenu addItem:alwaysOnTopItem];
 
+    [viewMenu addItem:[NSMenuItem separatorItem]];
+
+    NSMenuItem *rotateCWItem = [[NSMenuItem alloc] initWithTitle:@"Rotate Clockwise"
+                                                          action:@selector(rotateCW:)
+                                                   keyEquivalent:@"r"];
+    [rotateCWItem setTarget:g_menu_handler];
+    [viewMenu addItem:rotateCWItem];
+
+    NSMenuItem *rotateCCWItem = [[NSMenuItem alloc] initWithTitle:@"Rotate Counter-Clockwise"
+                                                           action:@selector(rotateCCW:)
+                                                    keyEquivalent:@"R"];
+    [rotateCCWItem setKeyEquivalentModifierMask:0];
+    [rotateCCWItem setTarget:g_menu_handler];
+    [viewMenu addItem:rotateCCWItem];
+
+    NSMenuItem *rotateResetItem = [[NSMenuItem alloc] initWithTitle:@"Reset Rotation"
+                                                             action:@selector(rotateReset:)
+                                                      keyEquivalent:@"0"];
+    [rotateResetItem setTarget:g_menu_handler];
+    [rotateResetItem setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+    [viewMenu addItem:rotateResetItem];
+
     [viewMenuItem setSubmenu:viewMenu];
     [menuBar addItem:viewMenuItem];
 
@@ -403,7 +838,7 @@ static void create_menu_bar(void) {
     NSMenuItem *debugMenuItem = [[NSMenuItem alloc] init];
     NSMenu *debugMenu = [[NSMenu alloc] initWithTitle:@"Debug"];
 
-    NSMenuItem *fpsItem = [[NSMenuItem alloc] initWithTitle:@"Show FPS Overlay"
+    NSMenuItem *fpsItem = [[NSMenuItem alloc] initWithTitle:@"Show Debug Info"
                                                      action:@selector(toggleFPS:)
                                               keyEquivalent:@"d"];
     [fpsItem setTarget:g_menu_handler];
@@ -448,78 +883,278 @@ static void create_idle_texture(size_t width, size_t height) {
         [NSGraphicsContext saveGraphicsState];
         [NSGraphicsContext setCurrentContext:nsContext];
 
-        // Draw gradient background (dark gray to darker gray)
-        NSGradient *gradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithWhite:0.15 alpha:1.0]
-                                                             endingColor:[NSColor colorWithWhite:0.08 alpha:1.0]];
-        [gradient drawInRect:NSMakeRect(0, 0, width, height) angle:90];
+        CGFloat canvasWidth = (CGFloat)width;
+        CGFloat canvasHeight = (CGFloat)height;
+        CGFloat minDimension = MIN(canvasWidth, canvasHeight);
+        CGFloat uiScale = fmin(1.55, fmax(1.0, fmin(canvasWidth / 1680.0, canvasHeight / 1050.0)));
 
-        // Draw AirPlay icon (SF Symbol) in center
-        CGFloat iconSize = MIN(width, height) * 0.25;
-        NSImage *airplayIcon = nil;
+        // Background wash with a soft blue focus so the screen feels alive without looking busy.
+        NSGradient *backgroundGradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithRed:0.13 green:0.14 blue:0.17 alpha:1.0]
+                                                                       endingColor:[NSColor colorWithRed:0.05 green:0.06 blue:0.08 alpha:1.0]];
+        [backgroundGradient drawInRect:NSMakeRect(0, 0, canvasWidth, canvasHeight) angle:90];
 
-        if (@available(macOS 11.0, *)) {
-            NSImageSymbolConfiguration *config = [NSImageSymbolConfiguration configurationWithPointSize:iconSize weight:NSFontWeightUltraLight];
-            airplayIcon = [NSImage imageWithSystemSymbolName:@"airplayvideo" accessibilityDescription:@"AirPlay"];
-            airplayIcon = [airplayIcon imageWithSymbolConfiguration:config];
-        }
+        NSGradient *ambientGlow = [[NSGradient alloc] initWithColorsAndLocations:
+                                   [NSColor colorWithRed:0.34 green:0.45 blue:0.68 alpha:0.22], 0.0,
+                                   [NSColor colorWithRed:0.18 green:0.23 blue:0.33 alpha:0.10], 0.35,
+                                   [NSColor colorWithWhite:0.0 alpha:0.0], 1.0,
+                                   nil];
+        NSPoint glowCenter = NSMakePoint(canvasWidth * 0.5, canvasHeight * 0.36);
+        [ambientGlow drawFromCenter:glowCenter
+                             radius:0.0
+                           toCenter:glowCenter
+                             radius:minDimension * 0.78
+                            options:0];
 
-        if (airplayIcon) {
-            NSSize iconActualSize = [airplayIcon size];
-            CGFloat iconX = (width - iconActualSize.width) / 2;
-            CGFloat iconY = (height - iconActualSize.height) / 2 - height * 0.08;
+        NSBezierPath *topVeil = [NSBezierPath bezierPathWithRect:NSMakeRect(0, 0, canvasWidth, canvasHeight * 0.42)];
+        [[NSColor colorWithWhite:1.0 alpha:0.025] setFill];
+        [topVeil fill];
 
-            // Save graphics state, flip the icon drawing area, then restore
-            [NSGraphicsContext saveGraphicsState];
-            NSAffineTransform *transform = [NSAffineTransform transform];
-            [transform translateXBy:iconX + iconActualSize.width / 2 yBy:iconY + iconActualSize.height / 2];
-            [transform scaleXBy:1.0 yBy:-1.0];
-            [transform translateXBy:-(iconX + iconActualSize.width / 2) yBy:-(iconY + iconActualSize.height / 2)];
-            [transform concat];
+        NSMutableParagraphStyle *centerStyle = [[NSMutableParagraphStyle alloc] init];
+        centerStyle.alignment = NSTextAlignmentCenter;
 
-            NSRect iconRect = NSMakeRect(iconX, iconY, iconActualSize.width, iconActualSize.height);
-            [airplayIcon drawInRect:iconRect fromRect:NSZeroRect operation:NSCompositingOperationSourceOver fraction:0.6];
-            [NSGraphicsContext restoreGraphicsState];
-        }
+        CGFloat badgeFontSize = fmax(13.0 * uiScale, fmin(minDimension * 0.020, 18.0 * uiScale));
+        NSDictionary *badgeAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:badgeFontSize weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.78],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSString *badgeText = @"AIRPLAY RECEIVER";
+        NSSize badgeSize = [badgeText sizeWithAttributes:badgeAttrs];
+        NSRect badgeRect = NSMakeRect((canvasWidth - (badgeSize.width + 32.0 * uiScale)) / 2.0,
+                                      canvasHeight * 0.15,
+                                      badgeSize.width + 32.0 * uiScale,
+                                      badgeSize.height + 12.0 * uiScale);
+        NSBezierPath *badgePath = [NSBezierPath bezierPathWithRoundedRect:badgeRect
+                                                                  xRadius:badgeRect.size.height / 2.0
+                                                                  yRadius:badgeRect.size.height / 2.0];
+        [[NSColor colorWithWhite:1.0 alpha:0.08] setFill];
+        [badgePath fill];
+        [[NSColor colorWithWhite:1.0 alpha:0.10] setStroke];
+        [badgePath setLineWidth:1.0];
+        [badgePath stroke];
+        [badgeText drawInRect:NSInsetRect(badgeRect, 0.0, 6.0 * uiScale) withAttributes:badgeAttrs];
 
-        // Draw "Waiting for AirPlay..." text
-        NSString *waitingText = @"Waiting for AirPlay...";
-        NSMutableParagraphStyle *paragraphStyle = [[NSMutableParagraphStyle alloc] init];
-        [paragraphStyle setAlignment:NSTextAlignmentCenter];
+        CGFloat plateSize = fmax(176.0 * uiScale, fmin(minDimension * 0.32, 280.0 * uiScale));
+        NSRect plateRect = NSMakeRect((canvasWidth - plateSize) / 2.0,
+                                      CGRectGetMaxY(badgeRect) + minDimension * 0.035,
+                                      plateSize,
+                                      plateSize);
+        NSBezierPath *platePath = [NSBezierPath bezierPathWithRoundedRect:plateRect
+                                                                  xRadius:plateSize * 0.28
+                                                                  yRadius:plateSize * 0.28];
 
-        NSDictionary *textAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.035 weight:NSFontWeightLight],
-            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.5],
-            NSParagraphStyleAttributeName: paragraphStyle
+        [NSGraphicsContext saveGraphicsState];
+        NSShadow *plateShadow = [[NSShadow alloc] init];
+        plateShadow.shadowColor = [NSColor colorWithRed:0.02 green:0.03 blue:0.05 alpha:0.48];
+        plateShadow.shadowOffset = NSMakeSize(0, 18.0 * uiScale);
+        plateShadow.shadowBlurRadius = 36.0 * uiScale;
+        [plateShadow set];
+        NSGradient *plateGradient = [[NSGradient alloc] initWithStartingColor:[NSColor colorWithRed:0.25 green:0.31 blue:0.44 alpha:0.92]
+                                                                  endingColor:[NSColor colorWithRed:0.14 green:0.17 blue:0.25 alpha:0.96]];
+        [plateGradient drawInBezierPath:platePath angle:90];
+        [NSGraphicsContext restoreGraphicsState];
+
+        [[NSColor colorWithWhite:1.0 alpha:0.12] setStroke];
+        [platePath setLineWidth:1.0];
+        [platePath stroke];
+
+        NSBezierPath *innerPlatePath = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(plateRect, 10.0 * uiScale, 10.0 * uiScale)
+                                                                       xRadius:plateSize * 0.20
+                                                                       yRadius:plateSize * 0.20];
+        [[NSColor colorWithWhite:1.0 alpha:0.04] setFill];
+        [innerPlatePath fill];
+
+        // Custom AirPlay glyph so we control color and weight consistently.
+        NSColor *glyphColor = [NSColor colorWithRed:0.95 green:0.97 blue:1.0 alpha:0.94];
+        CGFloat screenWidth = plateSize * 0.50;
+        CGFloat screenHeight = screenWidth * 0.36;
+        CGFloat screenX = NSMidX(plateRect) - screenWidth / 2.0;
+        CGFloat screenY = plateRect.origin.y + plateSize * 0.28;
+        NSBezierPath *screenPath = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(screenX, screenY, screenWidth, screenHeight)
+                                                                   xRadius:screenHeight * 0.18
+                                                                   yRadius:screenHeight * 0.18];
+        [glyphColor setStroke];
+        [screenPath setLineWidth:MAX(2.0, plateSize * 0.026)];
+        [screenPath stroke];
+
+        CGFloat triangleWidth = plateSize * 0.24;
+        CGFloat triangleHeight = plateSize * 0.17;
+        CGFloat triangleCenterX = NSMidX(plateRect);
+        CGFloat triangleTopY = screenY + screenHeight + plateSize * 0.08;
+        NSBezierPath *trianglePath = [NSBezierPath bezierPath];
+        [trianglePath moveToPoint:NSMakePoint(triangleCenterX, triangleTopY)];
+        [trianglePath lineToPoint:NSMakePoint(triangleCenterX - triangleWidth / 2.0, triangleTopY + triangleHeight)];
+        [trianglePath lineToPoint:NSMakePoint(triangleCenterX + triangleWidth / 2.0, triangleTopY + triangleHeight)];
+        [trianglePath closePath];
+        [glyphColor setFill];
+        [trianglePath fill];
+
+        CGFloat titleFontSize = fmax(48.0 * uiScale, fmin(minDimension * 0.086, 82.0 * uiScale));
+        CGFloat subtitleFontSize = fmax(22.0 * uiScale, fmin(minDimension * 0.034, 34.0 * uiScale));
+        CGFloat captionFontSize = fmax(11.0 * uiScale, fmin(minDimension * 0.016, 15.0 * uiScale));
+        NSString *titleText = @"Ready for AirPlay";
+        NSString *subtitleText = @"Choose this receiver in Screen Mirroring to begin streaming.";
+
+        NSShadow *titleShadow = [[NSShadow alloc] init];
+        titleShadow.shadowColor = [NSColor colorWithWhite:0.0 alpha:0.55];
+        titleShadow.shadowOffset = NSMakeSize(0, 3.0 * uiScale);
+        titleShadow.shadowBlurRadius = 18.0 * uiScale;
+
+        NSDictionary *titleAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:titleFontSize weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.95],
+            NSParagraphStyleAttributeName: centerStyle,
+            NSShadowAttributeName: titleShadow
+        };
+        NSDictionary *subtitleAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:subtitleFontSize weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.68],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSDictionary *captionAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:captionFontSize weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.48],
+            NSParagraphStyleAttributeName: centerStyle
         };
 
-        NSSize textSize = [waitingText sizeWithAttributes:textAttrs];
-        CGFloat textY = height * 0.75 - textSize.height;
-        NSRect textRect = NSMakeRect(0, textY, width, textSize.height);
-        [waitingText drawInRect:textRect withAttributes:textAttrs];
+        NSRect titleRect = NSMakeRect(canvasWidth * 0.14,
+                                      CGRectGetMaxY(plateRect) + minDimension * 0.055,
+                                      canvasWidth * 0.72,
+                                      titleFontSize * 1.2);
+        [titleText drawInRect:titleRect withAttributes:titleAttrs];
 
-        // Draw server name below
-        if (g_server_name) {
-            NSString *serverText = [NSString stringWithUTF8String:g_server_name];
-            NSDictionary *serverAttrs = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:width * 0.025 weight:NSFontWeightLight],
-                NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.3],
-                NSParagraphStyleAttributeName: paragraphStyle
-            };
-            NSSize serverSize = [serverText sizeWithAttributes:serverAttrs];
-            NSRect serverRect = NSMakeRect(0, textY + textSize.height + 10, width, serverSize.height);
-            [serverText drawInRect:serverRect withAttributes:serverAttrs];
-        }
+        NSRect subtitleRect = NSMakeRect(canvasWidth * 0.15,
+                                         CGRectGetMaxY(titleRect) + minDimension * 0.01,
+                                         canvasWidth * 0.70,
+                                         subtitleFontSize * 1.6);
+        [subtitleText drawWithRect:subtitleRect
+                           options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine
+                        attributes:subtitleAttrs];
 
-        // Draw subtle hint at top
-        NSString *hintText = @"Press F to toggle into/out of fullscreen  |  Space to pause/resume  |  Q to quit";
-        NSDictionary *hintAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:width * 0.015 weight:NSFontWeightLight],
-            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.2],
-            NSParagraphStyleAttributeName: paragraphStyle
+        NSString *availabilityText = @"AVAILABLE AS";
+        NSRect availabilityRect = NSMakeRect(0.0,
+                                             CGRectGetMaxY(subtitleRect) + minDimension * 0.028,
+                                             canvasWidth,
+                                             captionFontSize * 1.2);
+        [availabilityText drawInRect:availabilityRect withAttributes:captionAttrs];
+
+        NSString *serverText = g_server_name ? [NSString stringWithUTF8String:g_server_name] : @"This Mac";
+        CGFloat serverFontSize = fmax(19.0 * uiScale, fmin(minDimension * 0.030, 28.0 * uiScale));
+        NSMutableParagraphStyle *serverStyle = [centerStyle mutableCopy];
+        serverStyle.lineBreakMode = NSLineBreakByTruncatingMiddle;
+        NSDictionary *serverAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:serverFontSize weight:NSFontWeightMedium],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.88],
+            NSParagraphStyleAttributeName: serverStyle
         };
-        NSSize hintSize = [hintText sizeWithAttributes:hintAttrs];
-        NSRect hintRect = NSMakeRect(0, height * 0.95 - hintSize.height, width, hintSize.height);
-        [hintText drawInRect:hintRect withAttributes:hintAttrs];
+        NSRect serverMeasureRect = [serverText boundingRectWithSize:NSMakeSize(canvasWidth * 0.70, CGFLOAT_MAX)
+                                                            options:NSStringDrawingUsesLineFragmentOrigin
+                                                         attributes:serverAttrs];
+        CGFloat serverPillWidth = MIN(canvasWidth * 0.78, MAX(serverMeasureRect.size.width + 44.0 * uiScale, 300.0 * uiScale));
+        CGFloat serverPillHeight = MAX(serverMeasureRect.size.height + 18.0 * uiScale, 48.0 * uiScale);
+        NSRect serverPillRect = NSMakeRect((canvasWidth - serverPillWidth) / 2.0,
+                                           CGRectGetMaxY(availabilityRect) + 10.0,
+                                           serverPillWidth,
+                                           serverPillHeight);
+        NSBezierPath *serverPillPath = [NSBezierPath bezierPathWithRoundedRect:serverPillRect
+                                                                       xRadius:serverPillHeight / 2.0
+                                                                       yRadius:serverPillHeight / 2.0];
+        [[NSColor colorWithWhite:1.0 alpha:0.09] setFill];
+        [serverPillPath fill];
+        [[NSColor colorWithWhite:1.0 alpha:0.12] setStroke];
+        [serverPillPath setLineWidth:1.0];
+        [serverPillPath stroke];
+        [serverText drawWithRect:NSInsetRect(serverPillRect, 22.0 * uiScale, 11.0 * uiScale)
+                         options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine
+                      attributes:serverAttrs];
+
+        CGFloat shortcutPanelWidth = MIN(canvasWidth * 0.86, 1120.0 * uiScale);
+        CGFloat shortcutPanelHeight = fmax(112.0 * uiScale, fmin(minDimension * 0.20, 152.0 * uiScale));
+        CGFloat shortcutPanelBottomMargin = fmax(18.0 * uiScale, canvasHeight * 0.030);
+        CGFloat minimumPillToPanelGap = fmax(32.0 * uiScale, minDimension * 0.036);
+        CGFloat minimumPanelY = CGRectGetMaxY(serverPillRect) + minimumPillToPanelGap;
+        CGFloat maximumPanelY = canvasHeight - shortcutPanelHeight - shortcutPanelBottomMargin;
+        CGFloat shortcutPanelY = fmin(maximumPanelY, fmax(canvasHeight - shortcutPanelHeight - fmax(28.0, canvasHeight * 0.055),
+                                                          minimumPanelY));
+        NSRect shortcutPanelRect = NSMakeRect((canvasWidth - shortcutPanelWidth) / 2.0,
+                                              shortcutPanelY,
+                                              shortcutPanelWidth,
+                                              shortcutPanelHeight);
+        NSBezierPath *shortcutPanelPath = [NSBezierPath bezierPathWithRoundedRect:shortcutPanelRect
+                                                                          xRadius:24.0 * uiScale
+                                                                          yRadius:24.0 * uiScale];
+        [[NSColor colorWithWhite:1.0 alpha:0.08] setFill];
+        [shortcutPanelPath fill];
+        [[NSColor colorWithWhite:1.0 alpha:0.10] setStroke];
+        [shortcutPanelPath setLineWidth:1.0];
+        [shortcutPanelPath stroke];
+
+        CGFloat primaryFontSize = fmax(17.0 * uiScale, fmin(minDimension * 0.026, 24.0 * uiScale));
+        CGFloat secondaryFontSize = fmax(15.0 * uiScale, fmin(minDimension * 0.022, 20.0 * uiScale));
+        NSDictionary *primaryKeyAttrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:primaryFontSize weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.92],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSDictionary *primaryLabelAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:primaryFontSize weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.70],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSDictionary *secondaryKeyAttrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:secondaryFontSize weight:NSFontWeightSemibold],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.82],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSDictionary *secondaryLabelAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:secondaryFontSize weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.56],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+        NSDictionary *separatorAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:primaryFontSize weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: [[NSColor whiteColor] colorWithAlphaComponent:0.26],
+            NSParagraphStyleAttributeName: centerStyle
+        };
+
+        NSMutableAttributedString *primaryLine = [[NSMutableAttributedString alloc] init];
+        NSMutableAttributedString *secondaryLine = [[NSMutableAttributedString alloc] init];
+        void (^appendShortcut)(NSMutableAttributedString *, NSDictionary *, NSDictionary *, NSString *, NSString *) =
+        ^(NSMutableAttributedString *line, NSDictionary *keyAttributes, NSDictionary *labelAttributes, NSString *key, NSString *label) {
+            if ([line length] > 0) {
+                [line appendAttributedString:[[NSAttributedString alloc] initWithString:@"   |   " attributes:separatorAttrs]];
+            }
+            [line appendAttributedString:[[NSAttributedString alloc] initWithString:key attributes:keyAttributes]];
+            [line appendAttributedString:[[NSAttributedString alloc] initWithString:@" " attributes:labelAttributes]];
+            [line appendAttributedString:[[NSAttributedString alloc] initWithString:label attributes:labelAttributes]];
+        };
+
+        appendShortcut(primaryLine, primaryKeyAttrs, primaryLabelAttrs, @"F", @"Fullscreen");
+        appendShortcut(primaryLine, primaryKeyAttrs, primaryLabelAttrs, @"Space", @"Pause/Resume");
+        appendShortcut(primaryLine, primaryKeyAttrs, primaryLabelAttrs, @"Q", @"Quit");
+
+        appendShortcut(secondaryLine, secondaryKeyAttrs, secondaryLabelAttrs, @"R", @"Rotate CW");
+        appendShortcut(secondaryLine, secondaryKeyAttrs, secondaryLabelAttrs, @"Shift+R", @"Rotate CCW");
+        appendShortcut(secondaryLine, secondaryKeyAttrs, secondaryLabelAttrs, @"Cmd+0", @"Reset");
+
+        CGFloat panelInsetX = 34.0 * uiScale;
+        CGFloat primaryLineHeight = primaryFontSize * 1.35;
+        CGFloat secondaryLineHeight = secondaryFontSize * 1.35;
+        CGFloat lineGap = 9.0 * uiScale;
+        CGFloat primaryLineY = shortcutPanelRect.origin.y + 24.0 * uiScale;
+        CGFloat secondaryLineY = primaryLineY + primaryLineHeight + lineGap;
+        NSRect primaryLineRect = NSMakeRect(shortcutPanelRect.origin.x + panelInsetX,
+                                            primaryLineY,
+                                            shortcutPanelRect.size.width - panelInsetX * 2.0,
+                                            primaryLineHeight);
+        NSRect secondaryLineRect = NSMakeRect(shortcutPanelRect.origin.x + panelInsetX,
+                                              secondaryLineY,
+                                              shortcutPanelRect.size.width - panelInsetX * 2.0,
+                                              secondaryLineHeight);
+        [primaryLine drawWithRect:primaryLineRect
+                          options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine];
+        [secondaryLine drawWithRect:secondaryLineRect
+                            options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine];
 
         [NSGraphicsContext restoreGraphicsState];
         CGContextRelease(cgContext);
@@ -572,6 +1207,10 @@ static void update_fps_counters(void) {
         }
         g_fps_decode_count = 0;
         g_fps_decode_last_time = now;
+
+        if (g_window_title_mode == WINDOW_TITLE_MODE_STREAMING) {
+            refresh_window_title();
+        }
     }
 }
 
@@ -579,8 +1218,8 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
     if (!g_show_fps || !commandBuffer || !drawable) return;
 
     @autoreleasepool {
-        size_t overlayW = 280;
-        size_t overlayH = 56;
+        size_t overlayW = 360;
+        size_t overlayH = 92;
         size_t bytesPerRow = overlayW * 4;
         uint8_t *pixels = (uint8_t *)calloc(overlayH * bytesPerRow, 1);
 
@@ -604,22 +1243,51 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
         [NSGraphicsContext saveGraphicsState];
         [NSGraphicsContext setCurrentContext:nsCtx];
 
-        NSDictionary *attrs = @{
+        // Line 1: Resolution and codec
+        NSDictionary *headerAttrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:13 weight:NSFontWeightBold],
+            NSForegroundColorAttributeName: [NSColor colorWithRed:0.4 green:0.8 blue:1.0 alpha:1.0]
+        };
+        NSString *resText;
+        if (g_manual_rotation_degrees != 0) {
+            resText = [NSString stringWithFormat:@" %zux%zu  %s  Rot: %s",
+                       g_current_width, g_current_height,
+                       g_is_h265 ? "H.265/HEVC" : "H.264/AVC",
+                       rotation_degrees_name(g_manual_rotation_degrees)];
+        } else {
+            resText = [NSString stringWithFormat:@" %zux%zu  %s",
+                       g_current_width, g_current_height,
+                       g_is_h265 ? "H.265/HEVC" : "H.264/AVC"];
+        }
+        [resText drawAtPoint:NSMakePoint(4, 58) withAttributes:headerAttrs];
+
+        // Line 2: FPS counters
+        NSDictionary *fpsAttrs = @{
             NSFontAttributeName: [NSFont monospacedSystemFontOfSize:13 weight:NSFontWeightMedium],
             NSForegroundColorAttributeName: [NSColor colorWithRed:0.2 green:1.0 blue:0.4 alpha:1.0]
         };
-
         NSString *fpsText = [NSString stringWithFormat:@" Render: %.1f fps  Source: %.1f fps", g_fps_display, g_fps_source];
-        [fpsText drawAtPoint:NSMakePoint(4, 22) withAttributes:attrs];
+        [fpsText drawAtPoint:NSMakePoint(4, 38) withAttributes:fpsAttrs];
 
-        // Second line: frame interval
+        // Line 3: Interval / frames / errors
         NSDictionary *subAttrs = @{
             NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular],
             NSForegroundColorAttributeName: [NSColor colorWithWhite:0.7 alpha:1.0]
         };
         NSString *intervalText = [NSString stringWithFormat:@" Interval: %.1fms  Frames: %llu",
                                   g_source_frame_interval * 1000.0, g_frames_rendered];
-        [intervalText drawAtPoint:NSMakePoint(4, 4) withAttributes:subAttrs];
+        [intervalText drawAtPoint:NSMakePoint(4, 20) withAttributes:subAttrs];
+
+        // Line 4: Decode stats
+        NSDictionary *errAttrs = @{
+            NSFontAttributeName: [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightRegular],
+            NSForegroundColorAttributeName: g_decode_errors > 0
+                ? [NSColor colorWithRed:1.0 green:0.4 blue:0.3 alpha:1.0]
+                : [NSColor colorWithWhite:0.7 alpha:1.0]
+        };
+        NSString *decodeText = [NSString stringWithFormat:@" Decoded: %llu  Errors: %llu  Recv: %llu",
+                                g_frames_decoded, g_decode_errors, g_frames_received];
+        [decodeText drawAtPoint:NSMakePoint(4, 4) withAttributes:errAttrs];
 
         [NSGraphicsContext restoreGraphicsState];
         CGContextRelease(ctx);
@@ -654,6 +1322,230 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
     }
 }
 
+static void update_cover_art_window_title(void) {
+    if (g_track_title && g_track_artist) {
+        char title[256];
+        snprintf(title, sizeof(title), "%s - %s", g_track_artist, g_track_title);
+        update_window_title(title);
+    } else if (g_track_title) {
+        update_window_title(g_track_title);
+    } else if (g_track_artist) {
+        update_window_title(g_track_artist);
+    } else {
+        update_window_title("Now Playing");
+    }
+}
+
+static NSSize cover_art_texture_size_on_main_thread(void) {
+    if (g_metal_view) {
+        CGSize drawableSize = g_metal_view.drawableSize;
+        if (drawableSize.width > 0.0 && drawableSize.height > 0.0) {
+            return NSMakeSize(drawableSize.width, drawableSize.height);
+        }
+
+        NSRect bounds = [g_metal_view bounds];
+        if (bounds.size.width > 0.0 && bounds.size.height > 0.0) {
+            CGFloat scale = g_window ? [g_window backingScaleFactor] : 2.0;
+            return NSMakeSize(round(bounds.size.width * scale), round(bounds.size.height * scale));
+        }
+    }
+
+    return NSMakeSize(2560.0, 1440.0);
+}
+
+static void rebuild_cover_art_texture_on_main_thread(void) {
+    bool had_existing_texture = (g_cover_art_texture_created && g_cover_art_texture);
+    bool rebuilt_texture = false;
+
+    do {
+        if (!g_showing_cover_art || !g_cover_art || !g_metal_device) {
+            break;
+        }
+
+        NSImage *image = g_cover_art;
+        NSSize imageSize = [image size];
+        if (imageSize.width <= 0.0 || imageSize.height <= 0.0) {
+            log_msg(LOGGER_ERR, "Invalid cover art image size");
+            break;
+        }
+
+        NSSize textureSize = cover_art_texture_size_on_main_thread();
+        size_t texWidth = (size_t)llround(textureSize.width);
+        size_t texHeight = (size_t)llround(textureSize.height);
+        if (texWidth == 0 || texHeight == 0) {
+            texWidth = 2560;
+            texHeight = 1440;
+        }
+
+        CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
+        if (!cgImage) {
+            log_msg(LOGGER_ERR, "Failed to get CGImage from cover art");
+            break;
+        }
+
+        CIImage *ciImage = [CIImage imageWithCGImage:cgImage];
+        CGFloat bgScale = MAX((CGFloat)texWidth / imageSize.width, (CGFloat)texHeight / imageSize.height) * 1.3;
+        CIImage *scaledBg = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(bgScale, bgScale)];
+
+        CGRect scaledExtent = [scaledBg extent];
+        CGFloat offsetX = (texWidth - scaledExtent.size.width) / 2.0;
+        CGFloat offsetY = (texHeight - scaledExtent.size.height) / 2.0;
+        scaledBg = [scaledBg imageByApplyingTransform:CGAffineTransformMakeTranslation(offsetX - scaledExtent.origin.x,
+                                                                                        offsetY - scaledExtent.origin.y)];
+        scaledBg = [scaledBg imageByClampingToExtent];
+
+        CIFilter *blurFilter = [CIFilter filterWithName:@"CIGaussianBlur"];
+        [blurFilter setValue:scaledBg forKey:kCIInputImageKey];
+        [blurFilter setValue:@80.0 forKey:kCIInputRadiusKey];
+        CIImage *blurredBg = [blurFilter outputImage];
+
+        CIFilter *darkenFilter = [CIFilter filterWithName:@"CIColorControls"];
+        [darkenFilter setValue:blurredBg forKey:kCIInputImageKey];
+        [darkenFilter setValue:@(-0.2) forKey:kCIInputBrightnessKey];
+        [darkenFilter setValue:@1.1 forKey:kCIInputSaturationKey];
+        blurredBg = [darkenFilter outputImage];
+        blurredBg = [blurredBg imageByCroppingToRect:CGRectMake(0, 0, texWidth, texHeight)];
+
+        CIContext *ciContext = [CIContext contextWithMTLDevice:g_metal_device];
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        size_t bytesPerRow = texWidth * 4;
+        uint8_t *pixelData = (uint8_t *)calloc(texHeight * bytesPerRow, 1);
+        CGContextRef context = CGBitmapContextCreate(pixelData,
+                                                     texWidth, texHeight,
+                                                     8, bytesPerRow,
+                                                     colorSpace,
+                                                     kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
+        if (!context) {
+            CGColorSpaceRelease(colorSpace);
+            free(pixelData);
+            log_msg(LOGGER_ERR, "Failed to create cover art bitmap context");
+            break;
+        }
+
+        CGImageRef bgCGImage = [ciContext createCGImage:blurredBg fromRect:CGRectMake(0, 0, texWidth, texHeight)];
+        if (bgCGImage) {
+            CGContextDrawImage(context, CGRectMake(0, 0, texWidth, texHeight), bgCGImage);
+            CGImageRelease(bgCGImage);
+        }
+
+        CGFloat artMaxSize = MIN(texWidth, texHeight) * 0.50;
+        CGFloat artScale = MIN(artMaxSize / imageSize.width, artMaxSize / imageSize.height);
+        CGFloat artWidth = imageSize.width * artScale;
+        CGFloat artHeight = imageSize.height * artScale;
+        CGFloat artX = (texWidth - artWidth) / 2.0;
+        CGFloat artY = (texHeight - artHeight) / 2.0 + texHeight * 0.10;
+
+        CGContextSaveGState(context);
+        CGContextSetShadowWithColor(context,
+                                    CGSizeMake(0, -25),
+                                    50,
+                                    [[NSColor colorWithWhite:0 alpha:0.6] CGColor]);
+        CGFloat cornerRadius = artWidth * 0.04;
+        CGRect artRect = CGRectMake(artX, artY, artWidth, artHeight);
+        CGPathRef roundedPath = CGPathCreateWithRoundedRect(artRect, cornerRadius, cornerRadius, NULL);
+        CGContextAddPath(context, roundedPath);
+        CGContextClip(context);
+        CGContextDrawImage(context, artRect, cgImage);
+        CGPathRelease(roundedPath);
+        CGContextRestoreGState(context);
+
+        NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
+        [NSGraphicsContext saveGraphicsState];
+        [NSGraphicsContext setCurrentContext:nsContext];
+
+        NSString *titleStr = g_track_title ? [NSString stringWithUTF8String:g_track_title] : nil;
+        NSString *artistStr = g_track_artist ? [NSString stringWithUTF8String:g_track_artist] : nil;
+        if (titleStr || artistStr) {
+            NSMutableParagraphStyle *centerStyle = [[NSMutableParagraphStyle alloc] init];
+            centerStyle.alignment = NSTextAlignmentCenter;
+
+            NSShadow *textShadow = [[NSShadow alloc] init];
+            textShadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.8];
+            textShadow.shadowOffset = NSMakeSize(0, -2);
+            textShadow.shadowBlurRadius = 8;
+
+            NSDictionary *titleAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:52 weight:NSFontWeightBold],
+                NSForegroundColorAttributeName: [NSColor whiteColor],
+                NSParagraphStyleAttributeName: centerStyle,
+                NSShadowAttributeName: textShadow
+            };
+
+            NSDictionary *artistAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:38 weight:NSFontWeightMedium],
+                NSForegroundColorAttributeName: [NSColor colorWithWhite:0.85 alpha:1.0],
+                NSParagraphStyleAttributeName: centerStyle,
+                NSShadowAttributeName: textShadow
+            };
+
+            CGFloat textAreaTop = artY - 50.0;
+            CGFloat textWidth = texWidth * 0.85;
+            CGFloat textX = (texWidth - textWidth) / 2.0;
+
+            if (titleStr) {
+                NSSize titleSize = [titleStr sizeWithAttributes:titleAttrs];
+                CGFloat titleY = textAreaTop - titleSize.height;
+                NSRect titleRect = NSMakeRect(textX, titleY, textWidth, titleSize.height + 10.0);
+                [titleStr drawInRect:titleRect withAttributes:titleAttrs];
+                textAreaTop = titleY - 10.0;
+            }
+
+            if (artistStr) {
+                NSSize artistSize = [artistStr sizeWithAttributes:artistAttrs];
+                CGFloat artistY = textAreaTop - artistSize.height;
+                NSRect artistRect = NSMakeRect(textX, artistY, textWidth, artistSize.height + 10.0);
+                [artistStr drawInRect:artistRect withAttributes:artistAttrs];
+            }
+        }
+
+        [NSGraphicsContext restoreGraphicsState];
+        CGColorSpaceRelease(colorSpace);
+        CGContextRelease(context);
+
+        MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                                                             width:texWidth
+                                                                                            height:texHeight
+                                                                                         mipmapped:NO];
+        descriptor.usage = MTLTextureUsageShaderRead;
+
+        id<MTLTexture> newTexture = [g_metal_device newTextureWithDescriptor:descriptor];
+        if (!newTexture) {
+            free(pixelData);
+            log_msg(LOGGER_ERR, "Failed to create cover art Metal texture");
+            break;
+        }
+
+        MTLRegion region = MTLRegionMake2D(0, 0, texWidth, texHeight);
+        [newTexture replaceRegion:region
+                      mipmapLevel:0
+                        withBytes:pixelData
+                      bytesPerRow:bytesPerRow];
+        free(pixelData);
+
+        g_cover_art_texture = newTexture;
+        g_cover_art_texture_created = true;
+        rebuilt_texture = true;
+        log_msg(LOGGER_INFO, "Cover art texture rebuilt (%zux%zu)", texWidth, texHeight);
+    } while (0);
+
+    if (!rebuilt_texture && !had_existing_texture) {
+        g_cover_art_texture = nil;
+        g_cover_art_texture_created = false;
+    }
+
+    g_cover_art_texture_rebuild_pending = false;
+}
+
+static void request_cover_art_texture_rebuild(void) {
+    if (!g_showing_cover_art || !g_cover_art) return;
+    if (g_cover_art_texture_rebuild_pending) return;
+
+    g_cover_art_texture_rebuild_pending = true;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        rebuild_cover_art_texture_on_main_thread();
+    });
+}
+
 #pragma mark - Metal Renderer
 
 @interface MetalRenderer : NSObject <MTKViewDelegate>
@@ -679,7 +1571,13 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
     pthread_mutex_unlock(&g_frame_mutex);
 
     // Static content (cover art / idle) - only redraw when state changes
-    if (g_showing_cover_art && g_cover_art_texture_created && g_cover_art_texture) {
+    if (g_showing_cover_art) {
+        if (!g_cover_art_texture_created || !g_cover_art_texture) {
+            if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
+            request_cover_art_texture_rebuild();
+            return;
+        }
+
         if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
         @autoreleasepool {
             dispatch_semaphore_wait(g_inflight_semaphore, DISPATCH_TIME_FOREVER);
@@ -817,72 +1715,86 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
                 // Use Metal Performance Shaders for high-quality scaling
                 MPSImageBilinearScale *scaler = [[MPSImageBilinearScale alloc] initWithDevice:g_metal_device];
 
-                // Determine effective dimensions after rotation
-                size_t width = srcWidth;
-                size_t height = srcHeight;
-                bool swapDimensions = (g_rotation == LEFT || g_rotation == RIGHT);
-                if (swapDimensions) {
-                    width = srcHeight;
-                    height = srcWidth;
+                // For 90/270 rotation, transpose first then apply flips
+                bool needsTranspose = (g_rotation == LEFT || g_rotation == RIGHT);
+                id<MTLTexture> sourceForScale = texture;
+                size_t effectiveWidth = srcWidth;
+                size_t effectiveHeight = srcHeight;
+
+                if (needsTranspose) {
+                    // Create/reuse intermediate texture with swapped dimensions
+                    if (!g_rotation_texture ||
+                        g_rotation_texture.width != srcHeight ||
+                        g_rotation_texture.height != srcWidth) {
+                        MTLTextureDescriptor *desc = [MTLTextureDescriptor
+                            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                                        width:srcHeight
+                                                       height:srcWidth
+                                                    mipmapped:NO];
+                        desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+                        g_rotation_texture = [g_metal_device newTextureWithDescriptor:desc];
+                    }
+
+                    MPSImageTranspose *transpose = [[MPSImageTranspose alloc] initWithDevice:g_metal_device];
+                    [transpose encodeToCommandBuffer:commandBuffer
+                                       sourceTexture:texture
+                                  destinationTexture:g_rotation_texture];
+
+                    sourceForScale = g_rotation_texture;
+                    effectiveWidth = srcHeight;
+                    effectiveHeight = srcWidth;
                 }
 
                 // Calculate scale transform to fit drawable while maintaining aspect ratio
-                double srcAspect = (double)width / (double)height;
+                double srcAspect = (double)effectiveWidth / (double)effectiveHeight;
                 double dstAspect = (double)drawable.texture.width / (double)drawable.texture.height;
 
                 double baseScaleX, baseScaleY;
                 double translateX = 0, translateY = 0;
 
                 if (srcAspect > dstAspect) {
-                    // Source is wider - fit to width
-                    baseScaleX = (double)drawable.texture.width / (double)width;
+                    baseScaleX = (double)drawable.texture.width / (double)effectiveWidth;
                     baseScaleY = baseScaleX;
-                    translateY = (drawable.texture.height - height * baseScaleY) / 2.0;
+                    translateY = (drawable.texture.height - effectiveHeight * baseScaleY) / 2.0;
                 } else {
-                    // Source is taller - fit to height
-                    baseScaleY = (double)drawable.texture.height / (double)height;
+                    baseScaleY = (double)drawable.texture.height / (double)effectiveHeight;
                     baseScaleX = baseScaleY;
-                    translateX = (drawable.texture.width - width * baseScaleX) / 2.0;
+                    translateX = (drawable.texture.width - effectiveWidth * baseScaleX) / 2.0;
                 }
 
-                // Apply flip transforms
-                // For MPS: negative scale + adjusted translate = flip
                 double scaleX = baseScaleX;
                 double scaleY = baseScaleY;
 
-                // Apply horizontal flip (HFLIP)
-                if (g_flip == HFLIP) {
+                // Compute combined flip flags from user flip + rotation
+                bool flipX = false;
+                bool flipY = false;
+
+                if (needsTranspose) {
+                    // After transpose, specific flips complete the 90/270 rotation.
+                    // Combined with user flip to match GStreamer videoflip behavior.
+                    if (g_rotation == LEFT) {
+                        flipX = (g_flip == VFLIP || g_flip == INVERT);
+                        flipY = (g_flip == NONE || g_flip == VFLIP);
+                    } else { // RIGHT
+                        flipX = (g_flip == NONE || g_flip == HFLIP);
+                        flipY = (g_flip == HFLIP || g_flip == INVERT);
+                    }
+                } else {
+                    flipX = (g_flip == HFLIP || g_flip == INVERT);
+                    flipY = (g_flip == VFLIP || g_flip == INVERT);
+                    if (g_rotation == INVERT) {
+                        flipX = !flipX;
+                        flipY = !flipY;
+                    }
+                }
+
+                if (flipX) {
                     scaleX = -scaleX;
                     translateX = drawable.texture.width - translateX;
                 }
-
-                // Apply vertical flip (VFLIP)
-                if (g_flip == VFLIP) {
+                if (flipY) {
                     scaleY = -scaleY;
                     translateY = drawable.texture.height - translateY;
-                }
-
-                // Apply rotation transforms
-                // INVERT (180 degrees) = HFLIP + VFLIP
-                if (g_rotation == INVERT) {
-                    scaleX = -scaleX;
-                    scaleY = -scaleY;
-                    if (g_flip != HFLIP) {
-                        translateX = drawable.texture.width - translateX;
-                    }
-                    if (g_flip != VFLIP) {
-                        translateY = drawable.texture.height - translateY;
-                    }
-                }
-
-                // Note: LEFT (90 CCW) and RIGHT (90 CW) require texture coordinate rotation
-                // which MPS doesn't support directly. For now, log a warning.
-                if (swapDimensions) {
-                    static bool warned = false;
-                    if (!warned) {
-                        log_msg(LOGGER_WARNING, "90/270 degree rotation (-vf left/right) not fully supported in native renderer - use -vf invert or hflip/vflip instead");
-                        warned = true;
-                    }
                 }
 
                 MPSScaleTransform transform = {
@@ -904,7 +1816,7 @@ static void render_fps_overlay(id<MTLCommandBuffer> commandBuffer, id<MTLTexture
 
                 // Scale and blit
                 [scaler encodeToCommandBuffer:commandBuffer
-                                sourceTexture:texture
+                                sourceTexture:sourceForScale
                            destinationTexture:drawable.texture];
 
                 // FPS overlay (drawn on top of video)
@@ -962,8 +1874,11 @@ static void create_window(const char *title) {
                 return;
             }
 
+            // Subview frames use origin (0,0) relative to their superview
+            NSRect viewFrame = NSMakeRect(0, 0, frame.size.width, frame.size.height);
+
             // Use custom Metal view for double-click handling
-            g_metal_view = [[UxPlayMetalView alloc] initWithFrame:frame device:g_metal_device];
+            g_metal_view = [[UxPlayMetalView alloc] initWithFrame:viewFrame device:g_metal_device];
             g_metal_view.colorPixelFormat = MTLPixelFormatBGRA8Unorm;
             g_metal_view.framebufferOnly = NO;
             g_metal_view.preferredFramesPerSecond = NSScreen.mainScreen.maximumFramesPerSecond;
@@ -983,7 +1898,41 @@ static void create_window(const char *title) {
                                       NULL,
                                       &g_texture_cache);
 
-            [g_window setContentView:g_metal_view];
+            // Container view: fills window, clips children, provides black letterbox background
+            g_container_view = [[NSView alloc] initWithFrame:viewFrame];
+            g_container_view.wantsLayer = YES;
+            g_container_view.layer.backgroundColor = [[NSColor blackColor] CGColor];
+            g_container_view.layer.masksToBounds = YES;
+
+            // Rotation host view: receives CA rotation transform, sized to source dimensions
+            g_rotation_host_view = [[NSView alloc] initWithFrame:viewFrame];
+            g_rotation_host_view.wantsLayer = YES;
+            g_rotation_host_view.layer.masksToBounds = NO;
+            g_rotation_host_view.layer.anchorPoint = CGPointMake(0.5, 0.5);
+
+            // MTKView always fills the rotation host view
+            g_rotation_host_view.translatesAutoresizingMaskIntoConstraints = NO;
+            g_metal_view.translatesAutoresizingMaskIntoConstraints = NO;
+            [g_rotation_host_view addSubview:g_metal_view];
+
+            g_rotation_host_fill_constraints = @[
+                [g_rotation_host_view.leadingAnchor constraintEqualToAnchor:g_container_view.leadingAnchor],
+                [g_rotation_host_view.trailingAnchor constraintEqualToAnchor:g_container_view.trailingAnchor],
+                [g_rotation_host_view.topAnchor constraintEqualToAnchor:g_container_view.topAnchor],
+                [g_rotation_host_view.bottomAnchor constraintEqualToAnchor:g_container_view.bottomAnchor]
+            ];
+            g_metal_view_fill_constraints = @[
+                [g_metal_view.leadingAnchor constraintEqualToAnchor:g_rotation_host_view.leadingAnchor],
+                [g_metal_view.trailingAnchor constraintEqualToAnchor:g_rotation_host_view.trailingAnchor],
+                [g_metal_view.topAnchor constraintEqualToAnchor:g_rotation_host_view.topAnchor],
+                [g_metal_view.bottomAnchor constraintEqualToAnchor:g_rotation_host_view.bottomAnchor]
+            ];
+
+            [g_container_view addSubview:g_rotation_host_view];
+            [NSLayoutConstraint activateConstraints:g_rotation_host_fill_constraints];
+            [NSLayoutConstraint activateConstraints:g_metal_view_fill_constraints];
+            g_rotation_host_constraints_active = true;
+            [g_window setContentView:g_container_view];
             [g_window makeFirstResponder:g_metal_view];
 
             // Make app appear in dock and bring window to front
@@ -1030,6 +1979,8 @@ static void create_window(const char *title) {
                 log_msg(LOGGER_INFO, "Starting in fullscreen mode");
             }
 
+            layout_video_views_on_main_thread();
+
             // Start stall detection timer (checks every second)
             g_stall_timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
             dispatch_source_set_timer(g_stall_timer, dispatch_time(DISPATCH_TIME_NOW, 0), NSEC_PER_SEC, NSEC_PER_SEC / 4);
@@ -1047,7 +1998,15 @@ static void create_window(const char *title) {
                         pthread_mutex_unlock(&g_frame_mutex);
                         g_last_frame_time = 0;
                         update_window_title("Ready");
-                        log_msg(LOGGER_INFO, "Stream stalled, returning to idle screen");
+                        uint64_t now = mach_absolute_time();
+                        double since_last_log = (g_last_stall_log_time > 0) ?
+                            (double)(now - g_last_stall_log_time) * timebase.numer / timebase.denom / 1e9 : 999.0;
+                        if (since_last_log > 30.0) {
+                            log_msg(LOGGER_INFO, "Stream stalled, returning to idle screen");
+                            g_last_stall_log_time = now;
+                        } else {
+                            log_msg(LOGGER_DEBUG, "Stream stalled, returning to idle screen");
+                        }
                     }
                 }
             });
@@ -1072,6 +2031,11 @@ static void destroy_window(void) {
             g_idle_texture = nil;
             g_idle_texture_created = false;
             g_metal_view = nil;
+            g_metal_view_fill_constraints = nil;
+            g_rotation_host_fill_constraints = nil;
+            g_rotation_host_constraints_active = false;
+            g_rotation_host_view = nil;
+            g_container_view = nil;
             g_metal_renderer = nil;
             g_metal_device = nil;
             g_command_queue = nil;
@@ -1377,35 +2341,53 @@ static void decompress_callback(void *decompressionOutputRefCon,
     size_t width = CVPixelBufferGetWidth(imageBuffer);
     size_t height = CVPixelBufferGetHeight(imageBuffer);
 
-    if (g_frames_decoded == 1) {
-        log_msg(LOGGER_INFO, "First frame decoded! Resolution: %zux%zu", width, height);
+    // Detect dimension changes (device rotation or resolution change)
+    bool initial_dimensions_detected = (g_current_width == 0 || g_current_height == 0);
+    bool dimensions_changed = (width != g_current_width || height != g_current_height);
+    if (dimensions_changed) {
+        log_msg(LOGGER_INFO, "Video dimensions %s: %zux%zu",
+                g_current_width == 0 ? "detected" : "changed", width, height);
+        g_current_width = width;
+        g_current_height = height;
+        if (g_window_title_mode == WINDOW_TITLE_MODE_STREAMING) {
+            refresh_window_title();
+        }
+    }
 
-        // Update window title to show streaming status
+    if (g_frames_decoded == 1) {
+        set_video_paused(false, false);
         update_window_title("Streaming");
         g_showing_cover_art = false;
+    }
 
-        // Resize window to match video aspect ratio
+    // Resize window when dimensions change (initial frame or device rotation)
+    if (dimensions_changed && g_window) {
+        // Reset manual rotation since stream dimensions changed
+        g_manual_rotation_degrees = 0;
+
         dispatch_async(dispatch_get_main_queue(), ^{
             if (g_window) {
-                // Scale to fit nicely on screen (max 900 pixels tall for portrait)
-                CGFloat scale = 1.0;
-                if (height > width) {
-                    // Portrait - scale to reasonable height
-                    scale = 900.0 / height;
-                } else {
-                    // Landscape - scale to reasonable width
-                    scale = 1200.0 / width;
+                cancel_manual_rotation_animation_on_main_thread();
+                CGFloat display_width = 0.0;
+                CGFloat display_height = 0.0;
+                get_base_display_dimensions(&display_width, &display_height);
+                bool animate_window_resize = initial_dimensions_detected && !g_fullscreen;
+
+                if (!g_fullscreen) {
+                    NSSize target_size = scaled_content_size_for_display(display_width, display_height);
+                    if (animate_window_resize) {
+                        animate_window_content_resize(target_size.width, target_size.height, 0.26);
+                        log_msg(LOGGER_INFO, "Window content animating to %.0fx%.0f for stream start",
+                                target_size.width, target_size.height);
+                    } else {
+                        resize_window_content(target_size.width, target_size.height, NO);
+                        log_msg(LOGGER_INFO, "Window content resized to %.0fx%.0f", target_size.width, target_size.height);
+                    }
                 }
 
-                CGFloat newWidth = width * scale;
-                CGFloat newHeight = height * scale;
-
-                NSRect frame = [g_window frame];
-                frame.size.width = newWidth;
-                frame.size.height = newHeight;
-                [g_window setFrame:frame display:YES animate:YES];
-
-                log_msg(LOGGER_INFO, "Window resized to %.0fx%.0f (scale %.2f)", newWidth, newHeight, scale);
+                if (!animate_window_resize) {
+                    layout_video_views_on_main_thread();
+                }
             }
         });
     }
@@ -1609,7 +2591,7 @@ void video_renderer_start(void) {
     log_msg(LOGGER_INFO, "video_renderer_start called (initialized=%d, running=%d, decoder=%s)",
             g_initialized, g_running, g_decoder_session ? "exists" : "none");
     g_running = true;
-    g_paused = false;
+    set_video_paused(false, false);
     log_msg(LOGGER_INFO, "Video renderer started and ready for frames");
 }
 
@@ -1636,6 +2618,15 @@ void video_renderer_stop(void) {
     g_decode_errors = 0;
     g_source_frame_interval = 0.0;
     g_prev_decode_time = 0;
+    g_fps_frame_count = 0;
+    g_fps_last_time = 0;
+    g_fps_decode_count = 0;
+    g_fps_decode_last_time = 0;
+    g_current_width = 0;
+    g_current_height = 0;
+    g_fps_display = 0.0;
+    g_fps_source = 0.0;
+    set_video_paused(false, false);
 
     // Clear old SPS/PPS/VPS so new stream can set them
     if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
@@ -1653,6 +2644,7 @@ void video_renderer_stop(void) {
     // Reset idle texture so it regenerates at the correct size
     g_idle_texture_created = false;
     g_idle_texture = nil;
+    g_manual_rotation_degrees = 0;
 
     // Preserve cover art state - cover art should persist across stream resets
     // It will be cleared when a real video stream starts or the renderer is destroyed
@@ -1660,12 +2652,11 @@ void video_renderer_stop(void) {
         // Restore window to original size and ensure it's ready for new connections
         dispatch_async(dispatch_get_main_queue(), ^{
             if (g_window) {
+                cancel_manual_rotation_animation_on_main_thread();
                 if (!g_fullscreen) {
-                    NSRect frame = [g_window frame];
-                    frame.size.width = 1280;
-                    frame.size.height = 720;
-                    [g_window setFrame:frame display:YES animate:YES];
+                    resize_window_content(1280, 720, NO);
                 }
+                layout_video_views_on_main_thread();
                 // Ensure window stays visible and responsive
                 [g_window makeKeyAndOrderFront:nil];
                 [NSApp activateIgnoringOtherApps:YES];
@@ -1698,17 +2689,17 @@ void video_renderer_set_track_metadata(const char *title, const char *artist, co
 
     // If we're showing cover art, recreate the texture with the new metadata
     if (g_showing_cover_art && g_cover_art) {
-        // Trigger cover art recreation with updated metadata
-        g_cover_art_texture_created = false;
+        request_cover_art_texture_rebuild();
+        update_cover_art_window_title();
     }
 }
 
 void video_renderer_pause(void) {
-    g_paused = true;
+    set_video_paused(true, false);
 }
 
 void video_renderer_resume(void) {
-    g_paused = false;
+    set_video_paused(false, false);
 }
 
 int video_renderer_cycle(void) {
@@ -1716,6 +2707,7 @@ int video_renderer_cycle(void) {
     if (g_showing_cover_art) {
         g_showing_cover_art = false;
         g_cover_art_texture_created = false;
+        g_cover_art_texture_rebuild_pending = false;
         g_cover_art_texture = nil;
         g_cover_art = nil;
         log_msg(LOGGER_INFO, "Cover art expired, returning to idle screen");
@@ -1776,24 +2768,43 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
                 g_frames_received, data[0]);
     }
 
-    // Parse SPS/PPS if we don't have a decoder yet
-    if (!g_decoder_session) {
-        if (g_frames_received == 1 || (g_frames_received % 30 == 0)) {
-            log_msg(LOGGER_INFO, "No decoder session (frame #%llu), looking for SPS/PPS...", g_frames_received);
-        }
+    // Parse SPS/PPS - check every frame for parameter set changes (e.g. device rotation)
+    {
+        // Save old SPS to detect dimension changes
+        uint8_t *old_sps = g_sps ? malloc(g_sps_size) : NULL;
+        size_t old_sps_size = g_sps_size;
+        if (old_sps) memcpy(old_sps, g_sps, g_sps_size);
+
         if (parse_sps_pps(data, *data_len)) {
-            log_msg(LOGGER_INFO, "Found parameter sets - SPS:%zu bytes, PPS:%zu bytes%s",
-                    g_sps_size, g_pps_size, g_is_h265 ? ", VPS present" : "");
-            log_msg(LOGGER_INFO, "Creating decoder session...");
-            create_decoder_session();
-            if (g_decoder_session) {
-                log_msg(LOGGER_INFO, "Decoder session created successfully");
-            } else {
-                log_msg(LOGGER_ERR, "Failed to create decoder session!");
+            bool sps_changed = (!old_sps || old_sps_size != g_sps_size ||
+                                memcmp(old_sps, g_sps, g_sps_size) != 0);
+
+            if (!g_decoder_session) {
+                log_msg(LOGGER_INFO, "Found parameter sets - SPS:%zu bytes, PPS:%zu bytes%s",
+                        g_sps_size, g_pps_size, g_is_h265 ? ", VPS present" : "");
+                log_msg(LOGGER_INFO, "Creating decoder session...");
+                create_decoder_session();
+                if (g_decoder_session) {
+                    log_msg(LOGGER_INFO, "Decoder session created successfully");
+                } else {
+                    log_msg(LOGGER_ERR, "Failed to create decoder session!");
+                }
+            } else if (sps_changed) {
+                log_msg(LOGGER_INFO, "SPS changed (device rotation or resolution change), recreating decoder...");
+                destroy_decoder_session();
+                create_decoder_session();
+                if (g_decoder_session) {
+                    g_first_frame = true;
+                    g_frames_decoded = 0;
+                    log_msg(LOGGER_INFO, "Decoder session recreated successfully");
+                } else {
+                    log_msg(LOGGER_ERR, "Failed to recreate decoder session!");
+                }
             }
-        } else if (g_frames_received == 1) {
+        } else if (!g_decoder_session && g_frames_received == 1) {
             log_msg(LOGGER_INFO, "No SPS/PPS found in first frame, waiting for keyframe...");
         }
+        free(old_sps);
     }
 
     // Set base time on first frame
@@ -1828,8 +2839,14 @@ void video_renderer_destroy(void) {
     if (g_sps) { free(g_sps); g_sps = NULL; }
     if (g_pps) { free(g_pps); g_pps = NULL; }
     if (g_server_name) { free(g_server_name); g_server_name = NULL; }
+    if (g_window_title_custom_status) { free(g_window_title_custom_status); g_window_title_custom_status = NULL; }
+    g_window_title_mode = WINDOW_TITLE_MODE_NONE;
     g_cover_art = nil;
     g_showing_cover_art = false;
+    g_cover_art_texture_created = false;
+    g_cover_art_texture_rebuild_pending = false;
+    g_cover_art_texture = nil;
+    g_rotation_texture = nil;
 
     pthread_mutex_lock(&g_frame_mutex);
     if (g_pending_frame) {
@@ -1901,199 +2918,15 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
             // Set window to 16:9 aspect ratio for nice display
             CGFloat windowWidth = 1280;
             CGFloat windowHeight = 720;
+            g_manual_rotation_degrees = 0;
+            cancel_manual_rotation_animation_on_main_thread();
             if (g_window && !g_fullscreen) {
-                NSRect frame = [g_window frame];
-                frame.size.width = windowWidth;
-                frame.size.height = windowHeight;
-                [g_window setFrame:frame display:YES animate:YES];
+                resize_window_content(windowWidth, windowHeight, NO);
             }
+            layout_video_views_on_main_thread();
 
-            // Update window title with track info if available
-            if (g_track_title && g_track_artist) {
-                char title[256];
-                snprintf(title, sizeof(title), "%s - %s", g_track_artist, g_track_title);
-                update_window_title(title);
-            } else {
-                update_window_title("Now Playing");
-            }
-
-            // Create composite texture with blurred gradient background
-            if (!g_metal_device) return;
-
-            size_t texWidth = (size_t)windowWidth * 2;  // Retina
-            size_t texHeight = (size_t)windowHeight * 2;
-
-            // Get CGImage for processing
-            CGImageRef cgImage = [image CGImageForProposedRect:NULL context:nil hints:nil];
-            if (!cgImage) return;
-
-            // Create CIImage for blur processing
-            CIImage *ciImage = [CIImage imageWithCGImage:cgImage];
-
-            // Scale album art to fill the background with extra margin
-            CGFloat bgScale = MAX((CGFloat)texWidth / imageSize.width, (CGFloat)texHeight / imageSize.height) * 1.3;
-            CIImage *scaledBg = [ciImage imageByApplyingTransform:CGAffineTransformMakeScale(bgScale, bgScale)];
-
-            // Center the scaled background
-            CGRect scaledExtent = [scaledBg extent];
-            CGFloat offsetX = (texWidth - scaledExtent.size.width) / 2;
-            CGFloat offsetY = (texHeight - scaledExtent.size.height) / 2;
-            scaledBg = [scaledBg imageByApplyingTransform:CGAffineTransformMakeTranslation(offsetX - scaledExtent.origin.x, offsetY - scaledExtent.origin.y)];
-
-            // IMPORTANT: Clamp BEFORE blur to prevent black edges
-            scaledBg = [scaledBg imageByClampingToExtent];
-
-            // Apply strong gaussian blur
-            CIFilter *blurFilter = [CIFilter filterWithName:@"CIGaussianBlur"];
-            [blurFilter setValue:scaledBg forKey:kCIInputImageKey];
-            [blurFilter setValue:@80.0 forKey:kCIInputRadiusKey];
-            CIImage *blurredBg = [blurFilter outputImage];
-
-            // Darken the background
-            CIFilter *darkenFilter = [CIFilter filterWithName:@"CIColorControls"];
-            [darkenFilter setValue:blurredBg forKey:kCIInputImageKey];
-            [darkenFilter setValue:@(-0.2) forKey:kCIInputBrightnessKey];
-            [darkenFilter setValue:@1.1 forKey:kCIInputSaturationKey];
-            blurredBg = [darkenFilter outputImage];
-
-            // Crop to exact size
-            blurredBg = [blurredBg imageByCroppingToRect:CGRectMake(0, 0, texWidth, texHeight)];
-
-            // Create context and render background
-            CIContext *ciContext = [CIContext contextWithMTLDevice:g_metal_device];
-            CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-
-            // Create bitmap context for final composite
-            size_t bytesPerRow = texWidth * 4;
-            uint8_t *pixelData = (uint8_t *)calloc(texHeight * bytesPerRow, 1);
-
-            CGContextRef context = CGBitmapContextCreate(pixelData,
-                                                         texWidth, texHeight,
-                                                         8, bytesPerRow,
-                                                         colorSpace,
-                                                         kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little);
-
-            if (!context) {
-                CGColorSpaceRelease(colorSpace);
-                free(pixelData);
-                return;
-            }
-
-            // Render blurred background
-            CGImageRef bgCGImage = [ciContext createCGImage:blurredBg fromRect:CGRectMake(0, 0, texWidth, texHeight)];
-            if (bgCGImage) {
-                CGContextDrawImage(context, CGRectMake(0, 0, texWidth, texHeight), bgCGImage);
-                CGImageRelease(bgCGImage);
-            }
-
-            // Calculate album art size and position (centered, raised to make room for text)
-            CGFloat artMaxSize = MIN(texWidth, texHeight) * 0.50;
-            CGFloat artScale = MIN(artMaxSize / imageSize.width, artMaxSize / imageSize.height);
-            CGFloat artWidth = imageSize.width * artScale;
-            CGFloat artHeight = imageSize.height * artScale;
-            CGFloat artX = (texWidth - artWidth) / 2;
-            CGFloat artY = (texHeight - artHeight) / 2 + texHeight * 0.10;  // Raised to make room for text
-
-            // Draw shadow under album art
-            CGContextSaveGState(context);
-            CGContextSetShadowWithColor(context,
-                                        CGSizeMake(0, -25),
-                                        50,
-                                        [[NSColor colorWithWhite:0 alpha:0.6] CGColor]);
-
-            // Draw album art with rounded corners
-            CGFloat cornerRadius = artWidth * 0.04;
-            CGRect artRect = CGRectMake(artX, artY, artWidth, artHeight);
-            CGPathRef roundedPath = CGPathCreateWithRoundedRect(artRect, cornerRadius, cornerRadius, NULL);
-            CGContextAddPath(context, roundedPath);
-            CGContextClip(context);
-            CGContextDrawImage(context, artRect, cgImage);
-            CGPathRelease(roundedPath);
-            CGContextRestoreGState(context);
-
-            // Draw track title and artist below the album art using NSGraphicsContext
-            NSGraphicsContext *nsContext = [NSGraphicsContext graphicsContextWithCGContext:context flipped:NO];
-            [NSGraphicsContext saveGraphicsState];
-            [NSGraphicsContext setCurrentContext:nsContext];
-
-            // Create attributed strings for title and artist
-            NSString *titleStr = g_track_title ? [NSString stringWithUTF8String:g_track_title] : nil;
-            NSString *artistStr = g_track_artist ? [NSString stringWithUTF8String:g_track_artist] : nil;
-
-            if (titleStr || artistStr) {
-                // Title style - larger, bold, white
-                NSMutableParagraphStyle *centerStyle = [[NSMutableParagraphStyle alloc] init];
-                centerStyle.alignment = NSTextAlignmentCenter;
-
-                NSShadow *textShadow = [[NSShadow alloc] init];
-                textShadow.shadowColor = [NSColor colorWithWhite:0 alpha:0.8];
-                textShadow.shadowOffset = NSMakeSize(0, -2);
-                textShadow.shadowBlurRadius = 8;
-
-                NSDictionary *titleAttrs = @{
-                    NSFontAttributeName: [NSFont systemFontOfSize:52 weight:NSFontWeightBold],
-                    NSForegroundColorAttributeName: [NSColor whiteColor],
-                    NSParagraphStyleAttributeName: centerStyle,
-                    NSShadowAttributeName: textShadow
-                };
-
-                // Artist style - smaller, regular, light gray
-                NSDictionary *artistAttrs = @{
-                    NSFontAttributeName: [NSFont systemFontOfSize:38 weight:NSFontWeightMedium],
-                    NSForegroundColorAttributeName: [NSColor colorWithWhite:0.85 alpha:1.0],
-                    NSParagraphStyleAttributeName: centerStyle,
-                    NSShadowAttributeName: textShadow
-                };
-
-                // Calculate text positions - below album art (in non-flipped coords, Y=0 at bottom)
-                // artY is from bottom, album art goes from artY to artY+artHeight
-                // Text should be below, so at artY - spacing
-                CGFloat textAreaTop = artY - 50;  // 50px below album art bottom
-                CGFloat textWidth = texWidth * 0.85;
-                CGFloat textX = (texWidth - textWidth) / 2;
-
-                // Draw title first (higher up)
-                if (titleStr) {
-                    NSSize titleSize = [titleStr sizeWithAttributes:titleAttrs];
-                    CGFloat titleY = textAreaTop - titleSize.height;
-                    NSRect titleRect = NSMakeRect(textX, titleY, textWidth, titleSize.height + 10);
-                    [titleStr drawInRect:titleRect withAttributes:titleAttrs];
-                    textAreaTop = titleY - 10;  // Move down for artist
-                }
-
-                // Draw artist below title
-                if (artistStr) {
-                    NSSize artistSize = [artistStr sizeWithAttributes:artistAttrs];
-                    CGFloat artistY = textAreaTop - artistSize.height;
-                    NSRect artistRect = NSMakeRect(textX, artistY, textWidth, artistSize.height + 10);
-                    [artistStr drawInRect:artistRect withAttributes:artistAttrs];
-                }
-            }
-
-            [NSGraphicsContext restoreGraphicsState];
-
-            CGColorSpaceRelease(colorSpace);
-            CGContextRelease(context);
-
-            // Create Metal texture
-            MTLTextureDescriptor *descriptor = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                                                                                 width:texWidth
-                                                                                                height:texHeight
-                                                                                             mipmapped:NO];
-            descriptor.usage = MTLTextureUsageShaderRead;
-
-            g_cover_art_texture = [g_metal_device newTextureWithDescriptor:descriptor];
-
-            MTLRegion region = MTLRegionMake2D(0, 0, texWidth, texHeight);
-            [g_cover_art_texture replaceRegion:region
-                                   mipmapLevel:0
-                                     withBytes:pixelData
-                                   bytesPerRow:bytesPerRow];
-
-            g_cover_art_texture_created = true;
-            free(pixelData);
-
-            log_msg(LOGGER_INFO, "Cover art texture created with blurred background (%zux%zu)", texWidth, texHeight);
+            update_cover_art_window_title();
+            rebuild_cover_art_texture_on_main_thread();
         }
     });
 }
