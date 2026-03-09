@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # adapted from https://github.com/bluez/bluez/blob/master/test/example-advertisement
 #----------------------------------------------------------------
-# a standalone python-3.6 or later bleuio-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
+# BleuIO (for BleuIO UB serial device)  module for a standalone python-3.6 or later AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
 # (c)  F. Duncanh, March 2026
 
 
@@ -28,7 +27,6 @@ serial_port = None
 advertisement_parameters = None
 airplay_advertisement = None
 
-
 # --- Serial Communication Helper Functions ---
 def send_at_command(serial_port, command):
     # Sends an AT command and reads the response.
@@ -41,7 +39,6 @@ def send_at_command(serial_port, command):
         [line for line in response.splitlines() if line]
     )
     return response_without_empty_lines
-
 
 #check AdvInterval
 def check_adv_intrvl(min, max):
@@ -134,7 +131,7 @@ def beacon_off() ->int:
         return advertised_port
 
 from typing import Optional
-def find_bleuio(serial_port_in: Optional[str]) ->Optional[str]:
+def find_device(serial_port_in: Optional[str]) ->Optional[str]:
     global serial_port
     serial_ports = list(list_ports.comports())
     count = 0
@@ -154,11 +151,9 @@ def find_bleuio(serial_port_in: Optional[str]) ->Optional[str]:
             if count == 1:
                 serial_port = p.device
             print(f'=== detected BlueuIO {count}. port: {p.device} desc: {p.description} hwid: {p.hwid}')
-            
     if count>1:
         print(f'warning: {count} BleueIO devices were found, the first found will be used')
-        print(f'(to override this choice, specify "--serial_port=..." in optional arguments')
-
+        print(f'(to override this choice, specify "--device =..." in optional arguments)')
     return serial_port
 
 print(f'Imported uxplay_beacon_module_BleuIO')

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 #----------------------------------------------------------------
 # winrt (Windows) module for a standalone python-3.6 AirPlay Service-Discovery Bluetooth LE beacon for UxPlay
@@ -71,7 +70,6 @@ async def publish_advertisement():
     try:
         publisher.start()
         print(f"AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered")
-
     except Exception as e:
         print(f"Failed to start Publisher: {e}")
         print(f"Publisher Status: {publisher.status.name}")

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # adapted from https://github.com/bluez/bluez/blob/master/test/example-advertisement
 #----------------------------------------------------------------
-# a standalone python-3.6 or later DBus-based  AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
+# a standalone python-3.6 or later AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
 # (c)  F. Duncanh, October 2025
 
 import sys
@@ -15,24 +15,8 @@ try:
 except ImportError as e:
     print(f'ImportError: {e}, failed to import GLib from Python GObject Introspection Library ("gi")')
     print('Install PyGObject pip3 install PyGobject==3.50.0')
+    print(f'You may need to use pip option "--break-system-packages" (disregard the warning)')
     raise SystemExit(1)
-
-import platform
-os_name = platform.system()
-windows = 'Windows'
-linux = 'Linux'
-macos = 'Darwin'
-
-advertised_port = None
-advertised_address = None
-
-
-def check_port(port):
-    if advertised_port is None or port == advertised_port:
-        return True
-    else:
-        return False
-
 
 import importlib
 import argparse
@@ -41,6 +25,7 @@ import os
 import struct
 import socket
 import time
+import platform
 
 try:
     import psutil
@@ -53,13 +38,17 @@ except ImportError as e:
 beacon_is_running = False
 beacon_is_pending_on = False
 beacon_is_pending_off = False
-
+advertised_port = None
 port = None
 advmin = None
 advmax = None
 ipv4_str = None
 index = None
+windows = 'Windows'
+linux = 'Linux'
+os_name = platform.system()
 
+# external functions that must be supplied by loading a module:
 from typing import Optional
 def setup_beacon(ipv4_str: str, port: int, advmin: Optional[int], advmax: Optional[int], index: Optional[int]) -> int:
     return 0
@@ -70,6 +59,10 @@ def beacon_on() ->bool:
 def beacon_off() ->int:
     return 0
 
+def find_device(device: Optional[str]) -> Optional[str]:
+    return None
+
+#internal functions
 def start_beacon():
     global beacon_is_running
     global port
@@ -79,7 +72,9 @@ def start_beacon():
     global index
     setup_beacon(ipv4_str, port, advmin, advmax, index)
     beacon_is_running = beacon_on()
-        
+    if not beacon_is_running:
+        print(f'second attempt to start beacon:')
+        beacon_is_running = beacon_on()
 
 def stop_beacon():
     global beacon_is_running
@@ -89,6 +84,12 @@ def stop_beacon():
 
 def pid_is_running(pid):
     return psutil.pid_exists(pid)
+
+def check_port(port):
+    if advertised_port is None or port == advertised_port:
+        return True
+    else:
+        return False
 
 def check_process_name(pid, pname):
     try:
@@ -112,7 +113,6 @@ def check_pending():
             start_beacon()
             beacon_is_pending_on = False
     return True
-            
 
 def check_file_exists(file_path):
     global port
@@ -166,15 +166,6 @@ def check_file_exists(file_path):
 def on_timeout(file_path):
     check_file_exists(file_path)
     return True
-
-
-def process_input(value):
-    try:
-        my_integer = int(value)
-        return my_integer
-    except ValueError:
-        print(f'Error: could not convert "{value}" to integer: {my_integer}')
-        return None
 
 def main(file_path_in, ipv4_str_in, advmin_in, advmax_in, index_in):
     global ipv4_str
@@ -242,8 +233,7 @@ if __name__ == '__main__':
     Format: one entry (key, value) (or just ble_type) per line, e.g.:
       BleuIO
       --ipv4   192.168.1.100   
-    (lines startng with with # are ignored)
-
+    (lines starting with with # are ignored)
     '''
 
     parser = argparse.ArgumentParser(
@@ -252,7 +242,6 @@ if __name__ == '__main__':
         formatter_class=argparse.RawTextHelpFormatter
     )
 
-    
     home_dir = os.environ.get('HOME')
     if home_dir is None:
         home_dir = os.path.expanduser("~")
@@ -300,7 +289,7 @@ if __name__ == '__main__':
         '--advmin',
         type=str,
         default=None, 
-        help='The minimum Advertising Interval (>= 100) units=msec, (default 100, BleuZ, BleuIO only).'
+        help='The minimum Advertising Interval (>= 100) units=msec, (default 100, BlueZ, BleuIO only).'
     )
     parser.add_argument(
         '--advmax',
@@ -317,36 +306,36 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--serial',
+        '--device',
         type=str,
         default=None, 
-        help='Specify port at which the BleuIO device can be found, (default None).'
+        help='Specify an address for a required device (default None, automatic detection will be attempted).'
     )
 
-    # Parse the command-line arguments
-    args = parser.parse_args()
-    ipv4_str = None
-    path = None
-    serial_port = None
+    # script input arguments
     ble_type = None
     config_file = None
+    path = None
+    ipv4_str = None
     advmin = None
     advmax = None
     index = None
+    device_address = None
 
-    if args.ble_type is not None:
-        ble_type = args.ble_type
-        
+    #parse command line
+    args = parser.parse_args()
+
+    # look for a configuration file
     if args.file != default_file:
         if os.path.isfile(args.file):
             config_file =  args.file
         else:
             print ("optional argument --file ", args.file, "does not point to a valid file")
             raise SystemExit(1)
-
     if config_file is None and  os.path.isfile(default_file):
         config_file = default_file
-        
+
+    # read configuration file,if present
     if config_file is not None:
         print("Read uxplay-beacon.py configuration file ", config_file)
         try:
@@ -390,8 +379,8 @@ if __name__ == '__main__':
                         else:
                             print(f'Invalid config file input (--index) {value} in {args.file}')
                             raise SystemExit(1)
-                    elif key == "--serial":
-                        serial_port = value                
+                    elif key == "--device":
+                        device_address = value                
                     else:
                         print(f'Unknown key "{key}" in config file {args.file}')
                         raise SystemExit(1)
@@ -405,6 +394,7 @@ if __name__ == '__main__':
             print('fPermissionError when trying to read configuration file {config_file}')
             raise SystemExit(1)
 
+    # overwrite configuration file entries with command line entries
     if args.ble_type is not None:
         ble_type = args.ble_type
     if args.path is not None:
@@ -417,9 +407,10 @@ if __name__ == '__main__':
         advmax = args.advmax
     if args.index is not None:
         index = args.index
-    if args.serial is not None:
-        serial_port = args.serial
+    if args.device is not None:
+        device_address = args.device
 
+    # process arguments, exclude values not used by ble_type
     if ble_type is None:
         if os_name == windows:
             ble_type = winrt
@@ -427,39 +418,40 @@ if __name__ == '__main__':
             ble_type = bluez
         else:
             ble_type = bleuio
-
     if ipv4_str == default_ipv4:
         ipv4_str = get_ipv4()
         if ipv4_str is None:
             print(f'Failed to obtain Server IPv4 address with gethostbyname: provide it with option --ipv4')
             raise SystemExit(1)
-    
     if advmin is not None:
         if ble_type == winrt:
             advmin = None
-            print(f' --advmin option is not used when ble_type = {winrt}')
+            print(f' --advmin option is not used when ble_type = {ble_type}')
     else:
-        advmin = 100   #default value
-        
+        advmin = 100   #default value        
     if advmax is not None:
         if ble_type == winrt:
             advmax = None
-            print(f' --advmax option is not used when ble_type = {winrt}')
+            print(f' --advmax option is not used when ble_type = {ble_type}')
     else:
         advmax = 100   #default value
     if ble_type == winrt:
         advmin = None
         advmax = None
-    
     if index is not None:
         if ble_type != bluez:
             index = None
-            print(f' --index option is only used when ble_type = {winrt}')
+            print(f' --index option is not used when ble_type = {ble_type}')
     else:
         index = 0   #default value
     if ble_type != bluez:
         index = None
-
+    if device_address is not None:
+        if ble_type == bluez or ble_type == winrt:
+            device_address = None
+            print(f' --device option is not used when ble_type = {ble_type}')
+        
+    # import module for chosen ble_type
     module = f'uxplay_beacon_module_{ble_type}'
     print(f'Will use BLE module {module}.py')
     try:
@@ -467,32 +459,35 @@ if __name__ == '__main__':
     except ImportError as e:
             print(f'Failed to import {module}: {e}')
             raise SystemExit(1)
-
-    if ble_type == bleuio:
-        bleuio_port = ble.find_bleuio(serial_port)
-        if bleuio_port is None:
-            print(f'No BleuIO devices were found')
-            raise SystemExit(1)
-        if serial_port is not None and bleuio_port != serial_port:
-            print(f'Error: A BlueuIO device was NOT found at the port {serial_port} given as an optional argument')
-            print(f'(however BleuIO devices WERE found and are listed above')
-            raise SystemExit(1)
-        print(f'using the {bleuio} device at  {bleuio_port}')
-
-    if ble_type != winrt:
-        advminmax = f'[advmin:advmax]={advmin}:{advmax}'
-    else:
-        advminmax = f''
-
-    if ble_type == bluez:
-        indx = f'index {index}'
-    else:
-        indx = f''        
- 
-    print(f'AirPlay Service-Discovery Bluetooth LE beacon: BLE file {path} {advminmax} {indx}')
-    print(f'Advertising IP address {ipv4_str}')
-    print(f'(Press Ctrl+C to exit)')
     setup_beacon = ble.setup_beacon
     beacon_on = ble.beacon_on
     beacon_off = ble.beacon_off
+
+    need_device = False
+    if ble_type == bleuio:
+        # obtain serial port for BleuIO device
+        find_device = ble.find_device
+        need_device = True
+
+    if need_device:
+        use_device  = find_device(device_address)
+        if use_device is None:
+            print(f'No devices  needed for BLE type {ble_type} were found')
+            raise SystemExit(1)
+        if device_address is not None and use_device != device_address:
+            print(f'Error: A required device was NOT found at  {device_address} given as an optional argument')
+            print(f'(however required devices WERE found and are listed above')
+            raise SystemExit(1)
+        print(f'using the required device found at {use_device}')
+
+    #start beacon
+    advminmax = f''
+    indx = f''        
+    if ble_type != winrt:
+        advminmax = f'[advmin:advmax]={advmin}:{advmax}'
+    if ble_type == bluez:
+        indx = f'index {index}'
+    print(f'AirPlay Service-Discovery Bluetooth LE beacon: BLE file {path} {advminmax} {indx}')
+    print(f'Advertising IP address {ipv4_str}')
+    print(f'(Press Ctrl+C to exit)')
     main(path, ipv4_str, advmin, advmax, index)

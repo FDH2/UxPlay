@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # adapted from https://github.com/bluez/bluez/blob/master/test/example-advertisement
 #----------------------------------------------------------------
