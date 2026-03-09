@@ -1602,14 +1602,34 @@ static void request_cover_art_texture_rebuild(void) {
         if (pixelBuffer) CVPixelBufferRelease(pixelBuffer);
         @autoreleasepool {
             dispatch_semaphore_wait(g_inflight_semaphore, DISPATCH_TIME_FOREVER);
+            if (!g_command_queue || !g_metal_device) {
+                dispatch_semaphore_signal(g_inflight_semaphore);
+                return;
+            }
+
             id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+            if (!commandBuffer) {
+                dispatch_semaphore_signal(g_inflight_semaphore);
+                return;
+            }
+
             [commandBuffer addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull cb) {
                 (void)cb;
                 dispatch_semaphore_signal(g_inflight_semaphore);
             }];
             id<CAMetalDrawable> drawable = [view currentDrawable];
 
-            if (drawable && g_metal_device) {
+            if (drawable && g_metal_device && g_cover_art_texture) {
+                if (g_cover_art_texture.width == 0 || g_cover_art_texture.height == 0 ||
+                    drawable.texture.width == 0 || drawable.texture.height == 0) {
+                    log_msg(LOGGER_DEBUG,
+                            "Skipping cover art draw with invalid texture size src=%zux%zu dst=%zux%zu",
+                            (size_t)g_cover_art_texture.width, (size_t)g_cover_art_texture.height,
+                            (size_t)drawable.texture.width, (size_t)drawable.texture.height);
+                    dispatch_semaphore_signal(g_inflight_semaphore);
+                    return;
+                }
+
                 MPSImageBilinearScale *scaler = [[MPSImageBilinearScale alloc] initWithDevice:g_metal_device];
 
                 double srcAspect = (double)g_cover_art_texture.width / (double)g_cover_art_texture.height;
@@ -2764,16 +2784,28 @@ void video_renderer_resume(void) {
     set_video_paused(false, false);
 }
 
+static void expire_cover_art_on_main_thread(void) {
+    if (!g_showing_cover_art) {
+        return;
+    }
+
+    g_showing_cover_art = false;
+    g_cover_art_texture_created = false;
+    g_cover_art_texture_rebuild_pending = false;
+    g_cover_art_texture = nil;
+    g_cover_art = nil;
+    log_msg(LOGGER_INFO, "Cover art expired, returning to idle screen");
+    update_window_title(NULL);
+}
+
 int video_renderer_cycle(void) {
-    // Clear expired cover art - called by uxplay when coverart has expired
-    if (g_showing_cover_art) {
-        g_showing_cover_art = false;
-        g_cover_art_texture_created = false;
-        g_cover_art_texture_rebuild_pending = false;
-        g_cover_art_texture = nil;
-        g_cover_art = nil;
-        log_msg(LOGGER_INFO, "Cover art expired, returning to idle screen");
-        update_window_title(NULL);
+    // Clear expired cover art - called by uxplay when cover art has expired
+    if ([NSThread isMainThread]) {
+        expire_cover_art_on_main_thread();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            expire_cover_art_on_main_thread();
+        });
     }
     return 0;
 }
