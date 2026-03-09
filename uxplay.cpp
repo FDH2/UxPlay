@@ -2513,7 +2513,14 @@ extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
 
 extern "C" void audio_stop_coverart_rendering(void *cls) {
     if (render_coverart) {
+#ifdef NATIVE_MACOS_RENDERER
+        LOGD("preserving native macOS cover art window after audio teardown");
+        if (use_video) {
+            video_renderer_pause();
+        }
+#else
         video_reset(cls, RESET_TYPE_RTP_SHUTDOWN);
+#endif
     }
 }
 

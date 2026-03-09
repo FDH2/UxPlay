@@ -117,6 +117,7 @@ static CVMetalTextureCacheRef g_texture_cache = NULL;
 static id<MTLTexture> g_rotation_texture = NULL;
 
 // Threading
+static pthread_mutex_t g_decoder_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t g_frame_mutex = PTHREAD_MUTEX_INITIALIZER;
 static CVPixelBufferRef g_pending_frame = NULL;
 static bool g_has_new_frame = false;  // true when decoder has delivered a frame not yet rendered
@@ -191,6 +192,26 @@ static void set_owned_string(char **slot, const char *value) {
     if (value && value[0] != '\0') {
         *slot = strdup(value);
     }
+}
+
+static bool decoder_session_exists(void) {
+    bool exists = false;
+    pthread_mutex_lock(&g_decoder_mutex);
+    exists = (g_decoder_session != NULL);
+    pthread_mutex_unlock(&g_decoder_mutex);
+    return exists;
+}
+
+static void clear_parameter_sets_locked(void) {
+    if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
+    if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
+    if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
+}
+
+static void clear_parameter_sets(void) {
+    pthread_mutex_lock(&g_decoder_mutex);
+    clear_parameter_sets_locked();
+    pthread_mutex_unlock(&g_decoder_mutex);
 }
 
 #pragma mark - Manual Rotation (Core Animation layer transform, like Reflector 4)
@@ -2170,13 +2191,26 @@ static bool parse_sps_pps(const uint8_t *data, size_t length) {
 }
 
 static void create_decoder_session(void) {
-    if (g_decoder_session) return;
+    pthread_mutex_lock(&g_decoder_mutex);
+
+    if (g_decoder_session) {
+        pthread_mutex_unlock(&g_decoder_mutex);
+        return;
+    }
 
     OSStatus status;
 
+    if (g_format_desc) {
+        CFRelease(g_format_desc);
+        g_format_desc = NULL;
+    }
+
     if (g_is_h265) {
         // HEVC requires VPS, SPS, and PPS
-        if (!g_vps || !g_sps || !g_pps) return;
+        if (!g_vps || !g_sps || !g_pps) {
+            pthread_mutex_unlock(&g_decoder_mutex);
+            return;
+        }
 
         const uint8_t *parameterSetPointers[3] = {g_vps, g_sps, g_pps};
         const size_t parameterSetSizes[3] = {g_vps_size, g_sps_size, g_pps_size};
@@ -2193,17 +2227,22 @@ static void create_decoder_session(void) {
             );
         } else {
             log_msg(LOGGER_ERR, "HEVC decoding requires macOS 10.13 or later");
+            pthread_mutex_unlock(&g_decoder_mutex);
             return;
         }
 
         if (status != noErr) {
             log_msg(LOGGER_ERR, "Failed to create HEVC format description: %d", (int)status);
+            pthread_mutex_unlock(&g_decoder_mutex);
             return;
         }
         log_msg(LOGGER_INFO, "Created HEVC format description");
     } else {
         // H.264 requires SPS and PPS
-        if (!g_sps || !g_pps) return;
+        if (!g_sps || !g_pps) {
+            pthread_mutex_unlock(&g_decoder_mutex);
+            return;
+        }
 
         const uint8_t *parameterSetPointers[2] = {g_sps, g_pps};
         const size_t parameterSetSizes[2] = {g_sps_size, g_pps_size};
@@ -2219,6 +2258,7 @@ static void create_decoder_session(void) {
 
         if (status != noErr) {
             log_msg(LOGGER_ERR, "Failed to create H.264 format description: %d", (int)status);
+            pthread_mutex_unlock(&g_decoder_mutex);
             return;
         }
         log_msg(LOGGER_INFO, "Created H.264 format description");
@@ -2275,6 +2315,11 @@ static void create_decoder_session(void) {
 
     if (status != noErr) {
         log_msg(LOGGER_ERR, "Failed to create decoder session: %d", (int)status);
+        if (g_format_desc) {
+            CFRelease(g_format_desc);
+            g_format_desc = NULL;
+        }
+        pthread_mutex_unlock(&g_decoder_mutex);
         return;
     }
 
@@ -2284,10 +2329,14 @@ static void create_decoder_session(void) {
                          kCFBooleanTrue);
 
     log_msg(LOGGER_INFO, "VideoToolbox decoder session created (hardware accelerated)");
+    pthread_mutex_unlock(&g_decoder_mutex);
 }
 
 static void destroy_decoder_session(void) {
+    pthread_mutex_lock(&g_decoder_mutex);
+
     if (g_decoder_session) {
+        VTDecompressionSessionWaitForAsynchronousFrames(g_decoder_session);
         VTDecompressionSessionInvalidate(g_decoder_session);
         CFRelease(g_decoder_session);
         g_decoder_session = NULL;
@@ -2296,6 +2345,8 @@ static void destroy_decoder_session(void) {
         CFRelease(g_format_desc);
         g_format_desc = NULL;
     }
+
+    pthread_mutex_unlock(&g_decoder_mutex);
 }
 
 static void decompress_callback(void *decompressionOutputRefCon,
@@ -2410,8 +2461,8 @@ static void decompress_callback(void *decompressionOutputRefCon,
 }
 
 // Helper: check if NAL is a parameter set (should be skipped in bitstream)
-static bool is_parameter_set_nal(uint8_t first_byte) {
-    if (g_is_h265) {
+static bool is_parameter_set_nal(uint8_t first_byte, bool is_h265) {
+    if (is_h265) {
         // HEVC: NAL type in bits 1-6
         uint8_t nal_type = (first_byte >> 1) & 0x3F;
         return (nal_type == 32 || nal_type == 33 || nal_type == 34); // VPS, SPS, PPS
@@ -2423,7 +2474,10 @@ static bool is_parameter_set_nal(uint8_t first_byte) {
 }
 
 static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
-    if (!g_decoder_session) return false;
+    bool is_h265 = false;
+    pthread_mutex_lock(&g_decoder_mutex);
+    is_h265 = g_is_h265;
+    pthread_mutex_unlock(&g_decoder_mutex);
 
     // Convert Annex-B to AVCC/HVCC format (replace start codes with length)
     // For simplicity, we'll create a copy with length-prefixed format
@@ -2447,7 +2501,7 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
             size_t nal_size = nal_end - nal_start;
 
             // Skip parameter set NALs (VPS/SPS/PPS), only include VCL NALs
-            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start])) {
+            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start], is_h265)) {
                 avcc_size += 4 + nal_size;  // 4-byte length + NAL
                 nal_count++;
             }
@@ -2478,7 +2532,7 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
 
             size_t nal_size = nal_end - nal_start;
 
-            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start])) {
+            if (nal_size > 0 && !is_parameter_set_nal(data[nal_start], is_h265)) {
                 // Write length (big-endian)
                 avcc_data[offset++] = (nal_size >> 24) & 0xFF;
                 avcc_data[offset++] = (nal_size >> 16) & 0xFF;
@@ -2525,6 +2579,13 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
         .decodeTimeStamp = kCMTimeInvalid
     };
 
+    pthread_mutex_lock(&g_decoder_mutex);
+    if (!g_decoder_session || !g_format_desc) {
+        pthread_mutex_unlock(&g_decoder_mutex);
+        CFRelease(block_buffer);
+        return false;
+    }
+
     status = CMSampleBufferCreate(
         kCFAllocatorDefault,
         block_buffer,
@@ -2537,9 +2598,9 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
         &sample_buffer
     );
 
-    CFRelease(block_buffer);
-
     if (status != noErr) {
+        pthread_mutex_unlock(&g_decoder_mutex);
+        CFRelease(block_buffer);
         return false;
     }
 
@@ -2556,6 +2617,9 @@ static bool decode_frame(const uint8_t *data, size_t length, uint64_t pts) {
         &info_flags
     );
 
+    pthread_mutex_unlock(&g_decoder_mutex);
+
+    CFRelease(block_buffer);
     CFRelease(sample_buffer);
 
     return (status == noErr);
@@ -2589,7 +2653,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
 
 void video_renderer_start(void) {
     log_msg(LOGGER_INFO, "video_renderer_start called (initialized=%d, running=%d, decoder=%s)",
-            g_initialized, g_running, g_decoder_session ? "exists" : "none");
+            g_initialized, g_running, decoder_session_exists() ? "exists" : "none");
     g_running = true;
     set_video_paused(false, false);
     log_msg(LOGGER_INFO, "Video renderer started and ready for frames");
@@ -2629,9 +2693,7 @@ void video_renderer_stop(void) {
     set_video_paused(false, false);
 
     // Clear old SPS/PPS/VPS so new stream can set them
-    if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
-    if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
-    if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
+    clear_parameter_sets();
 
     // Flush texture cache to ensure clean state for new stream
     if (g_texture_cache) {
@@ -2742,15 +2804,23 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
 
     // Log first frame info (or first frame after reconnection)
     if (g_frames_received == 1) {
+        bool is_h265 = false;
+
+        pthread_mutex_lock(&g_decoder_mutex);
+        is_h265 = g_is_h265;
+        pthread_mutex_unlock(&g_decoder_mutex);
+
         log_msg(LOGGER_INFO, "=== FIRST VIDEO FRAME RECEIVED (new stream) ===");
         log_msg(LOGGER_INFO, "  Size: %d bytes, NAL count: %d, Codec: %s",
-                *data_len, *nal_count, g_is_h265 ? "H.265" : "H.264");
+                *data_len, *nal_count, is_h265 ? "H.265" : "H.264");
         log_msg(LOGGER_INFO, "  NTP time: %llu", *ntp_time);
+        pthread_mutex_lock(&g_decoder_mutex);
         log_msg(LOGGER_INFO, "  Decoder session: %s, SPS: %s, PPS: %s, VPS: %s",
                 g_decoder_session ? "exists" : "none",
                 g_sps ? "yes" : "no",
                 g_pps ? "yes" : "no",
                 g_vps ? "yes" : "no");
+        pthread_mutex_unlock(&g_decoder_mutex);
 
         // Log first few bytes to help debug
         char hex[64];
@@ -2770,21 +2840,53 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
 
     // Parse SPS/PPS - check every frame for parameter set changes (e.g. device rotation)
     {
-        // Save old SPS to detect dimension changes
-        uint8_t *old_sps = g_sps ? malloc(g_sps_size) : NULL;
-        size_t old_sps_size = g_sps_size;
-        if (old_sps) memcpy(old_sps, g_sps, g_sps_size);
+        uint8_t *old_sps = NULL;
+        size_t old_sps_size = 0;
+        bool had_old_sps = false;
+        bool have_parameter_sets = false;
+        bool sps_changed = false;
+        bool decoder_exists = false;
+        bool is_h265 = false;
+        bool have_vps = false;
+        size_t sps_size = 0;
+        size_t pps_size = 0;
 
-        if (parse_sps_pps(data, *data_len)) {
-            bool sps_changed = (!old_sps || old_sps_size != g_sps_size ||
-                                memcmp(old_sps, g_sps, g_sps_size) != 0);
+        pthread_mutex_lock(&g_decoder_mutex);
 
-            if (!g_decoder_session) {
+        is_h265 = g_is_h265;
+        had_old_sps = (g_sps != NULL && g_sps_size > 0);
+        if (had_old_sps) {
+            old_sps_size = g_sps_size;
+            old_sps = malloc(old_sps_size);
+            if (old_sps) {
+                memcpy(old_sps, g_sps, old_sps_size);
+            }
+        }
+
+        have_parameter_sets = parse_sps_pps(data, *data_len);
+        decoder_exists = (g_decoder_session != NULL);
+        sps_size = g_sps_size;
+        pps_size = g_pps_size;
+        have_vps = (g_vps != NULL);
+
+        if (have_parameter_sets) {
+            if (!had_old_sps) {
+                sps_changed = true;
+            } else if (!g_sps || old_sps_size != g_sps_size || !old_sps ||
+                       memcmp(old_sps, g_sps, g_sps_size) != 0) {
+                sps_changed = true;
+            }
+        }
+
+        pthread_mutex_unlock(&g_decoder_mutex);
+
+        if (have_parameter_sets) {
+            if (!decoder_exists) {
                 log_msg(LOGGER_INFO, "Found parameter sets - SPS:%zu bytes, PPS:%zu bytes%s",
-                        g_sps_size, g_pps_size, g_is_h265 ? ", VPS present" : "");
+                        sps_size, pps_size, is_h265 && have_vps ? ", VPS present" : "");
                 log_msg(LOGGER_INFO, "Creating decoder session...");
                 create_decoder_session();
-                if (g_decoder_session) {
+                if (decoder_session_exists()) {
                     log_msg(LOGGER_INFO, "Decoder session created successfully");
                 } else {
                     log_msg(LOGGER_ERR, "Failed to create decoder session!");
@@ -2793,7 +2895,7 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
                 log_msg(LOGGER_INFO, "SPS changed (device rotation or resolution change), recreating decoder...");
                 destroy_decoder_session();
                 create_decoder_session();
-                if (g_decoder_session) {
+                if (decoder_session_exists()) {
                     g_first_frame = true;
                     g_frames_decoded = 0;
                     log_msg(LOGGER_INFO, "Decoder session recreated successfully");
@@ -2801,7 +2903,7 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
                     log_msg(LOGGER_ERR, "Failed to recreate decoder session!");
                 }
             }
-        } else if (!g_decoder_session && g_frames_received == 1) {
+        } else if (!decoder_exists && g_frames_received == 1) {
             log_msg(LOGGER_INFO, "No SPS/PPS found in first frame, waiting for keyframe...");
         }
         free(old_sps);
@@ -2824,9 +2926,11 @@ uint64_t video_renderer_render_buffer(unsigned char *data, int *data_len, int *n
 }
 
 void video_renderer_flush(void) {
+    pthread_mutex_lock(&g_decoder_mutex);
     if (g_decoder_session) {
         VTDecompressionSessionWaitForAsynchronousFrames(g_decoder_session);
     }
+    pthread_mutex_unlock(&g_decoder_mutex);
 }
 
 void video_renderer_destroy(void) {
@@ -2835,9 +2939,7 @@ void video_renderer_destroy(void) {
     destroy_decoder_session();
     destroy_window();
 
-    if (g_vps) { free(g_vps); g_vps = NULL; }
-    if (g_sps) { free(g_sps); g_sps = NULL; }
-    if (g_pps) { free(g_pps); g_pps = NULL; }
+    clear_parameter_sets();
     if (g_server_name) { free(g_server_name); g_server_name = NULL; }
     if (g_window_title_custom_status) { free(g_window_title_custom_status); g_window_title_custom_status = NULL; }
     g_window_title_mode = WINDOW_TITLE_MODE_NONE;
@@ -2941,22 +3043,26 @@ bool video_get_playback_info(double *duration, double *position, double *seek_st
 }
 
 int video_renderer_choose_codec(bool video_is_jpeg, bool video_is_h265) {
-    bool codec_changed = (g_is_h265 != video_is_h265);
+    bool codec_changed = false;
+    bool had_decoder_session = false;
+
+    pthread_mutex_lock(&g_decoder_mutex);
+    codec_changed = (g_is_h265 != video_is_h265);
     g_is_h265 = video_is_h265;
+    had_decoder_session = (g_decoder_session != NULL);
+    pthread_mutex_unlock(&g_decoder_mutex);
 
     log_msg(LOGGER_INFO, "Codec selected: %s%s", video_is_h265 ? "H.265/HEVC" : "H.264",
             codec_changed ? " (codec changed, will recreate decoder)" : "");
 
     // If codec changed and we have an existing decoder, destroy it
     // so a new one will be created with the correct format
-    if (codec_changed && g_decoder_session) {
+    if (codec_changed && had_decoder_session) {
         log_msg(LOGGER_INFO, "Destroying existing decoder session due to codec change");
         destroy_decoder_session();
 
         // Clear old parameter sets since they're for the wrong codec
-        if (g_vps) { free(g_vps); g_vps = NULL; g_vps_size = 0; }
-        if (g_sps) { free(g_sps); g_sps = NULL; g_sps_size = 0; }
-        if (g_pps) { free(g_pps); g_pps = NULL; g_pps_size = 0; }
+        clear_parameter_sets();
 
         // Reset frame state for new stream
         g_first_frame = true;

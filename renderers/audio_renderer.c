@@ -129,6 +129,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
     GError *error = NULL;
     GstCaps *caps = NULL;
     GstClock *clock = gst_system_clock_obtain();
+    const char *selected_audiosink = audiosink;
     g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
 
     audio_rtp = (bool) strlen(artp_pipeline);
@@ -137,6 +138,13 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
     }
 
     logger = render_logger;
+
+#if defined(__APPLE__)
+    if (!audio_rtp && audiosink && !strcmp(audiosink, "autoaudiosink")) {
+        selected_audiosink = "osxaudiosink";
+        logger_log(logger, LOGGER_INFO, "Using osxaudiosink instead of autoaudiosink on macOS");
+    }
+#endif
     
     aac = check_plugin_feature (avdec_aac);
     alac = check_plugin_feature (avdec_alac);
@@ -166,7 +174,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         if (!audio_rtp) {
             /* Normal path: local audio output */
             g_string_append (launch, "level ! ");
-            g_string_append (launch, audiosink);
+            g_string_append (launch, selected_audiosink);
             switch(i) {
             case 1:  /*ALAC*/
                 if (*audio_sync) {
@@ -234,8 +242,8 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         g_string_free(launch, TRUE);
         g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
         gst_caps_unref(caps);
-        g_object_unref(clock);
     }
+    g_object_unref(clock);
 }
 
 void audio_renderer_stop() {
@@ -372,6 +380,9 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
 }
 
 void audio_renderer_set_volume(double volume) {
+    if (!renderer || !renderer->volume) {
+        return;
+    }
     volume = (volume > 10.0) ? 10.0 : volume;
     volume = (volume < 0.0) ? 0.0 : volume;
     g_object_set(renderer->volume, "volume", volume, NULL);
