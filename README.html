@@ -24,16 +24,17 @@ Bonjour/Rendezvous DNS-SD service discovery). <strong>This can be used
 on networks that do not allow the user to run a DNS_SD service.</strong>
 The user must run a Bluetooth LE “beacon”, (a USB 4.0 or later “dongle”
 can be used). The beacon is managed by a Python3 script
-<code>uxplay-beacon.py</code> (available in three versions, a BlueZ/DBus
-version for Linux/*BSD, a winrt version for Windows, and a version for
-the BlueIO usb-serial dongle (which has its own BlueTooth-LE stack
-independent of that of the host system) that runs on all systems
-including macOS). The beacon runs independently of UxPlay: while UxPlay
-is running, it regularly broadcasts a Bluetooth LE (“Low Energy”) 46
-byte legacy-type advertisement informing nearby iOS/macOS devices of the
-local IPv4 network address of the UxPlay server, and which TCP port to
-contact UxPlay on. Instructions are <a
-href="#bluetooth-le-beacon-setup">given below</a>.</p></li>
+<code>uxplay-beacon.py</code>: three implementations of Bleutooth LE
+advertising are available as loadable modules: BlueZ for Linux only,
+winrt for Windows only, and BleuIO for the BlueIO usb-serial dongle
+(which has its own BlueTooth-LE stack, independent of that of the host
+system) that runs on all systems including macOS and *BSD). The beacon
+runs independently of UxPlay: while UxPlay is running, it regularly
+broadcasts a Bluetooth LE (“Low Energy”) 46 byte legacy-type
+advertisement informing nearby iOS/macOS devices of the local IPv4
+network address of the UxPlay server, and which TCP port to contact
+UxPlay on. Instructions are <a href="#bluetooth-le-beacon-setup">given
+below</a>.</p></li>
 <li><p>option <code>-vrtp &lt;rest-of-pipeline&gt;</code> bypasses
 rendering by UxPlay, and instead transmits rtp packets of decrypted h264
 or h265 video to an external renderer (e.g. OBS Studio) at an address
@@ -478,7 +479,7 @@ package</h4>
 rpmdevtools packages, then create the rpmbuild tree with
 “<code>rpmdev-setuptree</code>”. Then download and copy uxplay.spec into
 <code>~/rpmbuild/SPECS</code>. In that directory, run
-“<code>rpmdev-spectool -g -R  uxplay.spec</code>” to download the
+“<code>pmdev-spectool -g -R  uxplay.spec</code>” to download the
 corresponding source file <code>uxplay-*.tar.gz</code> into
 <code>~/rpmbuild/SOURCES</code> (“rpmdev-spectool” may also be just
 called “spectool”); then run “<code>rpmbuild -ba uxplay.spec</code>”
@@ -917,6 +918,14 @@ needed.</p></li>
 not affect the (small) initial OpenGL mirror window size, but the window
 can be expanded using the mouse or trackpad.</p></li>
 </ul>
+<p>Unfortunately, it seems that the macOS Bluetooth stack does not allow
+users to broadcast Bluetooth LE advertisements of the type needed for
+Bluetooth LE service discovery (“manufacture-specific” advertisements),
+but this can be achieved if you acquire a BleuIO USB dongle which
+provides its own Bluetooth LE stack, as a USB serial modem. Bluetooth
+Service Discovery is an alternative to Rendezvous/Bonjour DNS_SD, and
+can be used on networks that don’t allow DNS_SD. See <a
+href="#bluetooth-le-beacon-setup">instructions below</a>.</p>
 <h2
 id="building-uxplay-on-microsoft-windows-using-msys2-with-the-mingw-64-compiler.">Building
 UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64
@@ -937,10 +946,8 @@ This should install the Bonjour SDK as
 <ul>
 <li>**NEW: while you still need to install the Bonjour SDK to build
 UxPlay, there is now an alternative method for Service Discovery using a
-Bluetooth Low Energy (BLE) beacon. (Dfferent) Python3 scripts for
-running the beacon is on Linux/BSD*, Windows and macOS available for
-this.** See <a href="#bluetooth-le-beacon-setup">instructions
-below</a>.</li>
+Bluetooth Low Energy (BLE) beacon on Windows. See <a
+href="#bluetooth-le-beacon-setup">instructions below</a>.</li>
 </ul>
 <ol start="2" type="1">
 <li><p>(This is for 64-bit Windows; a build for 32-bit Windows should be
@@ -1537,25 +1544,44 @@ GST_DEBUG=2” before running uxplay. To see GStreamer information
 messages, set GST_DEBUG=4; for DEBUG messages, GST_DEBUG=5; increase
 this to see even more of the GStreamer inner workings.</p>
 <h1 id="bluetooth-le-beacon-setup">Bluetooth LE beacon setup</h1>
-<p>The python&gt;=3.6 script for running a Bluetooth-LE Service
-Discovery beacon is uxplay-beacon.py. It comes in two versions, one (for
-Linux and *BSD) is only installed on systems which support DBUS, and
-another only for Windows 10/11. Bluetooth &gt;= 4.0 hardware on the host
-computer is required: a cheap USB bluetooth dongle can be used.</p>
-<p>On Linux/*BSD, Bluetooth support (BlueZ) must be installed (on
-Debian-based systems: <code>sudo apt install bluez bluez-tools</code>;
-recent Ubuntu releases provide bluez as a snap package). In addition to
-standard Python3 libraries, you may need to install the gi, dbus, and
-psutil Python libraries used by uxplay-beacon.py. On Debian-based
-systems:</p>
+<p>The python&gt;=3.6 script for running a Bluetooth LE Service
+Discovery beacon is uxplay-beacon.py. It provides three possible
+Bluetooth LE implementations: one for Linux systems with D-Bus, one for
+Windows, and one for the <a href="https://www.bleuio.com">BleuIO (or
+BleuIO Pro) USB dongle</a> with its own on-board Bluetooth-LE Stack that
+does not use the host operating system Bluetooth (the Host sees the
+device as a USB serial modem). This is needed for macOS where the
+operating system does not allow users to send Bluetooth-LE
+advertisements of the type we require. If a BleuIO dongle is available,
+the bleuio version of the python script can be used on many operating
+systems including macOS, Windows and Linux, and perhaps *BSD (not
+tested): it requires python library <code>python3-pyserial</code> to be
+installed.</p>
+<p>On Linux, Bluetooth support (using the offical Linux Bluetooth stack
+BlueZ) must be installed (on Debian-based systems:
+<code>sudo apt install bluez bluez-tools</code>; recent Ubuntu releases
+provide bluez as a snap package). In addition to standard Python3
+libraries, you may need to install the gi, dbus, and psutil Python
+libraries used by uxplay-beacon.py. On Debian-based systems:</p>
 <pre><code>sudo apt install python3-gi python3-dbus python3-psutil</code></pre>
-<p>For Windows support on MSYS2 UCRT systems, use pacman -S to install
-<code>mingw-w64-ucrt-x86_64-python</code>,
+<p>If a python3-gi package is not found, install the python3-gobject
+package which provides it.</p>
+<p>For Windows support in the MSYS2 UCRT64 environment, use pacman -S to
+install <code>mingw-w64-ucrt-x86_64-python</code>,
 <code>*-python-gobject</code>, <code>*-python-psutil</code>, and
-<code>*-python-pip</code>. Then install <strong>winrt</strong> bindings:
-“<code>pip install winrt-Windows.Foundation.Collections</code>”, also
-<code>winrt-Windows.Devices.Bluetooth.Advertisement</code> and
-<code>winrt-Windows.Storage.Streams</code>.</p>
+<code>*-python-pip</code>. Then install <strong>winrt</strong> bindings
+using pip (or pip3):</p>
+<pre><code>pip install winrt-Windows.Foundation 
+pip install winrt-Windows.Foundation.Collections 
+pip install winrt-Windows.Devices.Bluetooth.Advertisement 
+pip install winrt-Windows.Storage.Streams</code></pre>
+<p>For python &gt;= 3.11, the pip commands on “externally-managed”
+python installations (such as the one provided in MSYS2) should be</p>
+<pre><code>pip install ....  --break-system-packages</code></pre>
+<p>The option <code>--break-system-packages</code> was required to make
+users hesitate before adding packages not provided by the “external
+management”: <em>this is unnecessarily scary, as in the case of the
+winrt packages, no breakage will occur</em>.</p>
 <p>If uxplay will be run with option “<code>uxplay -ble</code>” (so it
 writes data for the Bluetooth beacon in the default BLE data file
 <code>~/.uxplay.ble</code>), just run <code>uxplay-beacon.py</code> in a
@@ -1607,12 +1633,13 @@ instance of UxPlay must also have its own MAC address and ports).
 not been tested, and this option might not be useful or
 needed.</em></p></li>
 </ul>
-<p><strong>NEW</strong> While the native macOS BlueTooth-LE does not
-allow users to send “manufacturer-specific” advertisements like the
-uxplay service discovery announcement, this can be achieved using the
-BleuIO dongle, which is a usb-serial device with its own full
-BlueTooth-LE implementation (the bleuio version of uxplay-beacon.py is
-installed in macOS systems, but works on all operating systems).</p>
+<p>While the native macOS BlueTooth-LE does not allow users to send
+“manufacturer-specific” advertisements like the uxplay service discovery
+announcement, this can be achieved using the BleuIO dongle, which is a
+usb-serial device with its own full Bluetooth LE implementation (the
+BleuIO module for uxplay-beacon.py is installed with UxPlay in all
+operating systems, including macos and *BSD, while the BlueZ and winrt
+modules are only installed on Linux and Windows, respectively).</p>
 <p>If you wish to test Bluetooth LE Service Discovery on Linux/*BSD, you
 can disable DNS_SD Service discovery by the avahi-daemon with</p>
 <pre><code>$ sudo systemctl mask avahi-daemon.socket
