@@ -474,6 +474,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     uint64_t uint_val = 0;
     int request_id = 0;
     int fcup_response_statuscode = 0;
+    char *type = NULL;
     bool logger_debug = (logger_get_level(raop->logger) >= LOGGER_DEBUG);
 
     const char* session_id = http_request_get_header(request, "X-Apple-Session-ID");
@@ -519,7 +520,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
        playlistAdd
        unhandledURLRespone
 */
-    char *type = NULL;
     plist_get_string_val(req_type_node, &type);
     if (!type) {
         goto post_action_error;
