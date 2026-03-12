@@ -2118,24 +2118,16 @@ static bool check_blocked_client(char *deviceid) {
 
 //to be simplified
 
-static const char *reset_name[] = {
-    [RESET_TYPE_NOHOLD] = "Nohold",
-    [RESET_TYPE_RTP_SHUTDOWN] = "RTP_Shutdown",
-    [RESET_TYPE_HLS_SHUTDOWN] = "HLS_Shutdown",
-    [RESET_TYPE_HLS_EOS] = "HLS_eos",
-    [RESET_TYPE_ON_VIDEO_PLAY] = "on_video_play",
-    [RESET_TYPE_RTP_TO_HLS_TEARDOWN] = "RTP_to_HLS_Shutdown" 
-};
-
 extern "C" void video_reset(void *cls, reset_type_t type) {
-    LOGD("video_reset: type = %s", reset_name[type]);
     switch (type) {
     case RESET_TYPE_NOHOLD:
+        LOGD("video_reset: type = NoHold");
         if (hls_support) {
 	    url.erase();
             raop_destroy_airplay_video(raop, -1);
         }
     case RESET_TYPE_HLS_EOS:
+        LOGD("video_reset: type= HLS_eos");
         if (use_video) {
             video_renderer_stop();
            /* reset the video renderer immediately to avoid a timing issue if we wait for main_loop to reset */ 
@@ -2152,8 +2144,10 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         relaunch_video = true;
         break;
     case RESET_TYPE_RTP_TO_HLS_TEARDOWN:
+        LOGD("video_reset: type = RTP_to_HLS_Shutdown");
         preserve_connections = true;
     case RESET_TYPE_RTP_SHUTDOWN:
+        LOGD("video_reset: type = RTP_Shutdown");      
         if (use_video) {
             video_renderer_stop();
         }
@@ -2161,6 +2155,7 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         relaunch_video = true;
         break;
     case RESET_TYPE_HLS_SHUTDOWN:
+        LOGD("video_reset: type = HLS_Shutdown");
         if (use_video) {
             video_renderer_stop();
         }
@@ -2174,6 +2169,7 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
         relaunch_video = true;
         break;
     case RESET_TYPE_ON_VIDEO_PLAY:
+        LOGD("video_reset: type = on_video_play");      
         break;
     default:
         g_assert(FALSE);
