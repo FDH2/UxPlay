@@ -37,6 +37,11 @@ if( UNIX AND NOT APPLE )
   if (DBUS_FOUND )
       add_definitions(-DDBUS )
       include_directories(${DBUS_INCLUDE_DIRS})
+      #FreeBSD has this Library in /usr/local/lib
+      find_library (DBUS_LIBRARY NAMES dbus-1 PATHS /usr/local/lib)
+      if (NOT DBUS_LIBRARY)
+      	 message(FATAL_ERROR "libdbus-1 not found")
+      endif()
   endif()
 endif()
 
@@ -59,14 +64,9 @@ if  ( GST_MACOS )
 endif()
 
 add_executable( uxplay uxplay.cpp )
-target_link_libraries( uxplay
-                   renderers
-                   airplay
-		   )
+target_link_libraries( uxplay renderers airplay )
 if (DBUS_FOUND)
-target_link_libraries( uxplay
-		     ${DBUS_LIBRARIES}
-		     )
+      target_link_libraries( uxplay ${DBUS_LIBRARY})
 endif()
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
