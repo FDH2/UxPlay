@@ -5,7 +5,8 @@
 
 # this requires that users can run "sudo hciconfig" with giving a password:
 # (1) (as root) create a group like "hciusers"
-# (2) use visudo to make an entry in /etc/sudoers:    %hciusers ALL=(ALL) NOPASSWD: /usr/bin/hciconfig
+# (2) use visudo to make an entry in /etc/sudoers:
+#         %hciusers ALL=(ALL) NOPASSWD: /usr/bin/hcitool, /usr/bin/hciconfig
 # (or or use visudo /etc/sudoers.d/hciusers to create a file /etc/sudoers.d/hciusers with this line in it)
 # (3) add the user who will run uxplay-beacon.py to the group hciusers
 

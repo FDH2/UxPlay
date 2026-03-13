@@ -77,31 +77,31 @@ async def publish_advertisement():
         advertised_port = None
 
 from typing import Literal    
-def setup_beacon(ipv4_str: str, port:int , advmin: Literal[None], advmax :Literal[None], index :Literal[None]) ->int:
+def setup_beacon(ipv4_str: str, port:int , advmin: Literal[None], advmax :Literal[None], index :Literal[None]) ->bool:
     if (advmin is not None) or (advmax is not None) or (index is not None):
         raise ValueError('uxplay_beacon_module_winrt: advmin, advmax, index were not all None')
-    global advertised_port
     create_airplay_service_discovery_advertisement_publisher(ipv4_str, port)
-    return advertised_port    
-    
-def beacon_on() -> bool:
+    return True
+
+from typing import Optional
+def beacon_on() -> Optional[int]:
     import asyncio
     try:
-        asyncio.run( publish_advertisement())
-        return True
+        asyncio.run(publish_advertisement())
     except Exception as e:
         print(f"Failed to start publisher: {e}")
         global publisher
         publisher = None
-        return False
-
+    finally:
+        #advertised_port is set to None if publish_advertisement failed
+        global advertised_port
+        return advertised_port
     
-def beacon_off() ->int:
+def beacon_off():
     publisher.stop()
     global advertised_port
     global advertised_address
     advertised_port = None
     advertised_address = None
-    return  advertised_port
 
 print(f'loaded uxplay_beacon_module_winrt')
