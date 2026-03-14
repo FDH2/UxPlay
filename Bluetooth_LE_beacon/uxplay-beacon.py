@@ -229,6 +229,7 @@ if __name__ == '__main__':
     ble_bluez = "bluez"
     ble_winrt = "winrt"
     ble_bleuio = "bleuio"
+    ble_hci = "hci"
         
     # Create an ArgumentParser object
     epilog_text = '''
@@ -258,12 +259,13 @@ if __name__ == '__main__':
     bleuio = 'BleuIO'
     winrt = 'winrt'
     bluez = 'BlueZ'
+    hci = 'HCI'
     
     # Add arguments
     parser.add_argument(
         'ble_type',
         nargs='?',
-        choices=[bleuio, None],
+        choices=[bleuio, hci, None],
         help=textwrap.dedent('''
         Specifies whether or not to use the module supporting the BleuIO USB dongle, or
         (if not supplied) the default native Linux (BlueZ) or Windows (winrt) modules.
@@ -470,7 +472,7 @@ if __name__ == '__main__':
     beacon_off = ble.beacon_off
 
     need_device = False
-    if ble_type == bleuio:
+    if ble_type == bleuio or ble_type == hci:
         # obtain serial port for BleuIO device
         find_device = ble.find_device
         need_device = True

@@ -24,12 +24,15 @@ LMP_version_map = ["1.0b","1.1", "1.2", "2.0+EDR", "2.1+EDR", "3.0+HS", "4.0", "
 from typing import Literal
 from typing import Optional
 
-global advertised_port
-global advertised_ipv4
+advertised_port = None
+advertised_address = None
+
+
 
 def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) -> bool:
     global hci
     global advertised_port
+    global advertised_address
     advertised_port = None
     adv = (advmin * 160) // 100
     value = adv % 256
@@ -49,8 +52,7 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     if response[-3] +response[-4] != f'00':
         print(response)
         return False
-    print (response)
-    ip = list(map(int, ipv4.split('.')))
+    ip = list(map(int, ipv4_str.split('.')))
     ip1 = f'{ip[0]:#04x}'
     ip2 = f'{ip[1]:#04x}'
     ip3 = f'{ip[2]:#04x}'
@@ -67,33 +69,34 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     if response[-3] +response[-4] != f'00':
         print(response)
         return False
-    print (response)
     advertised_port = port
     advertised_address = ipv4_str
     return True
 
 def beacon_on() -> Optional[int]:
     global advertised_port
+    global advertised_address
     cmd = f'sudo hcitool -i {hci} cmd 0x08 0x000a 0x01'
-    print(cmd)
     result = subprocess.run(cmd, shell=True, text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     response = result.stdout
     if response[-3] +response[-4] != f'00':
         print(f'beacon_on error: {response}')
         advertised_port = None
         advertised_address = None
+    print(f'Started Bluetooth LE Service Discovery beacon {advertised_address}:{advertised_port}')
     return advertised_port
 
 def beacon_off():
     cmd = f'sudo hcitool -i {hci} cmd 0x08 0x000a 0x00'
-    print(cmd)
     result = subprocess.run(cmd, shell=True, text=True, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
     response = result.stdout
     advertised_address = None
-    advretised_port = None
+    advertised_port = None
     if response[-3] +response[-4] != f'00':
         print(f'beacon_off error: {response}')
-    
+    print(f'Stopped Bluetooth LE Service Discovery beacon')
+
+        
 def get_bluetooth_version(device_name):
     """
     Runs 'hciconfig -a <device_name>' and extracts the LMP version.
@@ -176,6 +179,7 @@ def find_device(hci_in: Optional[str]) -> Optional[str]:
         print('cannot continue: SystemExit(1)')
         raise SystemExit(1)
     return hci
+        
     
 if __name__ == "__main__":
     # The minimum version is set to 6 (decimal) which corresponds to Bluetooth 4.0 (LMP version 6)
