@@ -14,15 +14,28 @@
 import subprocess
 import time
 import re
+import subprocess
+import platform
+
+os_name = platform.system()
+if os_name == 'Darwin':
+   os_name = 'macOS' 
+print(f'[{os_name}]')
+linux =  os_name == 'Linux'
+bsd = 'BSD' in os_name
+if not linux and not bsd:
+    print(f'{os_name} is not supported by the HCI module')
+    raise SystemExit(1)
 
 hci = None
 
 LMP_version_map = ["1.0b","1.1", "1.2", "2.0+EDR", "2.1+EDR", "3.0+HS", "4.0", "4.1", "4.2", "5.0", "5.1", "5.2", "5.3", "5.4", "6.0", "6.1"]
 
 
-
-from typing import Literal
 from typing import Optional
+from typing import Literal
+
+
 
 advertised_port = None
 advertised_address = None
@@ -118,9 +131,20 @@ def get_bluetooth_version(device_name):
     return None
 
 def list_devices_by_version(min_version): 
+    if linux:
+        cmd = f'hcitool'
+        opt = f'dev'
+        regexp = r"(hci\d+)"
+    elif bsd:
+        cmd = f'hcicontrol'
+        opt = f'Read_Node_List'
+        regexp = r"(ubt\d+hci)"
+    print(cmd, opt, regexp)
+        
     try:
         # Run hciconfig to list all devices
-        devices_list_output = subprocess.check_output(['hciconfig'], stderr=subprocess.STDOUT, text=True)
+        devices_list_output = subprocess.check_output([cmd, opt], stderr=subprocess.STDOUT, text=True)
+        print(devices_list_output)
     except subprocess.CalledProcessError as e:
         print(f"Error running hciconfig: {e.output}")
         return None
@@ -129,10 +153,11 @@ def list_devices_by_version(min_version):
         return None
 
     # Regex to find device names (e.g., hci0, hci1)
-    device_names = re.findall(r"^(hci\d+):", devices_list_output, re.MULTILINE)
-    
+    device_names = re.findall(regexp, devices_list_output, re.MULTILINE)
+    print(device_names)
     found_devices = []
     for device_name in device_names:
+        print(device_name)
         version_decimal = get_bluetooth_version(device_name)
         if version_decimal is None or version_decimal < min_version:
             continue
