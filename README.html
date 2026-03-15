@@ -24,19 +24,20 @@ Bonjour/Rendezvous DNS-SD service discovery). <strong>This can be used
 on networks that do not allow the user to run a DNS_SD service.</strong>
 The user must run a Bluetooth LE “beacon”, (a USB 4.0 or later “dongle”
 can be used). The beacon is managed by a Python3 script
-<code>uxplay-beacon.py</code>: four implementations of Bleutooth LE
-advertising are available as loadable modules: BlueZ for Linux only,
-winrt for Windows only, BleuIO for the BlueIO usb-serial dongle (which
-has its own BlueTooth-LE stack, independent of that of the host system)
-that runs on all systems including macOS and *BSD), and a low-level HCI
-module (Linux and BSD only) that access the Host Contoller Interface
-(but users need enhanced privileges to use this). The beacon runs
-independently of UxPlay: while UxPlay is running, it regularly
-broadcasts a Bluetooth LE (“Low Energy”) 46 byte legacy-type
-advertisement informing nearby iOS/macOS devices of the local IPv4
-network address of the UxPlay server, and which TCP port to contact
-UxPlay on. Instructions are <a href="#bluetooth-le-beacon-setup">given
-below</a>.</p></li>
+<code>uxplay-beacon.py</code>: four implementations of Bluetooth LE
+advertising are available as loadable modules: <strong>BlueZ</strong>
+for Linux only, <strong>winrt</strong> for Windows only,
+<strong>BleuIO</strong> for the BlueIO usb-serial dongle (which has its
+own Bluetooth LE stack, independent of that of the host system) that
+runs on all systems including macOS and *BSD), and a low-level
+<strong>HCI</strong> module (Linux and FreeBSD only) that accesses the
+Host Controller Interface (but users need enhanced privileges to use
+this). The beacon runs independently of UxPlay: while UxPlay is running,
+it regularly broadcasts a Bluetooth LE (“Low Energy”) 46 byte
+legacy-type advertisement informing nearby iOS/macOS devices of the
+local IPv4 network address of the UxPlay server, and which TCP port to
+contact UxPlay on. Instructions are <a
+href="#bluetooth-le-beacon-setup">given below</a>.</p></li>
 <li><p>option <code>-vrtp &lt;rest-of-pipeline&gt;</code> bypasses
 rendering by UxPlay, and instead transmits rtp packets of decrypted h264
 or h265 video to an external renderer (e.g. OBS Studio) at an address
@@ -1548,30 +1549,49 @@ this to see even more of the GStreamer inner workings.</p>
 <h1 id="bluetooth-le-beacon-setup">Bluetooth LE beacon setup</h1>
 <p>The python&gt;=3.6 script for running a Bluetooth LE Service
 Discovery beacon is uxplay-beacon.py. It provides four possible
-Bluetooth LE implementations (loaded as modules): one for Linux systems
-with D-Bus, one for Windows, and one for the <a
+Bluetooth LE implementations (loaded as modules):</p>
+<ul>
+<li><p><strong>BlueZ</strong> for Linux systems with D-Bus;</p></li>
+<li><p><strong>winrt</strong> for Windows;</p></li>
+<li><p><strong>BleuIO</strong> for the <a
 href="https://www.bleuio.com">BleuIO (or BleuIO Pro) USB dongle</a> with
 its own on-board Bluetooth-LE Stack that does not use the host operating
-system Bluetooth (the Host sees the device as a USB serial modem). This
+system Bluetooth (the host sees the device as a USB serial modem). This
 is needed for macOS where the operating system does not allow users to
 send Bluetooth-LE advertisements of the type we require. If a BleuIO
 dongle is available, the bleuio version of the python script can be used
-on many operating systems including macOS, Windows and Linux, and
-perhaps *BSD (not tested): it requires python library
-<code>python3-pyserial</code> to be installed.</p>
-<p>A fourth implementation (module HCI) for Linux or FreeBSD (maybe
-other BSD’s too?) requires elevated permissions to access the Host
-Controller Interface. These are granted by adding users to a new group
-“hciusers” that are give permission to call
-“<code>sudo -n hcitool/hciconfig/hccontrol</code>” without entering a
-password: this can be configured by the system admistrator using visudo,
-but has security implications.</p>
+on many operating systems including macOS, Windows, Linux, FreeBSD, and
+probably other BSD variants (not tested): it requires python library
+<code>python3-pyserial</code> to be installed. On Linux, users must be
+members of group <code>dialout</code> (<code>dialer</code> on
+FreeBSD).</p></li>
+<li><p><strong>HCI</strong> for Linux (uses utiities
+<code>hcitool</code> and <code>hciconfig</code>) or FreeBSD (uses
+<code>hccontrol</code>) and requires elevated privileges to access the
+Host Controller Interface. These privileges can be granted by adding
+users to a new group “hciusers” that are given permission to call
+“<code>sudo -n hci*</code>” (<code>hci*</code> = hcitool, hciconfig or
+hccontrol) without entering a password: this can be configured by the
+system administrator using <code>visudo</code>, but may have security
+implications. Use visudo to create a file <code>hciusers</code> in
+<code>/etc/sudoers.d/</code> (Linux) or
+<code>/usr/local/etc/sudoers.d</code> (FreeBSD), containing the line
+<code>%hciusers ALL=(ALL) NOPASSWD: &lt;hcitools&gt;</code> (where
+<code>&lt;hcitools&gt;</code> is
+“<code>/usr/bin/hcitool, /usr/bin/hciconfig</code>” (Linux) or
+“<code>/usr/sbin/hccontrol</code>” (FreeBSD).</p></li>
+</ul>
 <p>On Linux, Bluetooth support (using the offical Linux Bluetooth stack
 BlueZ) must be installed (on Debian-based systems:
 <code>sudo apt install bluez bluez-tools</code>; recent Ubuntu releases
-provide bluez as a snap package). In addition to standard Python3
-libraries, you may need to install the gi, dbus, and psutil Python
-libraries used by uxplay-beacon.py. On Debian-based systems:</p>
+provide bluez as a snap package). BlueZ tools ‘hcitool’ and ‘hciconfig’
+(needed if you use the HCI module on Linux) are declared “deprecated” by
+the BlueZ developers: some Linux distributions have removed them from
+the default BleuZ packages, into “extra” packages with names like
+“bluez-deprecated”.</p>
+<p>In addition to standard Python3 libraries, you may need to install
+the gi, dbus, and psutil Python libraries used by uxplay-beacon.py. On
+Debian-based systems:</p>
 <pre><code>sudo apt install python3-gi python3-dbus python3-psutil</code></pre>
 <p>If a python3-gi package is not found, install the python3-gobject
 package which provides it.</p>
@@ -1590,8 +1610,8 @@ python installations (such as the one provided in MSYS2) should be</p>
 <p>The option <code>--break-system-packages</code> was required to make
 users hesitate before adding packages not provided by the “external
 management”: <em>this is unnecessarily scary, as in the case of the
-winrt packages, no breakage will occur</em>.</p>
-<p>If uxplay will be run with option “<code>uxplay -ble</code>” (so it
+winrt packages, no breakage can occur</em>.</p>
+<p>UxPlay must be run with option “<code>uxplay -ble</code>” (so it
 writes data for the Bluetooth beacon in the default BLE data file
 <code>~/.uxplay.ble</code>), just run <code>uxplay-beacon.py</code> in a
 separate terminal. The python script will start Bluetooth LE
@@ -1610,6 +1630,11 @@ configuration file options. Get help with <code>man uxplay-beacon</code>
 or <code>uxplay-beacon.py --help</code>.</p>
 <p>Options are</p>
 <ul>
+<li><p><code>&lt;module&gt;</code> where “module” is BleuIO or HCI (no
+intital <code>--</code>) . Without this option, the default module used
+will be <strong>BlueZ</strong> (Linux), <strong>winrt</strong>
+(Windows), <strong>BleuIO</strong> (all other operating
+systems).</p></li>
 <li><p><code>--file &lt;config file&gt;</code> read beacon options from
 <code>&lt;config file&gt;</code> instead of
 <code>~/.uxplay.beacon</code>.</p></li>
@@ -1623,33 +1648,45 @@ default choice of BLE data file (<code>~/.uxplay.ble</code>) that is
 monitored by the beacon script. This also requires that uxplay is run
 with option “<code>uxplay -ble &lt;BLE data file&gt;</code>”.</p></li>
 </ul>
-<p>The BlueZ/Dbus version has three more options not offered by the
-Windows version (the Windows operating system chooses their values):</p>
+<p>These are the only options accepted by the <strong>winrt</strong>
+module on Windows. The other modules accept</p>
 <ul>
-<li><p><code>--advmin x</code>, <code>--advmax y</code>. These controls
-the interval between BLE advertisement broadcasts. This interval is in
-the range [x, y], given in units of msecs. Allowed ranges are 100 &lt;=
-x &lt;= y &lt;= 10240. If advmin=advmax, the interval is fixed: if
-advmin &lt; advmax it is chosen flexibly in this range to avoid
-interfering with other tasks the Bluetooth device is carrying out. The
-default values are advmin = advmax = 100. The advertisement is broadcast
-on all three Bluetooth LE advertising channels: 37,38,39.</p></li>
-<li><p><code>--index x</code> (default x = 0, x &gt;= 0). This can be
-used by the DBus to distinguish between multiple simultaneous instances
-of uxplay-beacon.py that are running to support multiple instances of
+<li><code>--advmin x</code>, <code>--advmax y</code>. These controls the
+interval between BLE advertisement broadcasts. This interval is in the
+range [x, y], given in units of msecs. Allowed ranges are 100 &lt;= x
+&lt;= y &lt;= 10240. If advmin=advmax, the interval is fixed: if advmin
+&lt; advmax it is chosen flexibly in this range to avoid interfering
+with other tasks the Bluetooth device is carrying out. The default
+values are advmin = advmax = 100. The advertisement is broadcast on all
+three Bluetooth LE advertising channels: 37,38,39.</li>
+</ul>
+<p>The <strong>BlueZ</strong> module (Linux) also accepts</p>
+<ul>
+<li><code>--index x</code> (default x = 0, x &gt;= 0). This can be used
+by the DBus to distinguish between multiple simultaneous instances of
+uxplay-beacon.py that are running to support multiple instances of
 UxPlay. Each instance must have its own BLE Data file (just as each
 instance of UxPlay must also have its own MAC address and ports).
 <em>Note: running multiple beacons simultaneously on the same host has
 not been tested, and this option might not be useful or
-needed.</em></p></li>
+needed.</em></li>
 </ul>
-<p>While the native macOS and *BSD Bluetooth stacks do not allow
-unpriviledged users to send “manufacturer-specific” advertisements like
-the uxplay service discovery announcement, this can be achieved using
-the BleuIO USB device: the BleuIO module for uxplay-beacon.py is
-installed with UxPlay in all operating systems, including macos and
-*BSD, while the BlueZ and winrt modules are only installed on Linux and
-Windows, respectively.</p>
+<p>The <strong>BleuIO</strong> and <strong>HCI</strong> modules
+accept</p>
+<ul>
+<li><code>--device x</code> which allows overiding automatically-made
+choices of serial ports (<strong>BleuIO</strong>) or hci device nodes
+(<strong>HCI</strong>).</li>
+</ul>
+<p>The native macOS Bluetooth stack has no documented way for users to
+send “manufacturer-specific” Bluetooth LE advertisements (such that sent
+for AirPlay Service Discovery), and the only support of uxplay-beacon.py
+on macOS uses a BleuIO USB serial device. However macOS provides a
+low-level utility BlueTool (found at <code>/usr/sbin/bluetool</code>)
+that can send HCI commands, so possibly could be used to adapt the
+python3 <strong>HCI</strong> module to support macOS as well
+(<strong>implementations welcome!</strong>). <strong>The recommended and
+working method on macOS is to use a BleuIO dongle.</strong></p>
 <p>If you wish to test Bluetooth LE Service Discovery on Linux/*BSD, you
 can disable DNS_SD Service discovery by the avahi-daemon with</p>
 <pre><code>$ sudo systemctl mask avahi-daemon.socket
@@ -1661,16 +1698,10 @@ Management</strong>: press “Windows + R” to open the Run dialog, run
 <code>services.msc</code>, and click on <strong>Bonjour Service</strong>
 in the alphabetic list. This will show links for it to be stopped and
 restarted.</p>
-<p>For more information, see the <a
+<p>For more information on Bluetooth LE support, including HCI commands,
+see the <a
 href="https://github.com/FDH2/UxPlay/wiki/Bluetooth_LE_beacon">wiki
-page</a>. This page also explains how to setup a BLE beacon for UxPlay
-on Linux by direct accesss to the Bluetooth stack using
-<code>hcitool</code> to send low-level HCI commands, with root
-privileges. This can also be done on FreeBSD using
-<code>hccontrol</code>, and on macOS using <code>bluetool</code>.
-<strong>The recommended way to set up Bluetooth LE Service Discovery on
-macOS or *BSD is to acquire a BleuIO USB device, which is supported by
-uxplay-beacon.py without root privileges</strong>.</p>
+page</a>.</p>
 <ul>
 <li><strong>Note that Bluetooth LE AirPlay Service Discovery only
 supports broadcast of IPv4 addresses</strong>.</li>
