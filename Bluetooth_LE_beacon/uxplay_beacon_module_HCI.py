@@ -3,12 +3,13 @@
 #----------------------------------------------------------------
 # HCI_Linux (uses sudo hciconfig):  module for a standalone python-3.6 or later AirPlay Service-Discovery Bluetooth LE beacon for UxPlay 
 
-# this requires that users can run "sudo hciconfig" with giving a password:
+# this requires that users can run "sudo -n hciconfig" without giving a password:
 # (1) (as root) create a group like "hciusers"
-# (2) use visudo to make an entry in /etc/sudoers:
+# (2a) Linux: use visudo to create a file /etc/sudoers.d/hciusers containing  a line
 #         %hciusers ALL=(ALL) NOPASSWD: /usr/bin/hcitool, /usr/bin/hciconfig
-# (or or use visudo /etc/sudoers.d/hciusers to create a file /etc/sudoers.d/hciusers with this line in it)
-# (3) add the user who will run uxplay-beacon.py to the group hciusers
+# (2b) FreeBSD: use visudo to create /usr/local/etc/sudoers.d/hciusers with the line
+#         %hciusers ALL=(ALL) NOPASSWD: /usr/sbin/hccontrol
+# (3) add the users who will run uxplay-beacon.py to the group hciusers
 
 
 import subprocess
