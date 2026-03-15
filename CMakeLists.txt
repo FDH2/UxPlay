@@ -94,6 +94,12 @@ install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_winrt.py
          PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 endif()
 
+if (UNIX AND NOT APPLE)
+install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_HCI.py
+         DESTINATION bin
+         PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
+endif()
+
 
 # uninstall target
 if(NOT TARGET uninstall)
