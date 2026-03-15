@@ -50,7 +50,7 @@ def check_adv_intrvl(min, max):
         raise ValueError('advmax was larger than 10240 msecs')
 
 from typing import Literal
-def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) ->int:
+def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) ->bool:
     if index is not None:
         raise ValuError('uxplay_beacon_module_BleuIO called with value of index: not None')
     global advertised_port
@@ -75,13 +75,14 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     advertisement_parameters = "0;" + str(advmin) + ";" + str(advmax) + ";0;"  # non-connectable mode, min ad internal, max ad interval, time = unlimited
     advertised_address = ipv4_str
     advertised_port = port
-    return advertised_port
+    return True
 
 def beacon_on() ->bool:
     global airplay_advertisement
     global advertisement_parameters
+    global advertised_port
     global serial_port
-    success = False
+    ser = None
     try:
         print(f'Connecting to BleuIO dongle on {serial_port} ....')
         with serial.Serial(serial_port, 115200, timeout = 1) as ser:
@@ -92,23 +93,25 @@ def beacon_on() ->bool:
             response = send_at_command(ser, "AT+ADVSTART=" + advertisement_parameters)
             #print(f'{response}')
             print(f'AirPlay Service Discovery advertising started, port = {advertised_port} ip address = {advertised_address}')
-            success = True
     except serial.SerialException as e:
         print(f"beacon_on: Serial port error: {e}")
         raise SystemExit(1)
+        advertised_port = None
     except Exception as e:
         print(f"beacon_on: An unexpected error occurred: {e}")
-        raise SystemExit(1)
+        advertised_port = None
     finally:
-        ser.close()
-        return success
+        if ser is not None:
+            ser.close()
+        return advertised_port
     
-def beacon_off() ->int:
+def beacon_off():
     global advertisement_parameters
     global airplay_advertisement
     global advertised_port
     global advertised_address
     global serial_port
+    ser = None
      # Stop advertising
     try:
         with serial.Serial(serial_port, 115200, timeout = 1) as ser:
@@ -122,13 +125,11 @@ def beacon_off() ->int:
             resullt = True
     except serial.SerialException as e:
         print(f"beacon_off: Serial port error: {e}")
-        raise SystemExit(1)
     except Exception as e:
         print(f"beacon_off: An unexpected error occurred: {e}")
-        raise SystemExit(1)
     finally:
-        ser.close()
-        return advertised_port
+        if ser is not None:
+            ser.close()
 
 from typing import Optional
 def find_device(serial_port_in: Optional[str]) ->Optional[str]:
@@ -144,16 +145,33 @@ def find_device(serial_port_in: Optional[str]) ->Optional[str]:
                 continue
             if p.vid == TARGET_VID and p.device == serial_port_in:
                 serial_port = serial_port_in
-                return serial_port
-    for p in serial_ports:
-        if p.vid is not None and p.vid == TARGET_VID:
-            count+=1
-            if count == 1:
-                serial_port = p.device
-            print(f'=== detected BlueuIO {count}. port: {p.device} desc: {p.description} hwid: {p.hwid}')
-    if count>1:
-        print(f'warning: {count} BleueIO devices were found, the first found will be used')
-        print(f'(to override this choice, specify "--device =..." in optional arguments)')
+    if serial_port is None:
+        for p in serial_ports:
+            if p.vid is not None and p.vid == TARGET_VID:
+                count+=1
+                if count == 1:
+                    serial_port = p.device
+                    print(f'=== detected BlueuIO {count}. port: {p.device} desc: {p.description} hwid: {p.hwid}')
+                if count>1:
+                    print(f'warning: {count} BleueIO devices were found, the first found will be used')
+                    print(f'(to override this choice, specify "--device =..." in optional arguments)')
+    if serial_port is None:
+        return serial_port
+    
+    #test access to serial_port
+    try:
+        with serial.Serial(serial_port, 115200, timeout = 1) as ser:
+            send_at_command(ser, "AT")
+            ser.close()
+    except Exception as e:
+        print(f"beacon_on: Serial port error: {e}")
+        text='''
+  The user does not have sufficient privilegs to access this serial port:
+  On Linux, the system administrator should add the user to the "dialout" group
+  On BSD systems, the necesary group is usually the "dialer" group.
+  This can be checked with '''
+        print(text, f'"ls -l {serial_port}"')
+        raise SystemExit(1)
     return serial_port
 
 print(f'Imported uxplay_beacon_module_BleuIO')

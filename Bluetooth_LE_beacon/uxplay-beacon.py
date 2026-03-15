@@ -50,14 +50,14 @@ os_name = platform.system()
 
 # external functions that must be supplied by loading a module:
 from typing import Optional
-def setup_beacon(ipv4_str: str, port: int, advmin: Optional[int], advmax: Optional[int], index: Optional[int]) -> int:
-    return 0
-
-def beacon_on() ->bool:
+def setup_beacon(ipv4_str: str, port: int, advmin: Optional[int], advmax: Optional[int], index: Optional[int]) -> bool:
     return False
 
-def beacon_off() ->int:
-    return 0
+def beacon_on() ->Optional[int]:
+    return None
+
+def beacon_off():
+    return
 
 def find_device(device: Optional[str]) -> Optional[str]:
     return None
@@ -70,16 +70,22 @@ def start_beacon():
     global advmin
     global advmax
     global index
+    if beacon_is_running:
+        print(f'code error, should not happen')
+        raise SystemExit(1)
     setup_beacon(ipv4_str, port, advmin, advmax, index)
-    beacon_is_running = beacon_on()
+    advertised_port = beacon_on()
+    beacon_is_running = advertised_port is not None
     if not beacon_is_running:
         print(f'second attempt to start beacon:')
-        beacon_is_running = beacon_on()
+        advertised_port = beacon_on()
+        beacon_is_running = advertised_port is not None
 
 def stop_beacon():
     global beacon_is_running
     global advertised_port
-    advertised_port = beacon_off()
+    beacon_off()
+    advertised_port = None
     beacon_is_running = False
 
 def pid_is_running(pid):
@@ -223,6 +229,7 @@ if __name__ == '__main__':
     ble_bluez = "bluez"
     ble_winrt = "winrt"
     ble_bleuio = "bleuio"
+    ble_hci = "hci"
         
     # Create an ArgumentParser object
     epilog_text = '''
@@ -252,12 +259,13 @@ if __name__ == '__main__':
     bleuio = 'BleuIO'
     winrt = 'winrt'
     bluez = 'BlueZ'
+    hci = 'HCI'
     
     # Add arguments
     parser.add_argument(
         'ble_type',
         nargs='?',
-        choices=[bleuio, None],
+        choices=[bleuio, hci, None],
         help=textwrap.dedent('''
         Specifies whether or not to use the module supporting the BleuIO USB dongle, or
         (if not supplied) the default native Linux (BlueZ) or Windows (winrt) modules.
@@ -464,7 +472,7 @@ if __name__ == '__main__':
     beacon_off = ble.beacon_off
 
     need_device = False
-    if ble_type == bleuio:
+    if ble_type == bleuio or ble_type == hci:
         # obtain serial port for BleuIO device
         find_device = ble.find_device
         need_device = True

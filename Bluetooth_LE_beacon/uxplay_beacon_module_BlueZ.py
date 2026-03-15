@@ -119,7 +119,7 @@ def register_ad_cb():
     print(f'AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered')
 
 def register_ad_error_cb(error):
-    print(f'Failed to register advertisement: {error}')
+    print(f'register_ad: {error}')
     global ad_manager
     global advertised_port
     global advertised_address
@@ -136,6 +136,7 @@ def find_adapter(bus):
             return o
     return None
 
+from typing import Optional
 def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int ) ->int:
     global ad_manager
     global airplay_advertisement
@@ -148,29 +149,26 @@ def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int 
     adapter = find_adapter(bus)
     if not adapter:
         print(f'LEAdvertisingManager1 interface not found')
-        return
+        return False
     adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                                    "org.freedesktop.DBus.Properties")
     adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
     ad_manager = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                                 LE_ADVERTISING_MANAGER_IFACE)
     airplay_advertisement = AirPlayAdvertisement(bus, index, ipv4_str, port, advmin, advmax)
-    return advertised_port
+    return True
     
-def beacon_on() ->bool:
+def beacon_on() ->Optional[int]:
     global airplay_advertisement
     ad_manager.RegisterAdvertisement(airplay_advertisement.get_path(), {},
                                      reply_handler=register_ad_cb,
                                      error_handler=register_ad_error_cb)
-    if ad_manager is None:
+    # if registration error occurs, advertised_port is set to None by callback
+    if advertised_port is None:   
         airplay_advertisement = None
-        advertised_port = None
-        advertised_address = None
-        return  False
-    else:
-        return True
+    return advertised_port
     
-def beacon_off() ->int:
+def beacon_off():
     global ad_manager
     global airplay_advertisement
     global advertised_port
@@ -184,6 +182,5 @@ def beacon_off() ->int:
         airplay_advertisement = None
     advertised_Port = None
     advertised_address = None
-    return advertised_port
 
 print(f'loaded uxplay_beacon_module_BlueZ ')
