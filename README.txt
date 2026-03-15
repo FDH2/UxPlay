@@ -21,16 +21,18 @@
     networks that do not allow the user to run a DNS_SD service.** The
     user must run a Bluetooth LE "beacon", (a USB 4.0 or later "dongle"
     can be used). The beacon is managed by a Python3 script
-    `uxplay-beacon.py`: three implementations of Bleutooth LE
-    advertising are available as loadable modules: BlueZ for Linux only,
-    winrt for Windows only, and BleuIO for the BlueIO usb-serial dongle
-    (which has its own BlueTooth-LE stack, independent of that of the
-    host system) that runs on all systems including macOS and \*BSD).
-    The beacon runs independently of UxPlay: while UxPlay is running, it
-    regularly broadcasts a Bluetooth LE ("Low Energy") 46 byte
-    legacy-type advertisement informing nearby iOS/macOS devices of the
-    local IPv4 network address of the UxPlay server, and which TCP port
-    to contact UxPlay on. Instructions are [given
+    `uxplay-beacon.py`: four implementations of Bleutooth LE advertising
+    are available as loadable modules: BlueZ for Linux only, winrt for
+    Windows only, BleuIO for the BlueIO usb-serial dongle (which has its
+    own BlueTooth-LE stack, independent of that of the host system) that
+    runs on all systems including macOS and \*BSD), and a low-level HCI
+    module (Linux and BSD only) that access the Host Contoller Interface
+    (but users need enhanced privileges to use this). The beacon runs
+    independently of UxPlay: while UxPlay is running, it regularly
+    broadcasts a Bluetooth LE ("Low Energy") 46 byte legacy-type
+    advertisement informing nearby iOS/macOS devices of the local IPv4
+    network address of the UxPlay server, and which TCP port to contact
+    UxPlay on. Instructions are [given
     below](#bluetooth-le-beacon-setup).
 
 -   option `-vrtp <rest-of-pipeline>` bypasses rendering by UxPlay, and
@@ -1592,7 +1594,7 @@ this to see even more of the GStreamer inner workings.
 # Bluetooth LE beacon setup
 
 The python\>=3.6 script for running a Bluetooth LE Service Discovery
-beacon is uxplay-beacon.py. It provides three possible Bluetooth LE
+beacon is uxplay-beacon.py. It provides four possible Bluetooth LE
 implementations (loaded as modules): one for Linux systems with D-Bus,
 one for Windows, and one for the [BleuIO (or BleuIO Pro) USB
 dongle](https://www.bleuio.com) with its own on-board Bluetooth-LE Stack
@@ -1603,6 +1605,13 @@ advertisements of the type we require. If a BleuIO dongle is available,
 the bleuio version of the python script can be used on many operating
 systems including macOS, Windows and Linux, and perhaps \*BSD (not
 tested): it requires python library `python3-pyserial` to be installed.
+
+A fourth implementation (module HCI) for Linux or FreeBSD (maybe other
+BSD's too?) requires elevated permissions to access the Host Controller
+Interface. These are granted by adding users to a new group "hciusers"
+that are give permission to call "`sudo -n hcitool/hciconfig/hccontrol`"
+without entering a password: this can be configured by the system
+admistrator using visudo, but has security implications.
 
 On Linux, Bluetooth support (using the offical Linux Bluetooth stack
 BlueZ) must be installed (on Debian-based systems:
@@ -2069,6 +2078,10 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
+
+1.73.4 2026-03-15 Modularize Bluetooth support for uxplay-beacon. Add
+modules for BLeuIO serial-modem Bluetooth LE device, and HCI access
+(Linux/FreeBSD). Fix broken -vol option.
 
 1.73 2026-01-25 Render Audio cover-art inside UxPlay with -ca option (no
 file specified). (D-Bus based) option -scrsv `<n>`{=html} to inhibit

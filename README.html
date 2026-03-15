@@ -24,12 +24,14 @@ Bonjour/Rendezvous DNS-SD service discovery). <strong>This can be used
 on networks that do not allow the user to run a DNS_SD service.</strong>
 The user must run a Bluetooth LE “beacon”, (a USB 4.0 or later “dongle”
 can be used). The beacon is managed by a Python3 script
-<code>uxplay-beacon.py</code>: three implementations of Bleutooth LE
+<code>uxplay-beacon.py</code>: four implementations of Bleutooth LE
 advertising are available as loadable modules: BlueZ for Linux only,
-winrt for Windows only, and BleuIO for the BlueIO usb-serial dongle
-(which has its own BlueTooth-LE stack, independent of that of the host
-system) that runs on all systems including macOS and *BSD). The beacon
-runs independently of UxPlay: while UxPlay is running, it regularly
+winrt for Windows only, BleuIO for the BlueIO usb-serial dongle (which
+has its own BlueTooth-LE stack, independent of that of the host system)
+that runs on all systems including macOS and *BSD), and a low-level HCI
+module (Linux and BSD only) that access the Host Contoller Interface
+(but users need enhanced privileges to use this). The beacon runs
+independently of UxPlay: while UxPlay is running, it regularly
 broadcasts a Bluetooth LE (“Low Energy”) 46 byte legacy-type
 advertisement informing nearby iOS/macOS devices of the local IPv4
 network address of the UxPlay server, and which TCP port to contact
@@ -1545,7 +1547,7 @@ messages, set GST_DEBUG=4; for DEBUG messages, GST_DEBUG=5; increase
 this to see even more of the GStreamer inner workings.</p>
 <h1 id="bluetooth-le-beacon-setup">Bluetooth LE beacon setup</h1>
 <p>The python&gt;=3.6 script for running a Bluetooth LE Service
-Discovery beacon is uxplay-beacon.py. It provides three possible
+Discovery beacon is uxplay-beacon.py. It provides four possible
 Bluetooth LE implementations (loaded as modules): one for Linux systems
 with D-Bus, one for Windows, and one for the <a
 href="https://www.bleuio.com">BleuIO (or BleuIO Pro) USB dongle</a> with
@@ -1557,6 +1559,13 @@ dongle is available, the bleuio version of the python script can be used
 on many operating systems including macOS, Windows and Linux, and
 perhaps *BSD (not tested): it requires python library
 <code>python3-pyserial</code> to be installed.</p>
+<p>A fourth implementation (module HCI) for Linux or FreeBSD (maybe
+other BSD’s too?) requires elevated permissions to access the Host
+Controller Interface. These are granted by adding users to a new group
+“hciusers” that are give permission to call
+“<code>sudo -n hcitool/hciconfig/hccontrol</code>” without entering a
+password: this can be configured by the system admistrator using visudo,
+but has security implications.</p>
 <p>On Linux, Bluetooth support (using the offical Linux Bluetooth stack
 BlueZ) must be installed (on Debian-based systems:
 <code>sudo apt install bluez bluez-tools</code>; recent Ubuntu releases
@@ -1998,6 +2007,9 @@ an AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
+<p>1.73.4 2026-03-15 Modularize Bluetooth support for uxplay-beacon. Add
+modules for BLeuIO serial-modem Bluetooth LE device, and HCI access
+(Linux/FreeBSD). Fix broken -vol option.</p>
 <p>1.73 2026-01-25 Render Audio cover-art inside UxPlay with -ca option
 (no file specified). (D-Bus based) option -scrsv <n> to inhibit
 screensaver while UxPlay is running (Linux/*BSD only). Add password
