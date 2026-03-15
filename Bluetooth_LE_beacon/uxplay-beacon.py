@@ -267,9 +267,12 @@ if __name__ == '__main__':
         nargs='?',
         choices=[bleuio, hci, None],
         help=textwrap.dedent('''
-        Specifies whether or not to use the module supporting the BleuIO USB dongle, or
-        (if not supplied) the default native Linux (BlueZ) or Windows (winrt) modules.
+        Allows choice of alternative Bluetooth implementations, supporting the BleuIO
+        USB Bluetooth LE serial device, and direct access to the Bluetooth Host
+        Controller Interface (HCI, Linux/*BSD only). (If not supplied) the default
+        native Linux (BlueZ) or Windows (winrt) modules will be used as appropriate.
         On systems other than Windows or Linux, BleuIO will be the default choice.
+        The HCI module requires elevated privileges to be granted to users.
         ''')
     )
     
