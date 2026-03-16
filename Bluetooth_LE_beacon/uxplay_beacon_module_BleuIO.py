@@ -138,16 +138,17 @@ def find_device(serial_port_in: Optional[str]) ->Optional[str]:
     count = 0
     serial_port_found = False
     serial_port = None
-    TARGET_VID = 0x2DCF   # used by BleuIO and BleuIO Pro
+    TARGET_VID = '0x2DCF'   # used by BleuIO and BleuIO Pro
+    target_vid = int(TARGET_VID,16)
     if serial_port_in is not None:
         for p in serial_ports:
-            if p.vid is None:
-                continue
-            if p.vid == TARGET_VID and p.device == serial_port_in:
-                serial_port = serial_port_in
+            if getattr(p, 'vid', None) == target_vid or TARGET_VID in p.hwid:
+                if p.device == serial_port_in:
+                    serial_port = serial_port_in
+                    break
     if serial_port is None:
         for p in serial_ports:
-            if p.vid is not None and p.vid == TARGET_VID:
+            if getattr(p, 'vid', None) == target_vid or TARGET_VID in p.hwid:
                 count+=1
                 if count == 1:
                     serial_port = p.device
