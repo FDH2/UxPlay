@@ -167,10 +167,10 @@ def find_device(serial_port_in: Optional[str]) ->Optional[str]:
     except Exception as e:
         print(f"beacon_on: Serial port error: {e}")
         text='''
-  The user does not have sufficient privilegs to access this serial port:
-  On Linux, the system administrator should add the user to the "dialout" group
+  The user does not have sufficient privileges to access this serial port:
+  On Linux, the user should be added to the "dialout" or "uucp" group
   On BSD systems, the necesary group is usually the "dialer" group.
-  This can be checked with '''
+  The correct group can be found using '''
         print(text, f'"ls -l {serial_port}"')
         raise SystemExit(1)
     return serial_port
