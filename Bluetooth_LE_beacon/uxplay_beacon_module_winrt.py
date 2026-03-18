@@ -29,6 +29,8 @@ except ImportError:
     print(f'You may need to use pip option "--break-system-packages" (disregard the warning)')
     raise SystemExit(1)
 
+import os
+
 publisher = None
 advertised_port = None
 advertised_address = None
@@ -36,6 +38,10 @@ advertised_address = None
 def on_status_changed(sender, args):
     global publisher
     print(f"Publisher status change to: {args.status.name}")
+    if args.status.name == "ABORTED":
+        print(f'Publisher was aborted after starting: perhaps no Bluetooth interface is available?')
+        print(f'Stopping')
+        os._exit(1)
     if args.status.name == "STOPPED":
         publisher = None
 
