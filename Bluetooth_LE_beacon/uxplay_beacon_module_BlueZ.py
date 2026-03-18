@@ -148,18 +148,31 @@ def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int 
     bus = dbus.SystemBus()    
     adapter = find_adapter(bus)
     if not adapter:
-        print(f'LEAdvertisingManager1 interface not found')
+        print(f'LEAdvertisingManager1: Bluetooth adapter not found')
         return False
     adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                                    "org.freedesktop.DBus.Properties")
     adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
-    ad_manager = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
+    try:
+        ad_manager = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                                 LE_ADVERTISING_MANAGER_IFACE)
+        if ad_manager is None:
+            print(f'*****HELP**')
+    except dbus.exceptions.DBusException as e:
+        print(f"D-Bus Error: {e.get_dbus_name()}")
+        if e.get_dbus_name() == 'org.freedesktop.DBus.Error.UnknownMethod':
+            print("Error: LE Advertising Manager not found. Is BlueZ updated and in experimental mode?")
+        elif e.get_dbus_name() == 'org.freedesktop.DBus.Error.ServiceUnknown':
+            print("Error: Bluetooth service not running.")    
+        return False
     airplay_advertisement = AirPlayAdvertisement(bus, index, ipv4_str, port, advmin, advmax)
     return True
     
 def beacon_on() ->Optional[int]:
     global airplay_advertisement
+    if ad_manager is None:
+        print(f'Error: (BlueZ) LE_Advertising Manager not created, perhaps there is no Bluetooth service')
+        return None
     ad_manager.RegisterAdvertisement(airplay_advertisement.get_path(), {},
                                      reply_handler=register_ad_cb,
                                      error_handler=register_ad_error_cb)

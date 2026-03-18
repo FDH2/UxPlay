@@ -76,11 +76,16 @@ def start_beacon():
     setup_beacon(ipv4_str, port, advmin, advmax, index)
     advertised_port = beacon_on()
     beacon_is_running = advertised_port is not None
-    if not beacon_is_running:
-        print(f'second attempt to start beacon:')
+    count = 1
+    while  not beacon_is_running:
+        print(f'Failed attempt {count} to start beacon:')
         advertised_port = beacon_on()
         beacon_is_running = advertised_port is not None
-
+        count += 1
+        if count > 5:
+            print(f'Giving up, check Bluetooth adapter')
+            raise SystemExit(1)
+        
 def stop_beacon():
     global beacon_is_running
     global advertised_port
