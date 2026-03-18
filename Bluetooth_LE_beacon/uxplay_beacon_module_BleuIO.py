@@ -53,10 +53,6 @@ from typing import Literal
 def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) ->bool:
     if index is not None:
         raise ValuError('uxplay_beacon_module_BleuIO called with value of index: not None')
-    global advertised_port
-    global advertised_address
-    global airplay_advertisement
-    global advertisement_parameters
     check_adv_intrvl(advmin, advmax)
     #  set up advertising message:
     assert port > 0
@@ -71,6 +67,10 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     length = len(data)   # 13 bytes                                                                                                                                 
     adv_data = bytearray([length])   # first byte of message data unit is length of meaningful data that follows (0x0d = 13)
     adv_data.extend(data)
+    global advertised_port
+    global advertised_address
+    global airplay_advertisement
+    global advertisement_parameters   
     airplay_advertisement = ':'.join(format(b,'02x') for b in adv_data)
     advertisement_parameters = "0;" + str(advmin) + ";" + str(advmax) + ";0;"  # non-connectable mode, min ad internal, max ad interval, time = unlimited
     advertised_address = ipv4_str
@@ -78,10 +78,7 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     return True
 
 def beacon_on() ->bool:
-    global airplay_advertisement
-    global advertisement_parameters
     global advertised_port
-    global serial_port
     ser = None
     try:
         print(f'Connecting to BleuIO dongle on {serial_port} ....')
@@ -110,7 +107,6 @@ def beacon_off():
     global airplay_advertisement
     global advertised_port
     global advertised_address
-    global serial_port
     ser = None
      # Stop advertising
     try:

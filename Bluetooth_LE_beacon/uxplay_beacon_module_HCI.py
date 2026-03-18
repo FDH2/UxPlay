@@ -80,7 +80,6 @@ elif freebsd:
         
 def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) -> bool:
     print("setup_beacon")
-    global hci
     global advertised_port
     global advertised_address
     advertised_port = None
@@ -136,9 +135,6 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     return True
 
 def beacon_on() -> Optional[int]:
-    global advertised_port
-    global advertised_address
-
     if linux:
        hcicmd  = '0x000a'
        args = ['0x01']
@@ -149,6 +145,8 @@ def beacon_on() -> Optional[int]:
         le_cmd(hcicmd, args)
     except subprocess.CalledProcessError as e:
         print(f'beacon_on error:', e.stderr, e.stdout)
+        global advertised_port
+        global advertised_address
         advertised_port = None
         advertised_address = None
         return None

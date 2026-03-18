@@ -37,8 +37,6 @@ advertised_address = None
 quiet = False
 
 def on_status_changed(sender, args):
-    global publisher
-    global quiet
     if not quiet:
         print(f"Publisher status change to: {args.status.name}")
     if args.status.name == "ABORTED":
@@ -46,6 +44,7 @@ def on_status_changed(sender, args):
         print(f'Stopping')
         os._exit(1)
     if args.status.name == "STOPPED":
+        global publisher
         publisher = None
 
 def create_airplay_service_discovery_advertisement_publisher(ipv4_str, port):
@@ -74,8 +73,6 @@ def create_airplay_service_discovery_advertisement_publisher(ipv4_str, port):
     publisher.add_status_changed(on_status_changed)
 
 async def publish_advertisement():
-    global advertised_port
-    global advertised_address
     try:
         publisher.start()
         if not quiet:
@@ -83,6 +80,8 @@ async def publish_advertisement():
     except Exception as e:
         print(f"Failed to start Publisher: {e}")
         print(f"Publisher Status: {publisher.status.name}")
+        global advertised_port
+        global advertised_address
         advertised_address = None
         advertised_port = None
 
