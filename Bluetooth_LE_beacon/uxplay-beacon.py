@@ -503,6 +503,14 @@ if __name__ == '__main__':
         advminmax = f'[advmin:advmax]={advmin}:{advmax}'
     if ble_type == bluez:
         indx = f'index {index}'
+    test = None
+    if ble_type == winrt or ble_type == bluez:
+        # initial test to see if Bluetooth is available
+        setup_beacon(ipv4_str, 1, advmin, advmax, index)
+        test = beacon_on()
+        beacon_off()
+    if test is not None:
+        print(f"test passed")
     print(f'AirPlay Service-Discovery Bluetooth LE beacon: BLE file {path} {advminmax} {indx}')
     print(f'Advertising IP address {ipv4_str}')
     print(f'(Press Ctrl+C to exit)')
