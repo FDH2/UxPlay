@@ -231,7 +231,7 @@ from typing import Optional
 def find_device(hci_in: Optional[str]) -> Optional[str]:
     global hci
     list = list_devices_by_version(min_version=6)
-    if len(list) == 0:
+    if list is None or len(list) == 0:
         return None
     hci = None
     if hci_in is not None:
