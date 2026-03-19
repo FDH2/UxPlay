@@ -1,8 +1,4 @@
-if ( APPLE )
-  cmake_minimum_required( VERSION 3.13 )
-else ()
-  cmake_minimum_required( VERSION 3.10 )
-endif ()
+cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
