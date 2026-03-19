@@ -51,7 +51,6 @@ elif freebsd:
     * source tree.   It is  available at the UxPlay github site Wiki:     *
     * https://github.com/FDH2/UxPlay/wiki/hccontrol-patch-for-FreeBSD-15.0*
     ***********************************************************************
-    wget https://github.com/user-attachments/files/26074904/hccontrol_FreeBSD_15_0_patch.txt
 
     '''
     print(disclaimer)
