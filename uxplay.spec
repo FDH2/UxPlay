@@ -1,5 +1,5 @@
 Name:           uxplay
-Version:        1.73.4
+Version:        1.73.5
 Release:        1%{?dist}
 
 %global gittag  v%{version}
@@ -124,6 +124,9 @@ cd build
 %files
 %{_bindir}/uxplay
 %{_bindir}/uxplay-beacon.py
+%{_bindir}/uxplay_beacon_module_BlueZ.py
+%{_bindir}/uxplay_beacon_module_BleuIO.py
+%{_bindir}/uxplay_beacon_module_HCI.py
 %{_mandir}/man1/uxplay.1*
 %{_mandir}/man1/uxplay-beacon.1*
 
