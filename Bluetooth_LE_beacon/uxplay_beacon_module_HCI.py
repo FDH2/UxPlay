@@ -11,7 +11,6 @@
 #         %hciusers ALL=(ALL) NOPASSWD: /usr/sbin/hccontrol
 # (3) add the users who will run uxplay-beacon.py to the group hciusers
 
-
 import subprocess
 import time
 import re
@@ -102,7 +101,7 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     try:
         result = le_cmd(hcicmd, args)
     except subprocess.CalledProcessError as e:
-        print(f'beacon_on error (set_advertisng_parameters):', e.stderr, e.stdout)
+        print(f'beacon_on error (set_advertising_parameters):', e.stderr, e.stdout)
         return False
      
     # setup Advertising Data      
@@ -132,6 +131,8 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     return True
 
 def beacon_on() -> Optional[int]:
+    global advertised_port
+    global advertised_address
     if linux:
        hcicmd  = '0x000a'
        args = ['0x01']
@@ -142,15 +143,15 @@ def beacon_on() -> Optional[int]:
         le_cmd(hcicmd, args)
     except subprocess.CalledProcessError as e:
         print(f'beacon_on error:', e.stderr, e.stdout)
-        global advertised_port
-        global advertised_address
         advertised_port = None
         advertised_address = None
         return None
-    print(f'AirPlay Service-Discovery beacon transmission started')
+    print(f'AirPlay Service-Discovery beacon transmission started {advertised_address}:{advertised_port}')
     return advertised_port
 
 def beacon_off():
+    global advertised_port
+    global advertised_address    
     if linux:
         hcicmd = '0x000a'
         args = ['0x00']
