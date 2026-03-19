@@ -12,6 +12,7 @@
 
 import time
 import os
+import ipaddress
 
 try:
     import serial
@@ -21,6 +22,7 @@ except ImportError as e:
     print(f'install pyserial')
     raise SystemExit(1)
 
+#global variables
 advertised_port = None
 advertised_address = None
 serial_port = None
@@ -51,17 +53,16 @@ def check_adv_intrvl(min, max):
 
 from typing import Literal
 def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) ->bool:
-    if index is not None:
-        raise ValuError('uxplay_beacon_module_BleuIO called with value of index: not None')
     global advertised_port
     global advertised_address
     global airplay_advertisement
-    global advertisement_parameters
+    global advertisement_parameters   
+    if index is not None:
+        raise ValuError('uxplay_beacon_module_BleuIO called with value of index: not None')
     check_adv_intrvl(advmin, advmax)
     #  set up advertising message:
     assert port > 0
     assert port <= 65535
-    import ipaddress
     ipv4_address = ipaddress.ip_address(ipv4_str)
     port_bytes = port.to_bytes(2, 'big')
     data = bytearray([0xff, 0x4c, 0x00]) # ( 3 bytes) type manufacturer_specific 0xff, manufacturer id Apple 0x004c
@@ -78,10 +79,7 @@ def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Lite
     return True
 
 def beacon_on() ->bool:
-    global airplay_advertisement
-    global advertisement_parameters
     global advertised_port
-    global serial_port
     ser = None
     try:
         print(f'Connecting to BleuIO dongle on {serial_port} ....')
@@ -110,7 +108,6 @@ def beacon_off():
     global airplay_advertisement
     global advertised_port
     global advertised_address
-    global serial_port
     ser = None
      # Stop advertising
     try:
@@ -122,7 +119,6 @@ def beacon_off():
             advertised_Port = None
             advertised_address = None
             advertisement_parameters = None
-            resullt = True
     except serial.SerialException as e:
         print(f"beacon_off: Serial port error: {e}")
     except Exception as e:
@@ -135,19 +131,22 @@ from typing import Optional
 def find_device(serial_port_in: Optional[str]) ->Optional[str]:
     global serial_port
     serial_ports = list(list_ports.comports())
-    count = 0
     serial_port_found = False
     serial_port = None
-    TARGET_VID = 0x2DCF   # used by BleuIO and BleuIO Pro
+    TARGET_VID = '0x2DCF'   # used by BleuIO and BleuIO Pro
+    target_vid = int(TARGET_VID,16)
+
     if serial_port_in is not None:
         for p in serial_ports:
-            if p.vid is None:
-                continue
-            if p.vid == TARGET_VID and p.device == serial_port_in:
-                serial_port = serial_port_in
+            if getattr(p, 'vid', None) == target_vid or TARGET_VID in p.hwid:
+                if p.device == serial_port_in:
+                    serial_port = serial_port_in
+                    break
+
     if serial_port is None:
+        count = 0
         for p in serial_ports:
-            if p.vid is not None and p.vid == TARGET_VID:
+            if getattr(p, 'vid', None) == target_vid or TARGET_VID in p.hwid:
                 count+=1
                 if count == 1:
                     serial_port = p.device
@@ -155,6 +154,7 @@ def find_device(serial_port_in: Optional[str]) ->Optional[str]:
                 if count>1:
                     print(f'warning: {count} BleueIO devices were found, the first found will be used')
                     print(f'(to override this choice, specify "--device =..." in optional arguments)')
+
     if serial_port is None:
         return serial_port
     
@@ -166,10 +166,10 @@ def find_device(serial_port_in: Optional[str]) ->Optional[str]:
     except Exception as e:
         print(f"beacon_on: Serial port error: {e}")
         text='''
-  The user does not have sufficient privilegs to access this serial port:
-  On Linux, the system administrator should add the user to the "dialout" group
+  The user does not have sufficient privileges to access this serial port:
+  On Linux, the user should be added to the "dialout" or "uucp" group
   On BSD systems, the necesary group is usually the "dialer" group.
-  This can be checked with '''
+  The correct group can be found using '''
         print(text, f'"ls -l {serial_port}"')
         raise SystemExit(1)
     return serial_port

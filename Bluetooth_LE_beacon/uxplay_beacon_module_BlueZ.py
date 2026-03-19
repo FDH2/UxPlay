@@ -8,12 +8,17 @@ try:
     import dbus
     import dbus.exceptions
     import dbus.mainloop.glib
-    import dbus.service
+    import dbus.service    
 except ImportError as e:
     print(f"ImportError: {e}, failed to import required dbus components")
     print(f"install the python3 dbus package")
     raise SystemExit(1)
 
+import os
+import ipaddress
+from typing import Optional
+
+#global variables
 ad_manager = None
 airplay_advertisement = None
 advertised_port = None
@@ -96,7 +101,9 @@ class AirPlay_Service_Discovery_Advertisement(dbus.service.Object):
                          out_signature='')
 
     def Release(self):
-        print(f'{self.path}: Released!')
+        print(f'{self.path}: D-Bus Released! (Bluetooth USB adapter removed?)')
+        print(f'Stopping ...')
+        os._exit(1)
 
 class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
 
@@ -105,7 +112,6 @@ class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
         assert port > 0
         assert port <= 65535
         mfg_data = bytearray([0x09, 0x08, 0x13, 0x30]) # Apple Data Unit type 9 (Airplay), length 8, flags 0001 0011, seed 30
-        import ipaddress
         ipv4_address = ipaddress.ip_address(ipv4_str)
         ipv4 = bytearray(ipv4_address.packed)
         mfg_data.extend(ipv4)
@@ -119,7 +125,6 @@ def register_ad_cb():
     print(f'AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered')
 
 def register_ad_error_cb(error):
-    print(f'register_ad: {error}')
     global ad_manager
     global advertised_port
     global advertised_address
@@ -128,15 +133,22 @@ def register_ad_error_cb(error):
     advertised_address = None
 
 def find_adapter(bus):
-    remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
-                               DBUS_OM_IFACE)
+    try:
+        remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, '/'),
+                                   DBUS_OM_IFACE)
+    except dbus.exceptions.DBusException as e:
+        if e.get_dbus_name() == 'org.freedesktop.DBus.Error.ServiceUnknown':
+            print("Error: Bluetooth D-Bus service not running on host.")
+            print(f'Stopping ...')
+            os._exit(1)
     objects = remote_om.GetManagedObjects()
     for o, props in objects.items():
         if LE_ADVERTISING_MANAGER_IFACE in props:
             return o
-    return None
+    print(f'Error: Bluetooth adapter not found')
+    print(f'Stopping ...')
+    os._exit(1)
 
-from typing import Optional
 def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int ) ->int:
     global ad_manager
     global airplay_advertisement
@@ -145,11 +157,8 @@ def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int 
     advertised_port = port
     advertised_address = ipv4_str
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)    
-    bus = dbus.SystemBus()    
+    bus = dbus.SystemBus()
     adapter = find_adapter(bus)
-    if not adapter:
-        print(f'LEAdvertisingManager1 interface not found')
-        return False
     adapter_props = dbus.Interface(bus.get_object(BLUEZ_SERVICE_NAME, adapter),
                                    "org.freedesktop.DBus.Properties")
     adapter_props.Set("org.bluez.Adapter1", "Powered", dbus.Boolean(1))
@@ -160,6 +169,13 @@ def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int 
     
 def beacon_on() ->Optional[int]:
     global airplay_advertisement
+    global advertised_port
+    global ad_manager
+    if advertised_port == 1:
+        # this value is used when testing for Bluetooth Service
+        ad_manager = None
+        advertised_port =  None
+        return None
     ad_manager.RegisterAdvertisement(airplay_advertisement.get_path(), {},
                                      reply_handler=register_ad_cb,
                                      error_handler=register_ad_error_cb)
