@@ -20,6 +20,11 @@ import platform
 from typing import Optional
 from typing import Literal
 
+#global variables
+hci = None
+advertised_port = None
+advertised_address = None
+
 os_name = platform.system()
 linux =  os_name == 'Linux'
 freebsd = os_name == 'FreeBSD'
@@ -61,12 +66,6 @@ help_text3 = '''
 '''
 help_text = help_text1 + help_text2 + help_text3
 
-hci = None
-
-
-advertised_port = None
-advertised_address = None
-
 sudo = ['sudo', '-n']
 if linux:
    ogf = "0x08"
@@ -79,12 +78,10 @@ elif freebsd:
       subprocess.run(cmd, capture_output=True, text=True, check=True)
         
 def setup_beacon(ipv4_str: str, port: int, advmin: int, advmax: int, index: Literal[None]) -> bool:
-    print("setup_beacon")
     global advertised_port
     global advertised_address
     advertised_port = None
     advertised_address = None
-
 
     # setup Advertising Parameters
     if linux:

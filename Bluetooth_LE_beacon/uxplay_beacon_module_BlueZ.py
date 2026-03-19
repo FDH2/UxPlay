@@ -8,14 +8,17 @@ try:
     import dbus
     import dbus.exceptions
     import dbus.mainloop.glib
-    import dbus.service
+    import dbus.service    
 except ImportError as e:
     print(f"ImportError: {e}, failed to import required dbus components")
     print(f"install the python3 dbus package")
     raise SystemExit(1)
 
 import os
+import ipaddress
+from typing import Optional
 
+#global variables
 ad_manager = None
 airplay_advertisement = None
 advertised_port = None
@@ -109,7 +112,6 @@ class AirPlayAdvertisement(AirPlay_Service_Discovery_Advertisement):
         assert port > 0
         assert port <= 65535
         mfg_data = bytearray([0x09, 0x08, 0x13, 0x30]) # Apple Data Unit type 9 (Airplay), length 8, flags 0001 0011, seed 30
-        import ipaddress
         ipv4_address = ipaddress.ip_address(ipv4_str)
         ipv4 = bytearray(ipv4_address.packed)
         mfg_data.extend(ipv4)
@@ -123,7 +125,6 @@ def register_ad_cb():
     print(f'AirPlay Service_Discovery Advertisement ({advertised_address}:{advertised_port}) registered')
 
 def register_ad_error_cb(error):
-    print(f'register_ad: {error}')
     global ad_manager
     global advertised_port
     global advertised_address
@@ -148,7 +149,6 @@ def find_adapter(bus):
     print(f'Stopping ...')
     os._exit(1)
 
-from typing import Optional
 def setup_beacon(ipv4_str :str, port :int, advmin :int, advmax :int, index :int ) ->int:
     global ad_manager
     global airplay_advertisement
