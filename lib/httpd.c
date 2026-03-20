@@ -349,7 +349,6 @@ httpd_thread(void *arg)
     char http[] = "HTTP/1.1";
     char event[] = "EVENT/1.0";
     char buffer[1024];
-    int i = 0;
 
     bool logger_debug = (logger_get_level(httpd->logger) >= LOGGER_DEBUG);
     assert(httpd);
@@ -389,7 +388,7 @@ httpd_thread(void *arg)
                 }
             }
         }
-        for (i=0; i<httpd->max_connections; i++) {
+        for (int i = 0; i < httpd->max_connections; i++) {
             int socket_fd;
             if (!httpd->connections[i].connected) {
                 continue;
@@ -432,7 +431,7 @@ httpd_thread(void *arg)
                 continue;
             }
         }
-        for (i=0; i<httpd->max_connections; i++) {
+        for (int i = 0; i < httpd->max_connections; i++) {
             http_connection_t *connection = &httpd->connections[i];
 
             if (!connection->connected) {
@@ -609,7 +608,7 @@ httpd_thread(void *arg)
     }
 
     /* Remove all connections that are still connected */
-    for (i=0; i<httpd->max_connections; i++) {
+    for (int i = 0; i < httpd->max_connections; i++) {
         http_connection_t *connection = &httpd->connections[i];
 
         if (!connection->connected) {
