@@ -349,7 +349,7 @@ httpd_thread(void *arg)
     char http[] = "HTTP/1.1";
     char event[] = "EVENT/1.0";
     char buffer[1024];
-    int i;
+    int i = 0;
 
     bool logger_debug = (logger_get_level(httpd->logger) >= LOGGER_DEBUG);
     assert(httpd);
@@ -358,8 +358,9 @@ httpd_thread(void *arg)
         fd_set rfds;
         struct timeval tv;
         int nfds=0;
-        int ret;
-        int new_request;
+        int ret = 0;
+        int new_request = 0;
+        int recv_datalen = 0;
 
         MUTEX_LOCK(httpd->run_mutex);
         if (!httpd->running) {
@@ -413,7 +414,7 @@ httpd_thread(void *arg)
 
         if (httpd->open_connections < httpd->max_connections &&
             httpd->server_fd4 != -1 && FD_ISSET(httpd->server_fd4, &rfds)) {
-            ret = httpd_accept_connection(httpd, httpd->server_fd4, 0);
+            int ret = httpd_accept_connection(httpd, httpd->server_fd4, 0);
             if (ret == -1) {
                 logger_log(httpd->logger, LOGGER_ERR, "httpd error in accept ipv4");
                 break;
@@ -423,7 +424,7 @@ httpd_thread(void *arg)
         }
         if (httpd->open_connections < httpd->max_connections &&
             httpd->server_fd6 != -1 && FD_ISSET(httpd->server_fd6, &rfds)) {
-            ret = httpd_accept_connection(httpd, httpd->server_fd6, 1);
+            int ret = httpd_accept_connection(httpd, httpd->server_fd6, 1);
             if (ret == -1) {
                 logger_log(httpd->logger, LOGGER_ERR, "httpd error in accept ipv6");
                 break;
@@ -484,7 +485,7 @@ httpd_thread(void *arg)
                     if (!connection->socket_fd) {
                         break;
                     }
-                    ret = recv(connection->socket_fd, buffer + readstart, sizeof(buffer) - readstart, 0);
+                    int ret = recv(connection->socket_fd, buffer + readstart, sizeof(buffer) - readstart, 0);
                     if (ret == 0) {
                         logger_log(httpd->logger, LOGGER_DEBUG, "client closed connection on socket %d",
                                    connection->socket_fd);
@@ -498,7 +499,7 @@ httpd_thread(void *arg)
                         }
                     } else {
                         readstart += ret;
-                        ret = readstart;
+                        recv_datalen = readstart;
                     }
                 }
                 if (!connection->socket_fd) {
@@ -510,7 +511,7 @@ httpd_thread(void *arg)
                 }
             } else {
                 if (connection->socket_fd) {
-                    ret = recv(connection->socket_fd, buffer, sizeof(buffer), 0);
+                    int ret = recv(connection->socket_fd, buffer, sizeof(buffer), 0);
                     if (ret == 0) {
                         httpd_remove_connection(httpd, connection, 0);
                         continue;
@@ -521,6 +522,8 @@ httpd_thread(void *arg)
                             httpd_remove_connection(httpd, connection, SOCKET_GET_ERROR());
                             break;
                         }
+                    } else {
+                        recv_datalen = ret;
                     }
                 } else {
                     /* connection was recently removed */
@@ -530,22 +533,22 @@ httpd_thread(void *arg)
             if (http_request_is_reverse(connection->request)) {
                 /* this is a response from the client to a
                  * GET /event reverse HTTP request from the server */
-                if (ret && logger_debug) {
-                    buffer[ret] = '\0';
+                if (recv_datalen && logger_debug) {
+                    buffer[recv_datalen] = '\0';
                     logger_log(httpd->logger, LOGGER_INFO, "<<<< received response from client"
                                " (reversed HTTP = \"PTTH/1.0\") connection"
                                " on socket %d:\n%s\n", connection->socket_fd, buffer);
                 }
-                if (ret == 0) {
+                if (recv_datalen == 0) {
                     httpd_remove_connection(httpd, connection, 0);
                 }
                 continue;
             }
 
             /* Parse HTTP request from data read from connection */
-            http_request_add_data(connection->request, buffer, ret);
+            http_request_add_data(connection->request, buffer, recv_datalen);
             if (http_request_has_error(connection->request)) {
-                char *data = utils_data_to_text((const char *) buffer, ret);
+                char *data = utils_data_to_text((const char *) buffer, recv_datalen);
                 logger_log(httpd->logger, LOGGER_ERR, "httpd error in parsing: %s\n%s\n%s",
                            http_request_get_error_name(connection->request),
                            http_request_get_error_description(connection->request),
