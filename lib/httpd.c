@@ -489,7 +489,8 @@ httpd_thread(void *arg)
                     if (ret == 0) {
                         logger_log(httpd->logger, LOGGER_DEBUG, "client closed connection on socket %d",
                                    connection->socket_fd);
-                        break;
+                        httpd_remove_connection(httpd, connection, 0);
+                        continue;
                     } else if (ret == -1) {
                         if (errno == SOCKET_ERRORNAME(EAGAIN) || errno == SOCKET_ERRORNAME(EWOULDBLOCK) || errno == SOCKET_ERRORNAME(EINTR)) {
                             continue;
