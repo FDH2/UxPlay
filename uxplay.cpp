@@ -73,7 +73,7 @@
 #endif
 
 
-#define VERSION "1.73.4"
+#define VERSION "1.73.6"
 
 #define SECOND_IN_USECS 1000000
 #define SECOND_IN_NSECS 1000000000UL
