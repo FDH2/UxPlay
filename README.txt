@@ -47,7 +47,7 @@
 -   (for Linux/\*BSD Desktop Environments using D-Bus). New option
     `-scrsv <n>` provides screensaver inhibition (e.g., to prevent
     screensaver function while watching mirrored videos without keyboard
-    or mouse activity): n = 0 (off) n=1 (on during video activity) n=2
+    or mouse activity): n = 0 (off) n=1 (on while streaming video) n=2
     (always on while UxPlay is running). Tested on
     Gnome/KDE/Cinnamon/Mate/Xfce 4: may need adjustment for other
     Desktop Environments (please report). (watch output of
