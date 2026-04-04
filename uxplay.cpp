@@ -221,7 +221,6 @@ static bool dbus_last_message = false;
 static const char *appname = DEFAULT_NAME;
 static const char *reason_always = "mirroring client: inhibit always";
 static const char *reason_active = "actively receiving video";
-static int activity_count;
 static float previous_hls_position = 0.0f;
 #endif
 
@@ -920,7 +919,7 @@ static void print_info (char *name) {
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
     printf("-lang xx  HLS language preferences (\"fr:es:..\", overrides $LANGUAGE)\n");
     printf("-lang     (or -lang 0): play undubbed HLS version (overrides $LANGUAGE)\n");
-    printf("-scrsv n  Screensaver override n: 0=off 1=on while streaming video 2=always on\n");
+    printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
     printf("-reg [fn] Keep a register in $HOME/.uxplay.register to verify returning\n");
@@ -2954,6 +2953,10 @@ int main (int argc, char *argv[]) {
     LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 
 #ifdef DBUS
+    if (scrsv && !use_video) {
+        LOGI ("-scrsv = %d will be ignored, as no video will be rendered", scrsv);
+        scrsv = 0;
+    }
     if (scrsv) {
         DBusError dbus_error;
         dbus_error_init(&dbus_error);
@@ -2993,7 +2996,7 @@ int main (int argc, char *argv[]) {
         }
 
         LOGI("Will attempt to use %s (D-Bus screensaver inhibition) %s", dbus_service.c_str(),
-             (scrsv == 1 ? "only while streaming video" : "always"));
+             (scrsv == 1 ? "while displaying mirrored or streamed video" : "always"));
         if (scrsv == 2) {
             dbus_screensaver_inhibiter(true);
         }

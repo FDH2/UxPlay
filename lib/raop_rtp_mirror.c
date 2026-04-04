@@ -809,12 +809,6 @@ raop_rtp_mirror_thread(void *arg)
                         uint32_t plist_len = 0;
                         plist_t root_node = NULL;
                         plist_from_bin((char *) payload, plist_size, &root_node);
-                        if (raop_rtp_mirror->callbacks.mirror_video_activity) {
-                            double txusage = 0.0;
-                            plist_t tx_usage_avg_node = plist_dict_get_item(root_node, "txUsageAvg");
-                            plist_get_real_val(tx_usage_avg_node, &txusage);
-                            raop_rtp_mirror->callbacks.mirror_video_activity(raop_rtp_mirror->callbacks.cls, &txusage);
-                        }
                         if (raop_rtp_mirror->show_client_FPS_data) {
                             plist_to_xml(root_node, &plist_xml, &plist_len);
                             logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "%s", plist_xml);
