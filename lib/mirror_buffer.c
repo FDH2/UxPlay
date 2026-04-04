@@ -40,8 +40,8 @@ struct mirror_buffer_s {
 void
 mirror_buffer_init_aes(mirror_buffer_t *mirror_buffer, const uint64_t *streamConnectionID)
 {
-    unsigned char aeskey_video[64];
-    unsigned char aesiv_video[64];
+    unsigned char aeskey_video[64] = {0};
+    unsigned char aesiv_video[64] = {0};
 
     assert(mirror_buffer);
     assert(streamConnectionID);
@@ -70,9 +70,8 @@ mirror_buffer_init_aes(mirror_buffer_t *mirror_buffer, const uint64_t *streamCon
 mirror_buffer_t *
 mirror_buffer_init(logger_t *logger, const unsigned char *aeskey)
 {
-    mirror_buffer_t *mirror_buffer;
     assert(aeskey);
-    mirror_buffer = calloc(1, sizeof(mirror_buffer_t));
+    mirror_buffer_t *mirror_buffer = (mirror_buffer_t *) calloc(1, sizeof(mirror_buffer_t));
     if (!mirror_buffer) {
         return NULL;
     }

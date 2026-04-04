@@ -38,11 +38,12 @@ typedef int socklen_t;
 
 #define WSAEAGAIN WSAEWOULDBLOCK
 #define WSAENOMEM WSA_NOT_ENOUGH_MEMORY
-
+#define CLOSESOCKET closesocket
+#define IOCTLSOCKET ioctlsocket 
 #else
 
-#define closesocket close
-#define ioctlsocket ioctl
+#define CLOSESOCKET close
+#define IOCTLSOCKET ioctl
 
 #define SOCKET_GET_ERROR()      (errno)
 #define SOCKET_SET_ERROR(value) (errno = (value))

@@ -32,6 +32,7 @@ const char *http_request_get_url(http_request_t *request);
 const char *http_request_get_protocol(http_request_t *request);
 const char *http_request_get_header(http_request_t *request, const char *name);
 const char *http_request_get_data(http_request_t *request, int *datalen);
+size_t http_request_header_get_size(http_request_t *request, int *fields, size_t *max_field_len, size_t *max_value_len);
 int http_request_get_header_string(http_request_t *request, char **header_str);
 bool http_request_is_reverse(http_request_t *request);
 void http_request_set_reverse(http_request_t *request);

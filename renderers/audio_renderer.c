@@ -40,6 +40,7 @@ static gboolean render_audio = FALSE;
 static gboolean async = FALSE;
 static gboolean vsync = FALSE;
 static gboolean sync = FALSE;
+static gboolean audio_rtp = FALSE;
 
 typedef struct audio_renderer_s {
     GstElement *appsrc; 
@@ -68,14 +69,13 @@ static const char aac_eld_caps[] ="audio/mpeg,mpegversion=(int)4,channnels=(int)
 
 static gboolean check_plugins (void)
 {
-    gboolean ret;
-    GstRegistry *registry;
+    GstRegistry *registry = NULL;
     const gchar *needed[] = { "app", "libav", "playback", "autodetect", "videoparsersbad",  NULL};
     const gchar *gst[] = {"plugins-base", "libav", "plugins-base", "plugins-good", "plugins-bad", NULL};
     registry = gst_registry_get ();
-    ret = TRUE;
+    gboolean ret = TRUE;
     for (int i = 0; i < g_strv_length ((gchar **) needed); i++) {
-        GstPlugin *plugin;
+        GstPlugin *plugin = NULL;
         plugin = gst_registry_find_plugin (registry, needed[i]);
         if (!plugin) {
             g_print ("Required gstreamer plugin '%s' not found\n"
@@ -96,10 +96,9 @@ static gboolean check_plugins (void)
 
 static gboolean check_plugin_feature (const gchar *needed_feature)
 {
-    gboolean ret;
-    GstPluginFeature *plugin_feature;
+    GstPluginFeature *plugin_feature = NULL;
     GstRegistry *registry = gst_registry_get ();
-    ret = TRUE;
+    gboolean ret = TRUE;
 
     plugin_feature = gst_registry_find_feature (registry, needed_feature, GST_TYPE_ELEMENT_FACTORY);
     if (!plugin_feature) {
@@ -126,11 +125,16 @@ bool gstreamer_init(){
     return (bool) check_plugins ();
 }
 
-void audio_renderer_init(logger_t *render_logger, const char* audiosink, const bool* audio_sync, const bool* video_sync) {
+void audio_renderer_init(logger_t *render_logger, const char* audiosink, const bool* audio_sync, const bool* video_sync, const char *artp_pipeline) {
     GError *error = NULL;
     GstCaps *caps = NULL;
     GstClock *clock = gst_system_clock_obtain();
     g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
+
+    audio_rtp = (bool) strlen(artp_pipeline);
+    if (audio_rtp) {
+        g_print("*** Audio RTP mode enabled: sending to %s\n", artp_pipeline);
+    }
 
     logger = render_logger;
     
@@ -157,27 +161,38 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         }
         g_string_append (launch, "audioconvert ! ");
         g_string_append (launch, "audioresample ! ");    /* wasapisink must resample from 44.1 kHz to 48 kHz */
-        g_string_append (launch, "volume name=volume ! level ! ");
-        g_string_append (launch, audiosink);
-        switch(i) {
-        case 1:  /*ALAC*/
-            if (*audio_sync) {
-                g_string_append (launch, " sync=true");
-                async = TRUE;
-            } else {
-                g_string_append (launch, " sync=false");
-                async = FALSE;
+        g_string_append (launch, "volume name=volume ! ");
+
+        if (!audio_rtp) {
+            /* Normal path: local audio output */
+            g_string_append (launch, "level ! ");
+            g_string_append (launch, audiosink);
+            switch(i) {
+            case 1:  /*ALAC*/
+                if (*audio_sync) {
+                    g_string_append (launch, " sync=true");
+                    async = TRUE;
+                } else {
+                    g_string_append (launch, " sync=false");
+                    async = FALSE;
+                }
+                break;
+            default:
+                if (*video_sync) {
+                    g_string_append (launch, " sync=true");
+                    vsync = TRUE;
+                } else {
+                    g_string_append (launch, " sync=false");
+                    vsync = FALSE;
+                }
+                break;
             }
-            break;
-        default:
-	    if (*video_sync) {
-                g_string_append (launch, " sync=true");
-                vsync = TRUE;
-            } else {
-                g_string_append (launch, " sync=false");
-                vsync = FALSE;
-            }
-            break;
+        } else {
+            /* RTP path: send decoded PCM over RTP */
+            /* rtpL16pay requires S16BE (big-endian) format */
+            g_string_append (launch, "audioconvert ! audio/x-raw,format=S16BE,rate=44100,channels=2 ! ");
+            g_string_append (launch, "rtpL16pay ");
+            g_string_append (launch, artp_pipeline);
         }
         renderer_type[i]->pipeline  = gst_parse_launch(launch->str, &error);
 	if (error) {
@@ -290,8 +305,7 @@ void  audio_renderer_start(unsigned char *ct) {
 }
 
 void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
-    GstBuffer *buffer;
-    bool valid;
+    GstBuffer *buffer = NULL;
 
     if (!render_audio) return;    /* do nothing unless render_audio == TRUE */
 
@@ -322,6 +336,7 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
         GST_BUFFER_PTS(buffer) = pts;
     }
     gst_buffer_fill(buffer, 0, data, *data_len);
+    bool valid = false;
     switch (renderer->ct){
     case 8: /*AAC-ELD*/
         switch (data[0]){
@@ -383,8 +398,8 @@ void audio_renderer_destroy() {
 static gboolean gstreamer_audio_pipeline_bus_callback(GstBus *bus, GstMessage *message, void *loop) {
     switch (GST_MESSAGE_TYPE(message)) {
     case GST_MESSAGE_ERROR: {
-        GError *err;
-        gchar *debug;
+        GError *err = NULL;
+        gchar *debug = NULL;
         gst_message_parse_error (message, &err, &debug);
         logger_log(logger, LOGGER_INFO, "GStreamer error (audio): %s %s", GST_MESSAGE_SRC_NAME(message),err->message);
         g_error_free(err);

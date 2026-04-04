@@ -145,9 +145,7 @@ on_message_complete(llhttp_t *parser)
 http_request_t *
 http_request_init(void)
 {
-    http_request_t *request;
-
-    request = calloc(1, sizeof(http_request_t));
+    http_request_t *request = calloc(1, sizeof(http_request_t));
     if (!request) {
         return NULL;
     }
@@ -168,11 +166,9 @@ http_request_init(void)
 void
 http_request_destroy(http_request_t *request)
 {
-    int i;
-
     if (request) {
         free(request->url);
-        for (i = 0; i < request->headers_size; i++) {
+        for (int i = 0; i < request->headers_size; i++) {
             free(request->headers[i]);
         }
         free(request->headers);
@@ -184,11 +180,9 @@ http_request_destroy(http_request_t *request)
 int
 http_request_add_data(http_request_t *request, const char *data, int datalen)
 {
-    int ret;
-
     assert(request);
 
-    ret = llhttp_execute(&request->parser, data, datalen);
+    int ret = llhttp_execute(&request->parser, data, datalen);
 
     /* support for "Upgrade" to reverse http ("PTTH/1.0") protocol */
     llhttp_resume_after_upgrade(&request->parser);
@@ -266,19 +260,41 @@ http_request_get_protocol(http_request_t *request)
 const char *
 http_request_get_header(http_request_t *request, const char *name)
 {
-    int i;
-
     assert(request);
     if (request->is_reverse) {
         return NULL;
     }
 
-    for (i = 0; i < request->headers_size; i += 2) {
+    for (int i = 0; i < request->headers_size; i += 2) {
         if (!strcmp(request->headers[i], name)) {
             return request->headers[i+1];
         }
     }
     return NULL;
+}
+
+size_t
+http_request_header_get_size(http_request_t *request, int *num_fields, size_t *max_field_len, size_t *max_value_len) {
+    size_t total = 0;
+    if (max_field_len) {
+        *max_field_len = 0;
+    }
+    if (max_value_len) {
+        *max_value_len = 0;
+    }
+    if (num_fields) {
+        *num_fields = request->headers_size / 2;
+    }
+    for (int i = 0; i < request->headers_size; i +=2) {
+        size_t len = strlen(request->headers[i]);
+        total += len;
+        if (i % 2 == 0 && max_field_len && len > *max_field_len) {
+            *max_field_len = len;
+        } else if (max_value_len && len > *max_value_len) {
+            *max_value_len = len;
+        }
+    }
+    return total;
 }
 
 const char *
@@ -311,7 +327,7 @@ http_request_get_header_string(http_request_t *request, char **header_str)
             len++;
         }
     }
-    char *str = calloc(len+1, sizeof(char));
+    char *str = (char *) calloc(len+1, sizeof(char));
     assert(str);
     *header_str = str;
     char *p = str;

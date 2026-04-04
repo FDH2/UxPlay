@@ -41,7 +41,8 @@ pkg_check_modules(GST REQUIRED    gstreamer-1.0>=1.4
 add_library( renderers
              STATIC
              audio_renderer.c
-	     video_renderer.c )
+             video_renderer.c
+             mux_renderer.c )
 
 target_link_libraries ( renderers PUBLIC airplay )
 

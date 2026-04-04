@@ -1,9 +1,6 @@
 /**
- * RPiPlay - An open-source AirPlay mirroring server for Raspberry Pi
- * Copyright (C) 2019 Florian Draschbacher
- * Modified for:
  * UxPlay - An open-source AirPlay mirroring server
- * Copyright (C) 2021-23 F. Duncanh
+ * Copyright (C) 2021-24 F. Duncanh
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,8 +17,8 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  */
 
-#ifndef AUDIO_RENDERER_H
-#define AUDIO_RENDERER_H
+#ifndef MUX_RENDERER_H
+#define MUX_RENDERER_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,17 +29,16 @@ extern "C" {
 #include <stdbool.h>
 #include "../lib/logger.h"
 
-bool gstreamer_init();
-void audio_renderer_init(logger_t *logger, const char* audiosink, const bool *audio_sync, const bool *video_sync, const char *artp_pipeline);
-void audio_renderer_start(unsigned char* compression_type);
-void audio_renderer_stop();
-void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time);
-void audio_renderer_set_volume(double volume);
-void audio_renderer_flush();
-void audio_renderer_destroy();
-unsigned int audio_renderer_listen(void *loop, int id);
+void mux_renderer_init(logger_t *logger, const char *filename, bool use_audio, bool use_video);
+void mux_renderer_choose_audio_codec(unsigned char audio_ct);
+void mux_renderer_choose_video_codec(bool is_h265);
+void mux_renderer_push_video(unsigned char *data, int data_len, uint64_t ntp_time);
+void mux_renderer_push_audio(unsigned char *data, int data_len, uint64_t ntp_time);
+void mux_renderer_stop(void);
+void mux_renderer_destroy(void);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif //AUDIO_RENDERER_H
+#endif //MUX_RENDERER_H

@@ -126,8 +126,7 @@ raop_ntp_compare(const void* av, const void* bv)
 static int
 raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_len)
 {
-    int family;
-    int ret;
+    int family = AF_UNSPEC;
     assert(raop_ntp);
     if (remote_addr_len == 4) {
         family = AF_INET;
@@ -137,7 +136,7 @@ raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_
         return -1;
     }
     logger_log(raop_ntp->logger, LOGGER_DEBUG, "raop_ntp parse remote ip = %s", remote);
-    ret = netutils_parse_address(family, remote,
+    int ret = netutils_parse_address(family, remote,
                                  &raop_ntp->remote_saddr,
                                  sizeof(raop_ntp->remote_saddr));
     if (ret < 0) {
@@ -149,12 +148,10 @@ raop_ntp_parse_remote(raop_ntp_t *raop_ntp, const char *remote, int remote_addr_
 
 raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const char *remote,
                           int remote_addr_len, unsigned short timing_rport, timing_protocol_t *time_protocol) {
-    raop_ntp_t *raop_ntp;
-
     assert(logger);
     assert(callbacks);
 
-    raop_ntp = calloc(1, sizeof(raop_ntp_t));
+    raop_ntp_t *raop_ntp = calloc(1, sizeof(raop_ntp_t));
     if (!raop_ntp) {
         return NULL;
     }
@@ -247,7 +244,7 @@ raop_ntp_init_socket(raop_ntp_t *raop_ntp, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (tsock != -1) closesocket(tsock);
+    if (tsock != -1) CLOSESOCKET(tsock);
     return -1;
 }
 
@@ -255,13 +252,11 @@ static void
 raop_ntp_flush_socket(int fd)
 {
 #ifdef _WIN32
-#define IOCTL ioctlsocket
     u_long bytes_available = 0;
 #else
-#define IOCTL ioctl
     int bytes_available = 0;
 #endif
-    while (IOCTL(fd, FIONREAD, &bytes_available) == 0 && bytes_available > 0)
+    while (IOCTLSOCKET(fd, FIONREAD, &bytes_available) == 0 && bytes_available > 0)
     {
         // We are guaranteed that we won't block, because bytes are available.
         // Read 1 byte. Extra bytes in the datagram will be discarded.
@@ -279,8 +274,8 @@ raop_ntp_thread(void *arg)
 {
     raop_ntp_t *raop_ntp = arg;
     assert(raop_ntp);
-    unsigned char response[128];
-    int response_len;
+    unsigned char response[128] = {0};
+    int response_len = 0;
     unsigned char request[32] = {0x80, 0xd2, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
@@ -467,7 +462,7 @@ raop_ntp_stop(raop_ntp_t *raop_ntp)
     THREAD_JOIN(raop_ntp->thread);
 
     if (raop_ntp->tsock != -1) {
-        closesocket(raop_ntp->tsock);
+        CLOSESOCKET(raop_ntp->tsock);
         raop_ntp->tsock = -1;
     }
 

@@ -16,9 +16,7 @@
 #define DNSSD_H
 #include <stdint.h>
 
-#if defined(WIN32) && defined(DLL_EXPORT)
-# define DNSSD_API __declspec(dllexport)
-#else
+#ifndef DNSSD_API
 # define DNSSD_API
 #endif
 

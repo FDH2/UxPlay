@@ -196,13 +196,11 @@ struct x25519_key_s {
 };
 
 x25519_key_t *x25519_key_generate(void) {
-    x25519_key_t *key;
-    EVP_PKEY_CTX *pctx;
 
-    key = calloc(1, sizeof(x25519_key_t));
+    x25519_key_t *key = (x25519_key_t *) calloc(1, sizeof(x25519_key_t));
     assert(key);
 
-    pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
+    EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
     if (!pctx) {
         handle_error(__func__);
     }
@@ -218,9 +216,8 @@ x25519_key_t *x25519_key_generate(void) {
 }
 
 x25519_key_t *x25519_key_from_raw(const unsigned char data[X25519_KEY_SIZE]) {
-    x25519_key_t *key;
 
-    key = malloc(sizeof(x25519_key_t));
+    x25519_key_t *key = (x25519_key_t *) calloc(1, sizeof(x25519_key_t));
     assert(key);
 
     key->pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL, data, X25519_KEY_SIZE);
@@ -272,11 +269,11 @@ void x25519_derive_secret(unsigned char secret[X25519_KEY_SIZE], const x25519_ke
 int gcm_encrypt(const unsigned char *plaintext, int plaintext_len, unsigned char *ciphertext,
                 unsigned char *key, unsigned char *iv, unsigned char *tag)
 {
-    EVP_CIPHER_CTX *ctx;
+    EVP_CIPHER_CTX *ctx = NULL;
 
-    int len;
+    int len = 0;
     
-    int ciphertext_len;
+    int ciphertext_len = 0;
 
     if(!(ctx = EVP_CIPHER_CTX_new()))
       handle_error(__func__);
@@ -309,11 +306,8 @@ int gcm_encrypt(const unsigned char *plaintext, int plaintext_len, unsigned char
 int gcm_decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *plaintext,
                 unsigned char *key, unsigned char *iv, unsigned char *tag)
 {
-    EVP_CIPHER_CTX *ctx;
-    int len;
-    int plaintext_len;
-    int ret;
-    
+    EVP_CIPHER_CTX *ctx = NULL;
+
     if(!(ctx = EVP_CIPHER_CTX_new()))
         handle_error(__func__);
 
@@ -326,14 +320,15 @@ int gcm_decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *pl
     if(!EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv))
         handle_error(__func__);
 
+    int len = 0;
     if(!EVP_DecryptUpdate(ctx, plaintext, &len, ciphertext, ciphertext_len))
         handle_error(__func__);
-    plaintext_len = len;
+    int plaintext_len = len;
 
     if(!EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag))
         handle_error(__func__);
 
-    ret = EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
+    int ret = EVP_DecryptFinal_ex(ctx, plaintext + len, &len);
 
     EVP_CIPHER_CTX_free(ctx);
     
@@ -354,16 +349,15 @@ struct ed25519_key_s {
 };
 
 ed25519_key_t *ed25519_key_generate(const char *device_id, const char *keyfile, int *result) {
-    ed25519_key_t *key;
-    EVP_PKEY_CTX *pctx;
-    BIO *bp;
-    FILE *file;
+    EVP_PKEY_CTX *pctx = NULL;
+    BIO *bp = NULL;
+    FILE *file = NULL;
     bool new_pk = false;
     bool use_keyfile = strlen(keyfile);
 
     *result = 0;
 
-    key = calloc(1, sizeof(ed25519_key_t));
+    ed25519_key_t *key = (ed25519_key_t *) calloc(1, sizeof(ed25519_key_t));
     assert(key);
    
     if (use_keyfile) {
@@ -381,7 +375,7 @@ ed25519_key_t *ed25519_key_generate(const char *device_id, const char *keyfile, 
         }
     } else {
         /* generate (insecure) persistent keypair using device_id */
-        unsigned char hash[SHA512_DIGEST_LENGTH];
+        unsigned char hash[SHA512_DIGEST_LENGTH] = {0};
         char salt[] = SALT_PK;
         sha_ctx_t *ctx = sha_init();
         sha_update(ctx, (const unsigned char *) salt, (unsigned int) strlen(salt));
@@ -418,9 +412,8 @@ ed25519_key_t *ed25519_key_generate(const char *device_id, const char *keyfile, 
 }
 
 ed25519_key_t *ed25519_key_from_raw(const unsigned char data[ED25519_KEY_SIZE]) {
-    ed25519_key_t *key;
 
-    key = malloc(sizeof(ed25519_key_t));
+    ed25519_key_t *key =  (ed25519_key_t *) calloc(1, sizeof(ed25519_key_t));
     assert(key);
 
     key->pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, data, ED25519_KEY_SIZE);
@@ -439,11 +432,9 @@ void ed25519_key_get_raw(unsigned char data[ED25519_KEY_SIZE], const ed25519_key
 }
 
 ed25519_key_t *ed25519_key_copy(const ed25519_key_t *key) {
-    ed25519_key_t *new_key;
-
     assert(key);
 
-    new_key = malloc(sizeof(ed25519_key_t));
+    ed25519_key_t *new_key = (ed25519_key_t *) calloc(1, sizeof(ed25519_key_t));
     assert(new_key);
 
     new_key->pkey = key->pkey;
@@ -458,9 +449,7 @@ void ed25519_sign(unsigned char *signature, size_t signature_len,
                   const unsigned char *data, size_t data_len,
                   const ed25519_key_t *key)
 {
-    EVP_MD_CTX *mctx;
-
-    mctx = EVP_MD_CTX_new();
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
     if (!mctx) {
         handle_error(__func__);
     }
@@ -479,9 +468,7 @@ int ed25519_verify(const unsigned char *signature, size_t signature_len,
                    const unsigned char *data, size_t data_len,
                    const ed25519_key_t *key)
 {
-    EVP_MD_CTX *mctx;
-
-    mctx = EVP_MD_CTX_new();
+    EVP_MD_CTX *mctx = EVP_MD_CTX_new();
     if (!mctx) {
         handle_error(__func__);
     }
@@ -516,7 +503,7 @@ struct sha_ctx_s {
 };
 
 sha_ctx_t *sha_init() {
-    sha_ctx_t *ctx = malloc(sizeof(sha_ctx_t));
+    sha_ctx_t *ctx = (sha_ctx_t *) calloc(1, sizeof(sha_ctx_t));
     assert(ctx != NULL);
     ctx->digest_ctx = EVP_MD_CTX_new();
     assert(ctx->digest_ctx != NULL);
@@ -559,7 +546,7 @@ struct md5_ctx_s {
 };
 
 md5_ctx_t *md5_init() {
-    md5_ctx_t *ctx = malloc(sizeof(md5_ctx_t));
+    md5_ctx_t *ctx = (md5_ctx_t *) calloc(1, sizeof(md5_ctx_t));
     assert(ctx != NULL);
     ctx->digest_ctx = EVP_MD_CTX_new();
     assert(ctx->digest_ctx != NULL);
@@ -599,7 +586,7 @@ void md5_destroy(md5_ctx_t *ctx) {
 
 #define MD5_DIGEST_LENGTH 16
 char *get_md5(char *string) {
-    unsigned char hash[MD5_DIGEST_LENGTH];  
+    unsigned char hash[MD5_DIGEST_LENGTH] = {0};  
     md5_ctx_t *ctx = NULL;
     ctx = md5_init();
     md5_update(ctx, (const unsigned char *) string, strlen(string));
@@ -622,7 +609,7 @@ void pk_to_base64(const unsigned char *pk, int pk_len, char *pk_base64, int len)
     
     BIO *b64 = BIO_new(BIO_f_base64());
     BIO *bio = BIO_new(BIO_s_mem());
-    BUF_MEM *bufferPtr;
+    BUF_MEM *bufferPtr = NULL;
 
 
     bio = BIO_push(b64, bio);

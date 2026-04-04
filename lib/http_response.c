@@ -25,7 +25,7 @@ struct http_response_s {
     int disconnect;
 
     char *data;
-    int data_size;
+    int buffer_size;
     int data_length;
 };
 
@@ -33,19 +33,18 @@ struct http_response_s {
 static void
 http_response_add_data(http_response_t *response, const char *data, int datalen)
 {
-    int newdatasize;
-
     assert(response);
     assert(data);
     assert(datalen > 0);
 
-    newdatasize = response->data_size;
-    while (response->data_size+datalen > newdatasize) {
-        newdatasize *= 2;
+    size_t newbufsize = response->buffer_size;
+    while (response->data_length + datalen > newbufsize) {
+        newbufsize *= 2;
     }
-    if (newdatasize != response->data_size) {
-        response->data = realloc(response->data, newdatasize);
+    if (newbufsize != response->buffer_size) {
+        response->data = realloc(response->data, newbufsize);
         assert(response->data);
+        response->buffer_size = newbufsize;
     }
     memcpy(response->data+response->data_length, data, datalen);
     response->data_length += datalen;
@@ -60,8 +59,8 @@ http_response_create()
         return NULL;
     }
     /* Allocate response data */
-    response->data_size = 1024;
-    response->data = (char *) malloc(response->data_size);
+    response->buffer_size = 1024;
+    response->data = (char *) malloc(response->buffer_size);
     if (!response->data) {
         free(response);
         return NULL;
@@ -74,7 +73,7 @@ http_response_init(http_response_t *response, const char *protocol, int code, co
 {
     assert(response);
     response->data_length = 0;    /* can be used to reinitialize a previously-initialized response */
-    char codestr[4];
+    char codestr[4] = {0};
 
     assert(code >= 100 && code < 1000);
 
@@ -136,7 +135,7 @@ http_response_finish(http_response_t *response, const char *data, int datalen)
 
     if (data && datalen > 0) {
         const char *hdrname = "Content-Length";
-        char hdrvalue[16];
+        char hdrvalue[16] = {0};
 
         memset(hdrvalue, 0, sizeof(hdrvalue));
         snprintf(hdrvalue, sizeof(hdrvalue)-1, "%d", datalen);

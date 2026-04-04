@@ -209,6 +209,10 @@ static struct NGHex global_Ng_constants[] = {
 static NGConstant * new_ng( SRP_NGType ng_type, const char * n_hex, const char * g_hex )
 {
     NGConstant * ng   = (NGConstant *) malloc( sizeof(NGConstant) );
+    if (!ng) {
+        printf("Memory allocation failure (ng)\n");
+        exit(1);
+    }
     ng->N             = BN_new();
     ng->g             = BN_new();
 
@@ -418,9 +422,11 @@ static BIGNUM * H_nn_rfc5054( SRP_HashAlgorithm alg, const BIGNUM * N, const BIG
     if (!bin)
        return 0;
 
-    if (len_n1 > len_N || len_n2 > len_N)
+    if (len_n1 > len_N || len_n2 > len_N) {
+        free (bin);
         return 0;
-
+    }
+    
     memset(bin, 0, nbytes);
     BN_bn2bin(n1, bin + (len_N - len_n1));
     BN_bn2bin(n2, bin + (len_N + len_N - len_n2));
@@ -520,10 +526,10 @@ static int hash_session_key( SRP_HashAlgorithm alg, const BIGNUM * n, unsigned c
 static void calculate_M( SRP_HashAlgorithm alg, NGConstant *ng, unsigned char * dest, const char * I, const BIGNUM * s,
                          const BIGNUM * A, const BIGNUM * B, const unsigned char * K )
 {
-    unsigned char H_N[ SHA512_DIGEST_LENGTH ];
-    unsigned char H_g[ SHA512_DIGEST_LENGTH ];
-    unsigned char H_I[ SHA512_DIGEST_LENGTH ];
-    unsigned char H_xor[ SHA512_DIGEST_LENGTH ];
+    unsigned char H_N[ SHA512_DIGEST_LENGTH ] = {0};
+    unsigned char H_g[ SHA512_DIGEST_LENGTH ] = {0};
+    unsigned char H_I[ SHA512_DIGEST_LENGTH ] = {0};
+    unsigned char H_xor[ SHA512_DIGEST_LENGTH ] = {0};
     unsigned int dest_len;
     HashCTX_t *ctx;
     int           i = 0;

@@ -36,9 +36,7 @@ struct fairplay_s {
 fairplay_t *
 fairplay_init(logger_t *logger)
 {
-    fairplay_t *fp;
-
-    fp = calloc(1, sizeof(fairplay_t));
+    fairplay_t *fp = calloc(1, sizeof(fairplay_t));
     if (!fp) {
         return NULL;
     }
@@ -50,8 +48,6 @@ fairplay_init(logger_t *logger)
 int
 fairplay_setup(fairplay_t *fp, const unsigned char req[16], unsigned char res[142])
 {
-    int mode;
-
     assert(fp);
 
     if (req[4] != 0x03) {
@@ -59,7 +55,7 @@ fairplay_setup(fairplay_t *fp, const unsigned char req[16], unsigned char res[14
         return -1;
     }
 
-    mode = req[14];
+    int mode = req[14];
     memcpy(res, reply_message[mode], 142);
     fp->keymsglen = 0;
     return 0;

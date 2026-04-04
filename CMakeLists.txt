@@ -1,8 +1,4 @@
-if ( APPLE )
-  cmake_minimum_required( VERSION 3.13 )
-else ()
-  cmake_minimum_required( VERSION 3.10 )
-endif ()
+cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
@@ -37,6 +33,11 @@ if( UNIX AND NOT APPLE )
   if (DBUS_FOUND )
       add_definitions(-DDBUS )
       include_directories(${DBUS_INCLUDE_DIRS})
+      #FreeBSD has this Library in /usr/local/lib
+      find_library (DBUS_LIBRARY NAMES dbus-1 PATHS /usr/local/lib)
+      if (NOT DBUS_LIBRARY)
+      	 message(FATAL_ERROR "libdbus-1 not found")
+      endif()
   endif()
 endif()
 
@@ -59,14 +60,9 @@ if  ( GST_MACOS )
 endif()
 
 add_executable( uxplay uxplay.cpp )
-target_link_libraries( uxplay
-                   renderers
-                   airplay
-		   )
+target_link_libraries( uxplay renderers airplay )
 if (DBUS_FOUND)
-target_link_libraries( uxplay
-		     ${DBUS_LIBRARIES}
-		     )
+      target_link_libraries( uxplay ${DBUS_LIBRARY})
 endif()
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
@@ -74,21 +70,31 @@ install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} ) 
 install( FILES lib/llhttp/LICENSE-MIT DESTINATION ${CMAKE_INSTALL_DOCDIR}/llhttp )
 install( FILES uxplay.service DESTINATION ${CMAKE_INSTALL_DOCDIR}/systemd ) 
-
-if (DBUS_FOUND)
-install( FILES Bluetooth_LE_beacon/dbus/uxplay-beacon.py
+install( FILES Bluetooth_LE_beacon/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+install( FILES Bluetooth_LE_beacon/uxplay-beacon.py
          DESTINATION bin
          PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
-install( FILES Bluetooth_LE_beacon/dbus/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_BleuIO.py
+         DESTINATION bin
+         PERMISSIONS  OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
+
+if (DBUS_FOUND)
+install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_BlueZ.py
+         DESTINATION bin
+         PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 endif()
 
 if (WIN32)
-install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.py
+install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_winrt.py
          DESTINATION bin
-         PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ GROUP_EXECUTE GROUP_READ  WORLD_EXECUTE WORLD_READ)
-install( FILES Bluetooth_LE_beacon/winrt/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
+         PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 endif()
 
+if (UNIX AND NOT APPLE)
+install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_HCI.py
+         DESTINATION bin
+         PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
+endif()
 
 
 # uninstall target

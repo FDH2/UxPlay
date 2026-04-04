@@ -114,9 +114,8 @@ struct raop_rtp_mirror_s {
 static int
 raop_rtp_mirror_parse_remote(raop_rtp_mirror_t *raop_rtp_mirror, const char *remote, int remotelen)
 {
-    int family;
-    int ret;
     assert(raop_rtp_mirror);
+    int family = AF_UNSPEC;
     if (remotelen == 4) {
         family = AF_INET;
     } else if (remotelen == 16) {
@@ -125,7 +124,7 @@ raop_rtp_mirror_parse_remote(raop_rtp_mirror_t *raop_rtp_mirror, const char *rem
         return -1;
     }
     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror parse remote ip = %s", remote);
-    ret = netutils_parse_address(family, remote,
+    int ret = netutils_parse_address(family, remote,
                                  &raop_rtp_mirror->remote_saddr,
                                  sizeof(raop_rtp_mirror->remote_saddr));
     if (ret < 0) {
@@ -139,12 +138,10 @@ raop_rtp_mirror_parse_remote(raop_rtp_mirror_t *raop_rtp_mirror, const char *rem
 raop_rtp_mirror_t *raop_rtp_mirror_init(logger_t *logger, raop_callbacks_t *callbacks, raop_ntp_t *ntp,
                                         const char *remote, int remotelen, const unsigned char *aeskey)
 {
-    raop_rtp_mirror_t *raop_rtp_mirror;
-
     assert(logger);
     assert(callbacks);
 
-    raop_rtp_mirror = calloc(1, sizeof(raop_rtp_mirror_t));
+    raop_rtp_mirror_t *raop_rtp_mirror = calloc(1, sizeof(raop_rtp_mirror_t));
     if (!raop_rtp_mirror) {
         return NULL;
     }
@@ -186,8 +183,7 @@ raop_rtp_mirror_thread(void *arg)
     assert(raop_rtp_mirror);
 
     int stream_fd = -1;
-    unsigned char packet[128];
-    memset(packet, 0 , 128);
+    unsigned char packet[128] = {0};
     unsigned char* sps_pps = NULL;
     bool prepend_sps_pps = false;
     int sps_pps_len = 0;
@@ -212,7 +208,6 @@ raop_rtp_mirror_thread(void *arg)
     while (1) {
         fd_set rfds;
         struct timeval tv;
-        int nfds, ret;
         MUTEX_LOCK(raop_rtp_mirror->run_mutex);
         if (!raop_rtp_mirror->running) {
             MUTEX_UNLOCK(raop_rtp_mirror->run_mutex);
@@ -227,6 +222,7 @@ raop_rtp_mirror_thread(void *arg)
 
         /* Get the correct nfds value and set rfds */
         FD_ZERO(&rfds);
+        int nfds = 0;
         if (stream_fd == -1) {
             FD_SET(raop_rtp_mirror->mirror_data_sock, &rfds);
             nfds = raop_rtp_mirror->mirror_data_sock+1;
@@ -234,7 +230,7 @@ raop_rtp_mirror_thread(void *arg)
             FD_SET(stream_fd, &rfds);
             nfds = stream_fd+1;
         }
-        ret = select(nfds, &rfds, NULL, NULL, &tv);
+        int ret = select(nfds, &rfds, NULL, NULL, &tv);
         if (ret == 0) {
             /* Timeout happened */
             continue;
@@ -249,7 +245,7 @@ raop_rtp_mirror_thread(void *arg)
 	    (raop_rtp_mirror && raop_rtp_mirror->mirror_data_sock >= 0) &&
             FD_ISSET(raop_rtp_mirror->mirror_data_sock, &rfds)) {
             struct sockaddr_storage saddr;
-            socklen_t saddrlen;
+            socklen_t saddrlen = 0;
             logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror accepting client");
             saddrlen = sizeof(saddr);
             stream_fd = accept(raop_rtp_mirror->mirror_data_sock, (struct sockaddr *)&saddr, &saddrlen);
@@ -271,8 +267,7 @@ raop_rtp_mirror_thread(void *arg)
                 break;
             }
 
-            int option;
-            option = 1;
+            int option = 1;
             if (setsockopt(stream_fd, SOL_SOCKET, SO_KEEPALIVE, CAST &option, sizeof(option)) < 0) {
                 int sock_err = SOCKET_GET_ERROR();
                 logger_log(raop_rtp_mirror->logger, LOGGER_WARNING,
@@ -376,7 +371,7 @@ raop_rtp_mirror_thread(void *arg)
                 readstart = 0;
             }
 
-            while (readstart < payload_size) {
+            while ((int) readstart < payload_size) {
                 // Payload data
                 unsigned char *pos = payload + readstart;
                 ret = recv(stream_fd, CAST pos, payload_size - readstart, 0);
@@ -443,7 +438,11 @@ raop_rtp_mirror_thread(void *arg)
 		
                 if (prepend_sps_pps) {
                     assert(sps_pps);
-                    payload_out = (unsigned char*)  malloc(payload_size + sps_pps_len);
+                    payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
+                    if (!payload_out) {
+                        printf("Memory allocation failed (payload_out)\n");
+                        exit(1);
+                    }
                     payload_decrypted = payload_out + sps_pps_len;
                     memcpy(payload_out, sps_pps, sps_pps_len);
                     free (sps_pps);
@@ -474,7 +473,7 @@ raop_rtp_mirror_thread(void *arg)
                         valid_data = false;
                         break;
                     }
-                    int nalu_type;
+                    int nalu_type = 0;
                     if (h265_video) {
                         nalu_type = payload_decrypted[nalu_size] & 0x7e >> 1;;
                         //logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG," h265 video, NALU type %d, size %d", nalu_type, nc_len);
@@ -648,12 +647,6 @@ raop_rtp_mirror_thread(void *arg)
                     unsigned char vps_start_code[] = { 0xa0, 0x00, 0x01, 0x00 };
                     unsigned char sps_start_code[] = { 0xa1, 0x00, 0x01, 0x00 };
                     unsigned char pps_start_code[] = { 0xa2, 0x00, 0x01, 0x00 };
-                    unsigned char *vps;
-                    short vps_size;
-                    unsigned char *sps;
-                    short sps_size;
-                    unsigned char *pps;
-                    short pps_size;
 
                     unsigned char * ptr = payload + 0x75;
  
@@ -662,9 +655,9 @@ raop_rtp_mirror_thread(void *arg)
                         raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
                         break;
                     }
-                    vps_size = byteutils_get_short_be(ptr, 3);
+                    short vps_size = byteutils_get_short_be(ptr, 3);
                     ptr += 5;
-                    vps = ptr;
+                    unsigned char *vps = ptr;
                     if (logger_debug) {
                         char *str = utils_data_to_string(vps, vps_size, 16);
                         logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 vps size %d\n%s",vps_size, str);
@@ -676,9 +669,9 @@ raop_rtp_mirror_thread(void *arg)
                         raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
                         break;
                     }
-                    sps_size = byteutils_get_short_be(ptr, 3);
+                    short sps_size = byteutils_get_short_be(ptr, 3);
                     ptr += 5;
-                    sps = ptr;
+                    unsigned char *sps = ptr;
                     if (logger_debug) {
                         char *str = utils_data_to_string(sps, sps_size, 16);
                         logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 sps size %d\n%s",vps_size, str);
@@ -690,9 +683,9 @@ raop_rtp_mirror_thread(void *arg)
                         raop_rtp_mirror->callbacks.video_pause(raop_rtp_mirror->callbacks.cls);
                         break;
                     }
-                    pps_size = byteutils_get_short_be(ptr, 3);
+                    short pps_size = byteutils_get_short_be(ptr, 3);
                     ptr += 5;
-                    pps = ptr;
+                    unsigned char *pps = ptr;
                     if (logger_debug) {
                         char *str = utils_data_to_string(pps, pps_size, 16);
                         logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 pps size %d\n%s",pps_size, str);
@@ -812,8 +805,8 @@ raop_rtp_mirror_thread(void *arg)
                         }
                     }
                     if (plist_size) {
-                        char *plist_xml;
-                        uint32_t plist_len;
+                        char *plist_xml = NULL;
+                        uint32_t plist_len = 0;
                         plist_t root_node = NULL;
                         plist_from_bin((char *) payload, plist_size, &root_node);
                         if (raop_rtp_mirror->callbacks.mirror_video_activity) {
@@ -847,7 +840,7 @@ raop_rtp_mirror_thread(void *arg)
     }
     /* Close the stream file descriptor */
     if (stream_fd != -1) {
-        closesocket(stream_fd);
+        CLOSESOCKET(stream_fd);
     }
 
     // Ensure running reflects the actual state
@@ -861,9 +854,9 @@ raop_rtp_mirror_thread(void *arg)
     }
 
     if (unsupported_codec) {
-        closesocket(raop_rtp_mirror->mirror_data_sock);
+        CLOSESOCKET(raop_rtp_mirror->mirror_data_sock);
         raop_rtp_mirror_stop(raop_rtp_mirror);
-        raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls);
+        raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
     }
 
     return 0;
@@ -895,7 +888,7 @@ raop_rtp_mirror_init_socket(raop_rtp_mirror_t *raop_rtp_mirror, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (dsock != -1) closesocket(dsock);
+    if (dsock != -1) CLOSESOCKET(dsock);
     return -1;
 }
 
@@ -954,7 +947,7 @@ void raop_rtp_mirror_stop(raop_rtp_mirror_t *raop_rtp_mirror) {
     THREAD_JOIN(raop_rtp_mirror->thread_mirror);
 
     if (raop_rtp_mirror->mirror_data_sock != -1) {
-        closesocket(raop_rtp_mirror->mirror_data_sock);
+        CLOSESOCKET(raop_rtp_mirror->mirror_data_sock);
         raop_rtp_mirror->mirror_data_sock = -1;
     }
 

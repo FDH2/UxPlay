@@ -17,23 +17,34 @@
 #ifndef AIRPLAY_VIDEO_H
 #define AIRPLAY_VIDEO_H
 
-
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "raop.h"
 #include "logger.h"
 
+
 typedef struct airplay_video_s airplay_video_t;
 typedef struct media_item_s media_item_t;
 
+void set_apple_session_id(airplay_video_t *airplay_video, const char *apple_session_id, size_t len);
 const char *get_apple_session_id(airplay_video_t *airplay_video);
 void set_start_position_seconds(airplay_video_t *airplay_video, float start_position_seconds);
+void set_resume_position_seconds(airplay_video_t *airplay_video, float resume_position_seconds);
+float get_duration(airplay_video_t *airplay_video);
 float get_start_position_seconds(airplay_video_t *airplay_video);
-void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid);
+float get_resume_position_seconds(airplay_video_t *airplay_video);
+void set_playback_uuid(airplay_video_t *airplay_video, const char *playback_uuid, size_t len);
 const char *get_playback_uuid(airplay_video_t *airplay_video);
-void set_uri_prefix(airplay_video_t *airplay_video, char *uri_prefix, int uri_prefix_len);
-char *get_uri_prefix(airplay_video_t *airplay_video);
+void set_uri_prefix(airplay_video_t *airplay_video, const char *uri_prefix, size_t len);
+const char *get_uri_prefix(airplay_video_t *airplay_video);
 char *get_uri_local_prefix(airplay_video_t *airplay_video);
+void set_playback_location(airplay_video_t *airplay_video, const char *location, size_t len);
+const char *get_playback_location(airplay_video_t *airplay_video);
+void set_language_code(airplay_video_t *airplay_video, const char *language_code, size_t len);
+const char *get_language_code(airplay_video_t *airplay_video);
+void set_language_name(airplay_video_t *airplay_video, const char *language_name, size_t len);
+const char *get_language_name(airplay_video_t *airplay_video);
 
 int get_next_FCUP_RequestID(airplay_video_t *airplay_video);    
 void set_next_media_uri_id(airplay_video_t *airplay_video, int id);
@@ -41,18 +52,19 @@ int get_next_media_uri_id(airplay_video_t *airplay_video);
 int get_num_media_uri(airplay_video_t *airplay_video);
 char *get_media_uri_by_num(airplay_video_t *airplay_video, int num);
 
-int analyze_media_playlist(char *playlist, float *duration);
+int analyze_media_playlist(char *playlist, float *duration, bool *endlist);
 int create_media_uri_table(const char *url_prefix, const char *master_playlist_data,
                            int datalen, char ***media_uri_table, int *num_uri);
 void store_master_playlist(airplay_video_t *airplay_video, char *master_playlist);
-int store_media_playlist(airplay_video_t *airplay_video, char *media_playlist, int num);
+char *select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist);
+int store_media_playlist(airplay_video_t *airplay_video, char *media_playlist, int *count, float *duration, bool*endlist, int num);
 char *get_master_playlist(airplay_video_t *airplay_video);
-char *get_media_playlist(airplay_video_t *airplay_video, const char *uri);
+char *get_media_playlist(airplay_video_t *airplay_video, int *count, float *duration, const char *uri);
 
 void destroy_media_data_store(airplay_video_t *airplay_video);
 void create_media_data_store(airplay_video_t * airplay_video, char ** media_data_store, int num_uri);
 
-void airplay_video_service_destroy(airplay_video_t *airplay_video);
+void airplay_video_destroy(airplay_video_t *airplay_video);
 
 //  C wrappers for c++ class MediaDataStore
 //create the media_data_store, return a pointer to it.
@@ -64,7 +76,7 @@ void media_data_store_destroy(void *media_data_store);
 // called by the POST /action handler:
 char *process_media_data(void *media_data_store, const char *url, const char *data, int datalen);
 char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datalen,
-                              char *uri_prefix, char *uri_local_prefix);
+                              const char *uri_prefix, char *uri_local_prefix);
 char *adjust_yt_condensed_playlist(const char *media_playlist);
 
 //called by the POST /play handler
