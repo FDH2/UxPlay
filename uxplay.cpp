@@ -221,7 +221,6 @@ static bool dbus_last_message = false;
 static const char *appname = DEFAULT_NAME;
 static const char *reason_always = "mirroring client: inhibit always";
 static const char *reason_active = "actively receiving video";
-static int activity_count;
 static float previous_hls_position = 0.0f;
 #endif
 
@@ -2954,6 +2953,10 @@ int main (int argc, char *argv[]) {
     LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 
 #ifdef DBUS
+    if (scrsv && !use_video) {
+        LOGI ("-scrsv = %d will be ignored, as no video will be rendered", scrsv);
+        scrsv = 0;
+    }
     if (scrsv) {
         DBusError dbus_error;
         dbus_error_init(&dbus_error);
