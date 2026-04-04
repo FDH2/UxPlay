@@ -841,9 +841,6 @@ raop_rtp_mirror_thread(void *arg)
     MUTEX_LOCK(raop_rtp_mirror->run_mutex);
     raop_rtp_mirror->running = false;
     MUTEX_UNLOCK(raop_rtp_mirror->run_mutex);
-    if (raop_rtp_mirror->callbacks.mirror_video_running) {
-        raop_rtp_mirror->callbacks.mirror_video_running(raop_rtp_mirror->callbacks.cls, false);
-    }
 
     logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror exiting TCP thread");
     if (conn_reset&& raop_rtp_mirror->callbacks.conn_reset) {
@@ -922,10 +919,6 @@ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror
     /* Create the thread and initialize running values */
     raop_rtp_mirror->running = 1;
     raop_rtp_mirror->joined = 0;
-    if (raop_rtp_mirror->callbacks.mirror_video_running) {
-        raop_rtp_mirror->callbacks.mirror_video_running(raop_rtp_mirror->callbacks.cls, true);
-    }
-
     THREAD_CREATE(raop_rtp_mirror->thread_mirror, raop_rtp_mirror_thread, raop_rtp_mirror);
     MUTEX_UNLOCK(raop_rtp_mirror->run_mutex);
 }
