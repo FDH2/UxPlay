@@ -46,14 +46,18 @@ elif freebsd:
     disclaimer = '''
     
     ***********************************************************************
-    * FreeBSD: this module currently requires a patch to FreeBSD's        *
-    * hccontrol utility, that will hopefully be accepted into the FreeBSD *
-    * source tree.   It is  available at the UxPlay github site Wiki:     *
+    * FreeBSD < 15.1: this module requires a patch to FreeBSD's hccontrol *
+    * utility, to add an option first introduced in FreeBSD 15.1. A patch *
+    * for older FreeBSD releases is available at the UxPlay Wiki site:    *
     * https://github.com/FDH2/UxPlay/wiki/hccontrol-patch-for-FreeBSD-15.0*
     ***********************************************************************
-
     '''
-    print(disclaimer)
+    release = platform.release()
+    version_str = release.split('-')[0]
+    major, minor = map(int, version_str.split('.'))
+    if (major < 15) or (major == 15 and minor < 1):
+        print(f"FreeBSD release: {release}")
+        print(disclaimer)
     
     help_text2 =  '''   
      (2) use visudo to create a file /usr/local/etc/sudoers.d/hciusers containing the line: 
