@@ -68,7 +68,6 @@ jobs:
             gstreamer \
             gst-plugins-base \
             gst-plugins-good \
-            gst-plugins-x11 \
             orc \
             meson
 
