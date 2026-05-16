@@ -15,14 +15,12 @@ BuildRequires:  cmake >= 3.5
 BuildRequires:  make
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
-Requires:       avahi
 
 #RedHat and clones 
 %if %{defined fedora} || %{defined rhel}
 BuildRequires:  pkgconf
 BuildRequires:  openssl-devel >= 3.0
 BuildRequires:  libplist-devel >= 2.0
-BuildRequires:  avahi-compat-libdns_sd-devel
 BuildRequires:  gstreamer1-devel
 BuildRequires:  gstreamer1-plugins-base-devel
 Requires:       openssl-libs >= 3.0
@@ -39,7 +37,6 @@ Requires:       gstreamer1-libav
 BuildRequires:  pkg-config
 BuildRequires:  libopenssl-3-devel
 BuildRequires:  libplist-2_0-devel
-BuildRequires:  avahi-compat-mDNSResponder-devel
 BuildRequires:  gstreamer-devel
 BuildRequires:  gstreamer-plugins-base-devel
 Requires:       libopenssl3
@@ -71,7 +68,6 @@ Requires:       %{mklibname openssl3}
 %endif
 %endif
 BuildRequires:  %{mklibname plist-devel} >= 2.0
-BuildRequires:  %{mklibname avahi-compat-libdns_sd-devel}
 %if %{defined omvver}
 BuildRequires:  %{mklibname gstreamer-devel}
 BuildRequires:  %{mklibname gst-plugins-base1.0-devel}
@@ -132,7 +128,6 @@ cd build
 
 %doc
 %{_docdir}/%{name}/README.txt
-%{_docdir}/%{name}/README.html
 %{_docdir}/%{name}/README.md
 %{_docdir}/%{name}/systemd/uxplay.service
 

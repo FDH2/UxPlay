@@ -42,7 +42,6 @@ if( UNIX AND NOT APPLE )
 endif()
 
 if( UNIX AND NOT APPLE )
-  add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
   # convert AirPlay colormap 1:3:7:1 to sRGB (1:1:7:1), needed on Linux and BSD
   add_definitions( -DFULL_RANGE_RGB_FIX )
 else()
@@ -67,7 +66,7 @@ endif()
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
-install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} ) 
+install( FILES README.md README.txt LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} )
 install( FILES lib/llhttp/LICENSE-MIT DESTINATION ${CMAKE_INSTALL_DOCDIR}/llhttp )
 install( FILES uxplay.service DESTINATION ${CMAKE_INSTALL_DOCDIR}/systemd ) 
 install( FILES Bluetooth_LE_beacon/uxplay-beacon.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
