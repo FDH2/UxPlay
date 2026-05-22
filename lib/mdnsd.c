@@ -23,6 +23,7 @@
 #define MDNS_ADDR "224.0.0.251"
 #define MDNS_PORT 5353
 #define MDNS_MAX_PACKET 1500
+#define MDNS_COMBINED_PACKET_MAX 1200
 #define MDNS_TTL_HOST 120
 
 #define DNS_TYPE_A 1
@@ -31,6 +32,8 @@
 #define DNS_TYPE_SRV 33
 #define DNS_TYPE_ANY 255
 #define DNS_CLASS_IN 1
+#define DNS_FLAG_RESPONSE 0x8000
+#define DNS_FLAG_AUTHORITATIVE 0x0400
 #define DNS_CACHE_FLUSH 0x8000
 #define DNS_UNICAST_RESPONSE 0x8000
 
@@ -365,7 +368,7 @@ static int mdns_begin_response(mdns_packet_t *packet, size_t *count_pos)
 {
     memset(packet, 0, sizeof(*packet));
     if (mdns_put_u16(packet, 0) ||
-        mdns_put_u16(packet, 0x8400) ||
+        mdns_put_u16(packet, DNS_FLAG_RESPONSE | DNS_FLAG_AUTHORITATIVE) ||
         mdns_put_u16(packet, 0)) {
         return -1;
     }
@@ -431,6 +434,56 @@ static int mdns_build_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
     return answers ? 0 : -1;
 }
 
+static int mdns_build_combined_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
+                                        int include_airplay, int include_raop,
+                                        int include_host, uint32_t ttl)
+{
+    size_t count_pos;
+    unsigned int answers = 0;
+    size_t before;
+
+    if (mdns_begin_response(packet, &count_pos)) {
+        return -1;
+    }
+
+    if (include_airplay && mdnsd->airplay.registered) {
+        before = packet->length;
+        if (mdns_add_service_records(packet, &mdnsd->airplay, mdnsd->host_name,
+                                     ttl)) {
+            return -1;
+        }
+        if (packet->length != before) {
+            answers += 4;
+        }
+    }
+
+    if (include_raop && mdnsd->raop.registered) {
+        before = packet->length;
+        if (mdns_add_service_records(packet, &mdnsd->raop, mdnsd->host_name,
+                                     ttl)) {
+            return -1;
+        }
+        if (packet->length != before) {
+            answers += 4;
+        }
+    }
+
+    if (include_host && mdns_add_a(packet, mdnsd->host_name, mdnsd->ipv4_addr,
+                                   ttl ? MDNS_TTL_HOST : 0)) {
+        return -1;
+    }
+    if (include_host && mdnsd->ipv4_addr) {
+        answers++;
+    }
+
+    if (!answers || packet->length > MDNS_COMBINED_PACKET_MAX) {
+        return -1;
+    }
+
+    mdns_finish_response(packet, count_pos, answers);
+    return 0;
+}
+
 static void mdns_send_packet(mdnsd_t *mdnsd, const mdns_packet_t *packet,
                              const struct sockaddr_in *to)
 {
@@ -470,6 +523,14 @@ static void mdns_send_response_locked(mdnsd_t *mdnsd, int include_airplay,
                                       uint32_t ttl, const struct sockaddr_in *to)
 {
     mdns_packet_t packet;
+
+    if (include_airplay && include_raop &&
+        mdnsd->airplay.registered && mdnsd->raop.registered &&
+        !mdns_build_combined_response(mdnsd, &packet, include_airplay,
+                                      include_raop, include_host, ttl)) {
+        mdns_send_packet(mdnsd, &packet, to);
+        return;
+    }
 
     if (include_airplay) {
         mdns_send_service_locked(mdnsd, &mdnsd->airplay, include_host, ttl, to);
