@@ -11,8 +11,8 @@
 
 -   Support for recording Mirror-mode/Audio-mode (but not HLS) Audio and Video to mp4 file (new option -mp4 [fn]). 
 
--   Support for **service discovery using a Bluetooth LE "beacon"** for both Linux/\*BSD and Windows (as an alternative to Bonjour/Rendezvous DNS-SD
-    service discovery) was introduced in v1.73 and improved in 1.73.4 - 1.73.6.  This can be used on networks that do not allow the user to run a  DNS_SD service.**
+-   Support for **service discovery using a Bluetooth LE "beacon"** for both Linux/\*BSD and Windows (as an alternative to mDNS/DNS-SD
+    service discovery) was introduced in v1.73 and improved in 1.73.4 - 1.73.6.  This can be used on networks that do not allow mDNS multicast.**
     The user must run a Bluetooth LE "beacon", (Bluetooth  4.0 or later is needed, a cheap USD "dongle" will do.). The
     beacon is managed by a Python >= 3.6 script `uxplay-beacon.py`. Loadable Python modules provide appropriate Bluetooth LE  support for Linux, Windows,
     and FreeBSD;  _macOS is only supported by the BleuIO USB dongle which uniquely has its own Bluetooth LE stack based on a Renesas SoC, and is seen by the
@@ -215,15 +215,12 @@ future iOS releases will keep supporting "Legacy Protocol", iOS 17
 continues support.
 
 The UxPlay server and its client must be on the same local area network,
-on which a **Bonjour/Zeroconf mDNS/DNS-SD server** is also running (only
-DNS-SD "Service Discovery" service is strictly necessary, it is not
-necessary that the local network also be of the ".local" mDNS-based
-type). On Linux and BSD Unix servers, this is usually provided by
-[Avahi](https://www.avahi.org), through the avahi-daemon service, and is
-included in most Linux distributions (this service can also be provided
-by macOS, iOS or Windows servers).   There is now an alternative Service
-discovery method, using a Bluetooth LE "beacon" See below
-for [instructions](#bluetooth-le-beacon-setup).
+and the network must allow mDNS multicast on UDP port 5353. UxPlay
+publishes AirPlay and RAOP services with its built-in mDNS/DNS-SD
+responder, so no external discovery service is required. There is also
+an alternative Service Discovery method using a
+Bluetooth LE "beacon"; see below for
+[instructions](#bluetooth-le-beacon-setup).
 
 
 Connections to the UxPlay server by iOS/MacOS clients can be initiated
@@ -402,16 +399,15 @@ GStreamer \< 1.20 is detected, a fix needed by screen-sharing apps
 
 1.  `sudo apt install libssl-dev libplist-dev`". (*unless you need to
     build OpenSSL and libplist from source*).
-2.  `sudo apt install libavahi-compat-libdnssd-dev`
-3.  `sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`.
+2.  `sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`.
     (\**Skip if you built Gstreamer from source*)
-4.  `cmake .` (*For a cleaner build, which is useful if you modify the
+3.  `cmake .` (*For a cleaner build, which is useful if you modify the
     source, replace this by* "`mkdir build; cd build; cmake ..`": *you
     can then delete the contents of the `build` directory if needed,
     without affecting the source.*) Also add any cmake "`-D`" options
     here as needed (e.g, `-DNO_X11_DEPS=ON` or `-DNO_MARCH_NATIVE=ON`).
-5.  `make`
-6.  `sudo make install` (you can afterwards uninstall with
+4.  `make`
+5.  `sudo make install` (you can afterwards uninstall with
     `sudo make uninstall` in the same directory in which this was run).
 
 This installs the executable file "`uxplay`" to `/usr/local/bin`, (and
@@ -432,7 +428,7 @@ package](#building-an-installable-rpm-package).
 
 -   **Red Hat, or clones like CentOS (now continued as Rocky Linux or
     Alma Linux):** (sudo dnf install, or sudo yum install) openssl-devel
-    libplist-devel avahi-compat-libdns_sd-devel gstreamer1-devel
+    libplist-devel gstreamer1-devel
     gstreamer1-plugins-base-devel (+libX11-devel for fullscreen X11)
     *(some of these may be in the "CodeReady" add-on repository, called
     "PowerTools" by clones)*
@@ -446,19 +442,16 @@ package](#building-an-installable-rpm-package).
 
 -   **openSUSE:** (sudo zypper install) libopenssl-3-devel (formerly
     libopenssl-devel) libplist-2_0-devel (formerly libplist-devel)
-    avahi-compat-mDNSResponder-devel gstreamer-devel
+    gstreamer-devel
     gstreamer-plugins-base-devel (+ libX11-devel for fullscreen X11).
 
 -   **Arch Linux** (*Also available as a package in AUR*): (sudo pacman
-    -Syu) openssl libplist avahi gst-plugins-base.
+    -Syu) openssl libplist gst-plugins-base.
 
--   **FreeBSD:** (sudo pkg install) libplist gstreamer1. Either
-    avahi-libdns or mDNSResponder must also be installed to provide the
-    dns_sd library. OpenSSL is already installed as a System Library.
+-   **FreeBSD:** (sudo pkg install) libplist gstreamer1. OpenSSL is
+    already installed as a System Library.
 
 -   **OpenBSD:** (doas pkg_add) libplist gstreamer1-plugins-base.
-    avahi-libs must also be installed to provide the dns_sd library;
-    (avahi-main must also be installed).
     OpenSSL is already installed as a System Library.
 
 #### Building an installable RPM package
@@ -569,20 +562,13 @@ fullscreen mode with the `-fs` option, or toggle into and out of
 fullscreen mode with F11 or (held-down left Alt)+Enter keys. Use Ctrl-C
 (or close the window) to terminate it when done.
 
-If the UxPlay server is
-not seen by the iOS client's drop-down "Screen Mirroring" panel, check
-that your DNS-SD server (usually avahi-daemon) is running: do this in a
-terminal window with `systemctl status avahi-daemon`. If this shows the
-avahi-daemon is not running, control it with
-`sudo systemctl [start,stop,enable,disable] avahi-daemon` (on
-non-systemd systems, such as \*BSD, use
-`sudo service avahi-daemon [status, start, stop, restart, ...]`). If
-UxPlay is seen, but the client fails to connect when it is selected,
-there may be a firewall on the server that prevents UxPlay from
-receiving client connection requests unless some network ports are
-opened: **if a firewall is active, also open UDP port 5353 (for mDNS
-queries) needed by Avahi**. See [Troubleshooting](#troubleshooting)
-below for help with this or other problems.
+If the UxPlay server is not seen by the iOS client's drop-down "Screen
+Mirroring" panel, check that UDP port 5353 is open for mDNS multicast
+queries on the server. If UxPlay is seen, but the client fails to connect
+when it is selected, there may be a firewall on the server that prevents
+UxPlay from receiving client connection requests unless some network
+ports are opened. See [Troubleshooting](#troubleshooting) below for help
+with this or other problems.
 
 Note that there is now an
 alternative Service Discovery method using a Bluetooth LE beacon.
@@ -915,32 +901,20 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
 Unfortunately, it seems that the macOS  Bluetooth stack does not allow users to broadcast Bluetooth LE advertisements
 of the type needed for Bluetooth LE service discovery ("manufacture-specific" advertisements),
 but this can be achieved if you acquire a BleuIO  USB dongle which provides its own Bluetooth LE
-stack, as a USB serial modem.   Bluetooth Service Discovery is an alternative to Rendezvous/Bonjour DNS_SD,
-and can be used on networks that don't allow DNS_SD.  See [instructions below](#bluetooth-le-beacon-setup).
+stack, as a USB serial modem.   Bluetooth Service Discovery is an alternative to mDNS/DNS-SD,
+and can be used on networks that don't allow mDNS multicast.  See [instructions below](#bluetooth-le-beacon-setup).
 
 ## Building UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64 compiler.
 
 -   tested on Windows 10 and 11, 64-bit.
 
-1.  Download and install **Bonjour SDK for Windows v3.0**. You can
-    download the SDK without any registration at
-    [softpedia.com](https://www.softpedia.com/get/Programming/SDK-DDK/Bonjour-SDK.shtml),
-    or get it from the official Apple site
-    [https://developer.apple.com/download](https://developer.apple.com/download/all/?q=Bonjour%20SDK%20for%20Windows)
-    (Apple makes you register as a developer to access it from their
-    site). This should install the Bonjour SDK as
-    `C:\Program Files\Bonjour SDK`.
-
-  * **NEW: while you still need to install the Bonjour SDK to build UxPlay, there is now an alternative method for
-    Service Discovery using a Bluetooth Low Energy (BLE) beacon on Windows. See [instructions below](#bluetooth-le-beacon-setup).
-
-2.  (This is for 64-bit Windows; a build for 32-bit Windows should be
+1.  (This is for 64-bit Windows; a build for 32-bit Windows should be
     possible, but is not tested.) The unix-like MSYS2 build environment
     will be used: download and install MSYS2 from the official site
     [https://www.msys2.org/](https://www.msys2.org). Accept the default
     installation location `C:\mysys64`.
 
-3.  [MSYS2 packages](https://packages.msys2.org/package/) are installed
+2.  [MSYS2 packages](https://packages.msys2.org/package/) are installed
     with a variant of the "pacman" package manager used by Arch Linux.
     Open a "MSYS2" terminal from the MSYS2 tab in the Windows
     Start menu, and update the new MSYS2 installation with "pacman
@@ -963,7 +937,7 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
     environment (using "`ninja`" in place of "`make`" for the build
     system).
 
-4.  Download the latest UxPlay from github **(to use `git`, install it
+3.  Download the latest UxPlay from github **(to use `git`, install it
     with `pacman -S git`, then
     "`git clone https://github.com/FDH2/UxPlay`")**, then install UxPlay
     dependencies (openssl is already installed with MSYS2):
@@ -977,17 +951,14 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
     site](https://gstreamer.freedesktop.org/download/), but only the
     MinGW 64-bit build on MSYS2 has been tested.
 
-5.  cd to the UxPlay source directory, then "`mkdir build`" and
-    "`cd build`". The build process assumes that the Bonjour SDK is
-    installed at `C:\Program Files\Bonjour SDK`. If it is somewhere
-    else, set the enviroment variable BONJOUR_SDK_HOME to point to its
-    location. Then build UxPlay with
+4.  cd to the UxPlay source directory, then "`mkdir build`" and
+    "`cd build`". Then build UxPlay with
 
     `cmake ..`
 
     `ninja`
 
-6.  Assuming no error in either of these, you will have built the uxplay
+5.  Assuming no error in either of these, you will have built the uxplay
     executable **uxplay.exe** in the current ("build") directory. The
     "sudo make install" and "sudo make uninstall" features offered in
     the other builds are not available on Windows; instead, you can install the
@@ -1684,21 +1655,9 @@ that sent for  AirPlay Service Discovery), and  the only current support of uxpl
 
 
 
-For testing Bluetooth LE Service Discovery  you might wish to disable DNS_SD Service discovery (although the Bluetooth LE Service seems to work if DNS_SD
-is enabled). On Linux, disable the the avahi-daemon that provides DNS_SD with
-
-```
-$ sudo systemctl mask avahi-daemon.socket
-$ sudo systemctl stop avahi-daemon
-```
-
-(On FreeBSD,  "`service avahi-daemon stop`"). 
-To restore DNS_SD Service discovery, replace "mask" by "unmask", and "stop" by "start".
-
-
-On Windows, the Bonjour Service is controlled  using **Services Management**: press "Windows + R" to open the Run dialog, 
-run `services.msc`, and click on  **Bonjour Service** in the alphabetic list. This
-will show links for it to be stopped and restarted.
+Bluetooth LE Service Discovery can be tested alongside the built-in
+mDNS/DNS-SD responder. If you want to test BLE only, stop UxPlay and run
+the beacon helper separately.
 
 For more information on Bluetooth LE support, including HCI commands, see the [wiki page](https://github.com/FDH2/UxPlay/wiki/Bluetooth_LE_beacon).
 
@@ -1723,52 +1682,18 @@ correct one; on 64-bit Ubuntu, this is done by running
 `export OPENSSL_ROOT_DIR=/usr/lib/X86_64-linux-gnu/` before running
 cmake.
 
-### 1. **Avahi/DNS_SD Bonjour/Zeroconf issues**
+### 1. **mDNS/DNS-SD discovery issues**
 
-The DNS_SD Service-Discovery ("Bonjour" or "Zeroconf") service is
-required for UxPlay to work. On Linux, it will be usually provided by
-Avahi, and to troubleshoot this, you should use the tool `avahi-browse`.
-(You may need to install a separate package with a name like
-`avahi-utils` to get this.)
+UxPlay publishes AirPlay and RAOP services with its built-in mDNS/DNS-SD
+responder. No external discovery service is required.
+If UxPlay starts but the server name does not show on the client, first
+check that the host firewall and network allow UDP multicast on port
+5353 and that the client and server are on the same local network.
 
-On Linux, make sure Avahi is installed, and start the avahi-daemon
-service on the system running uxplay (your distribution will document
-how to do this, for example: `sudo systemctl <cmd> avahi-daemon` or
-`sudo service avahi-daemon <cmd>`, with `<cmd>` one of enable, disable,
-start, stop, status. You might need to edit the avahi-daemon.conf file
-(it is typically in /etc/avahi/, find it with
-"`sudo find /etc -name avahi-daemon.conf`"): make sure that
-"disable-publishing" is **not** a selected option). Some systems may
-instead use the mdnsd daemon as an alternative to provide DNS-SD
-service. (FreeBSD offers both alternatives, but only Avahi was tested;
-see [here](https://gist.github.com/reidransom/6033227),
-or [section 32.8.1 of the FreeBSD Handbook](https://docs.freebsd.org/en/books/handbook/network-servers/#_configuring_and_starting_avahi))
-Note that avahi service is not needed if you instead use a Bluetooth LE beacon (see [above](#bluetooth-le-beacon-setup)) for Service-Discovery.
-
-
--   **uxplay starts, but either stalls or stops after "Initialized
-    server socket(s)" appears (*without the server name showing on the
-    client*)**.
-
-If UxPlay stops with the "No DNS-SD Server found" message, this means
-that your network **does not have a running Bonjour/zeroconf DNS-SD
-server.** Before v1.60, UxPlay used to stall silently if DNS-SD service
-registration failed, but now stops with an error message returned by the
-DNSServiceRegister function: kDNSServiceErr_Unknown if no DNS-SD server
-was found: *(A NixOS user found that in NixOS, this error can also occur
-if avahi-daemon service IS running with publishing enabled, but reports
-"the error disappeared on NixOS by setting services.avahi.openFirewall
-to true".)* Other mDNS error codes are in the range FFFE FF00 (-65792)
-to FFFE FFFF (-65537), and are listed in the dnssd.h file. An older
-version of this (the one used by avahi) is found
-[here](https://github.com/lathiat/avahi/blob/master/avahi-compat-libdns_sd/dns_sd.h).
-A few additional error codes are defined in a later version from
-[Apple](https://opensource.apple.com/source/mDNSResponder/mDNSResponder-544/mDNSShared/dns_sd.h.auto.html).
-
-If UxPlay stalls *without an error message* and *without the server name
-showing on the client*, **this is a network problem** (if your UxPlay
-version is older than 1.60, it is also the behavior when no DNS-SD
-server is found.)
+If UxPlay reports that `dnssd_register_raop` or
+`dnssd_register_airplay` failed, another process may already have an
+exclusive bind on UDP port 5353, or the platform may be blocking
+multicast sockets.
 
 A useful tool for examining such network problems from the client end is
 the (free) Discovery DNS-SD browser [available in the Apple App
@@ -1778,7 +1703,7 @@ both iOS (works on iPadOS too) and macOS.
 -   Some users using dual-band (2.4GHz/5GHz) routers have reported that
     clients using the 5GHz band (sometimes) "fail to see UxPlay" (i.e.,
     do not get a response to their mDNS queries), but the 2.4GHz band
-    works. Other projects using Bonjour/mDNS have had similar reports;
+    works. Other projects using mDNS have had similar reports;
     the issue seems to be router-specific, perhaps related to "auto"
     rather than fixed channel selection (5GHz has many more channels to
     switch between), or channel width selections; one speculation is
@@ -1789,37 +1714,12 @@ both iOS (works on iPadOS too) and macOS.
 If your router has this problem, a reported "fix" is to (at least on
 5GHz) use fixed channel and/or fixed (not dynamic) channel width.
 
--   **Avahi works at first, but new clients do not see UxPlay, or
-    clients that initially saw it stop doing so after they disconnect**.
+-   **UxPlay works at first, but new clients do not see it, or clients
+    that initially saw it stop doing so after they disconnect**.
 
-This is usually because Avahi is only using the "loopback" network
-interface, and is not receiving mDNS queries from new clients that were
-not listening when UxPlay started.
-
-To check this, after starting uxplay, use the utility
-`avahi-browse -a -t` **in a different terminal window** on the server to
-verify that the UxPlay AirTunes and AirPlay services are correctly
-registered (only the AirTunes service is used in the "Legacy" AirPlay
-Mirror mode used by UxPlay, but the AirPlay service is used for the
-initial contact).
-
-The results returned by avahi-browse should show entries for uxplay like
-
-    +   eno1 IPv6 UxPlay                                        AirPlay Remote Video local
-    +   eno1 IPv4 UxPlay                                        AirPlay Remote Video local
-    +     lo IPv4 UxPlay                                        AirPlay Remote Video local
-    +   eno1 IPv6 863EA27598FE@UxPlay                           AirTunes Remote Audio local
-    +   eno1 IPv4 863EA27598FE@UxPlay                           AirTunes Remote Audio local
-    +     lo IPv4 863EA27598FE@UxPlay                           AirTunes Remote Audio local
-
-If only the loopback ("lo") entries are shown, a firewall on the UxPlay
-host is probably blocking full DNS-SD service, and you need to open the
-default UDP port 5353 for mDNS requests, as loopback-based DNS-SD
-service is unreliable.
-
-If the UxPlay services are listed by avahi-browse as above, but are not
-seen by the client, the problem is likely to be a problem with the local
-network.
+This is usually a local network multicast problem. Check router isolation
+settings, VLAN boundaries, wireless client isolation, and firewall rules
+for UDP port 5353.
 
 ### 2. uxplay starts, but stalls after "Initialized server socket(s)" appears, *with the server name showing on the client* (but the client fails to connect when the UxPlay server is selected).
 

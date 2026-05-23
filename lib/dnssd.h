@@ -27,8 +27,6 @@ extern "C" {
 #define DNSSD_ERROR_NOERROR       0
 #define DNSSD_ERROR_HWADDRLEN     1
 #define DNSSD_ERROR_OUTOFMEM      2
-#define DNSSD_ERROR_LIBNOTFOUND   3
-#define DNSSD_ERROR_PROCNOTFOUND  4
 #define DNSSD_ERROR_BADFEATURES   5
 
 typedef struct dnssd_s dnssd_t;
