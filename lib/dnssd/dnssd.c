@@ -15,30 +15,22 @@
  * modified by fduncanh 2022
  */
 
-/* These defines allow us to compile on iOS */
-#ifndef __has_feature
-# define __has_feature(x) 0
-#endif
-#ifndef __has_extension
-# define __has_extension __has_feature
-#endif
-
+#include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
-#include <assert.h>
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+#include "../config.h"
 #endif
 
-#include "compat.h"
+#include "../compat.h"
 #include <dns_sd.h>
 #include "dnssd.h"
 
-#include "dnssdint.h"
-#include "global.h"
-#include "utils.h"
+#include "../dnssdint.h"
+#include "../global.h"
+#include "../utils.h"
 
 #define MAX_DEVICEID 18
 #define MAX_SERVNAME 256
@@ -163,10 +155,13 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
                 1: use onscreen pin for client access control
                 2 or 3: require password for client access control  
     */
-    
+
+    char *end = NULL;
+    unsigned long features;
+    dnssd_t *dnssd;
     if (error) *error = DNSSD_ERROR_NOERROR;
 
-    dnssd_t *dnssd = (dnssd_t *) calloc(1, sizeof(dnssd_t));
+    dnssd = (dnssd_t *) calloc(1, sizeof(dnssd_t));
     if (!dnssd) {
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         return NULL;
@@ -174,8 +169,8 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
 
     dnssd->pin_pw = pin_pw;
 
-    char *end = NULL;
-    unsigned long features  = strtoul(FEATURES_1, &end, 16);
+
+    features  = strtoul(FEATURES_1, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
         free (dnssd);
         if (error) *error = DNSSD_ERROR_BADFEATURES;
@@ -185,10 +180,10 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
 
     features  = strtoul(FEATURES_2, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
-        free (dnssd);
+        free(dnssd);
         if (error) *error = DNSSD_ERROR_BADFEATURES;
         return NULL;
-    } 
+    }
     dnssd->features2 = (uint32_t) features;
 
 #ifdef WIN32
@@ -264,7 +259,6 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         return NULL;
     }
-
     memcpy(dnssd->hw_addr, hw_addr, hw_addr_len);
 
     return dnssd;

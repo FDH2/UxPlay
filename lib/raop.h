@@ -18,7 +18,12 @@
 #ifndef RAOP_H
 #define RAOP_H
 
-#include "dnssd.h"
+#ifdef DNSSD_SERVICE
+#include "dnssd/dnssd.h"
+#else    //  replace use of external DNS_SD service with a self-contained stripped-down mdns responder
+#include "mdnsd/dnssd.h"
+#endif
+
 #include "stream.h"
 #include "raop_ntp.h"
 #include "airplay_video.h"
