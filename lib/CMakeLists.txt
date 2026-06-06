@@ -1,5 +1,14 @@
 include_directories( playfair llhttp )
 
+if (USE_MDNSD )
+# replace use of external DNS_SD service  with built-in minimal mdns responder
+  message( STATUS "******** Compiling to use internal MDSND responder, instead of BonJour/DNS_SD" )
+ include_directories( dnssd_mdnsd )
+else()
+  message( STATUS "******** Compiling to use  BonJour/DNS_SD" )
+ include_directories( dnssd_service )
+endif()
+
 message( STATUS "*** CFLAGS \"" ${CMAKE_C_FLAGS} "\" from build environment will be postpended to CMAKE_CFLAGS" )
 
 # Common x86/x86_64 cflags
@@ -64,11 +73,13 @@ if ( APPLE )
   target_link_libraries( airplay 
                          pthread
                          playfair
+			 dnssd
                          llhttp )
 elseif( WIN32 )
   target_link_libraries( airplay 
                          pthread
                          playfair
+			 dnssd
                          llhttp
                          wsock32
 			 iphlpapi
@@ -77,6 +88,7 @@ else()
   target_link_libraries( airplay PUBLIC
           pthread
           playfair
+	  dnssd
           llhttp )
 endif()
 
@@ -140,41 +152,3 @@ else()
   target_compile_definitions( airplay PUBLIC OPENSSL_API_COMPAT=0x10101000L )
   target_link_libraries( airplay PUBLIC OpenSSL::Crypto )
 endif()
-
-#dns_sd 
-if ( NOT APPLE )
-  pkg_search_module(AVAHI_DNSSD avahi-compat-libdns_sd)
-  if (AVAHI_DNSSD_FOUND)
-    target_include_directories( airplay PRIVATE ${AVAHI_DNSSD_INCLUDE_DIRS} )
-    find_library( DNSSD ${AVAHI_DNSSD_LIBRARIES} PATH ${AVAHI_DNSSD_LIBDIR})
-    target_link_libraries(airplay PUBLIC ${DNSSD} )
-  else()  # can also build if mDNSResponder or another implementation of dns_sd is present instead of Avahi
-    if ( WIN32 )
-      if (DEFINED ENV{BONJOUR_SDK_HOME}) 
-        set(BONJOUR_SDK "$ENV{BONJOUR_SDK_HOME}" )
-      else()
-        set(BONJOUR_SDK "C:\\Program Files\\Bonjour SDK")
-      endif()
-      message( STATUS "BONJOUR_SDK_HOME " ${BONJOUR_SDK} )
-      set(DNSSD "${BONJOUR_SDK}/Lib/x64/dnssd.lib")
-      target_link_libraries(airplay ${DNSSD} )
-      message( STATUS "dns_sd: using " ${DNSSD} )
-      find_path(DNSSD_INCLUDE_DIR dns_sd.h HINTS ${BONJOUR_SDK}/Include )
-    else()
-      find_library( DNSSD dns_sd )
-      if( NOT DNSSD )
-        message( FATAL_ERROR "libdns_sd missing; can be provided by avahi_compat-libdns_sd or mDNSResponder." )
-      else()
-        message( STATUS "dns_sd:  found" ${DNSSD} )
-      endif()
-      target_link_libraries(airplay PUBLIC ${DNSSD} ) 
-      find_path(DNSSD_INCLUDE_DIR dns_sd.h HINTS ${CMAKE_INSTALL_INCLUDEDIR} )
-    endif()
-    if ( NOT DNSSD_INCLUDE_DIR )
-       message( FATAL_ERROR " dns_sd.h not found ")
-     else()
-        message( STATUS "found dns_sd.h in " ${DNSSD_INCLUDE_DIR} )
-     endif()
-    target_include_directories( airplay PRIVATE ${DNSSD_INCLUDE_DIR} )
-  endif()
-endif()	
