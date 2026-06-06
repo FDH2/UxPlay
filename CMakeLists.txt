@@ -49,6 +49,16 @@ else()
   set( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
 endif()
 
+# use "cmake -DUSE_MDNSD=ON" to compile to use built-in  mdnsd instead of external DNS_SD
+
+if ( USE_MDNSD )
+   add_subdirectory( lib/dnssd_mdnsd )
+else()
+   message (STATUS "********** Use \"cmake -DUSE_MDNSD=ON\" to compile to use built-in mdnsd instead of external DNS_SD Service")
+   add_subdirectory( lib/dnssd_service )
+   add_definitions( -DDNSSD_SERVICE )
+endif()
+
 add_subdirectory( lib/llhttp )
 add_subdirectory( lib/playfair )
 add_subdirectory( lib )
