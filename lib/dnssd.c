@@ -20,10 +20,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include "dnssd.h"
 
 #include "dnssdint.h"
+#include "utils.h"
+
 
 dnssd_t *
 dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, unsigned char pin_pw)
@@ -81,7 +84,7 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
     memcpy(dnssd->hw_addr, hw_addr, hw_addr_len);
 
     dnssd->dnssd_private = NULL;
-    dnssd->dnssd_private = dnssd_private_init(error);
+    dnssd->dnssd_private = dnssd_private_init(dnssd, error);
     if (!dnssd->dnssd_private) {
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         free(dnssd->hw_addr);

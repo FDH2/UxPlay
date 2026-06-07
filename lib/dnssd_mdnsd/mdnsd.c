@@ -22,7 +22,7 @@
 #include <net/if.h>
 #endif
 
-#include "compat.h"
+#include "../compat.h"
 #include "mdnsd.h"
 
 #define MDNS_ADDR4 "224.0.0.251"

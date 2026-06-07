@@ -12,7 +12,7 @@
  *  Lesser General Public License for more details.
  *
  *=================================================================
- * modified by fduncanh 2022
+ * modified by fduncanh 2022, 2026
  */
 
 #include <assert.h>
@@ -21,31 +21,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+#include "../compat.h"
+#include "../dnssd.h"
+#include "../dnssdint.h"
+#include "../global.h"
+#include "../utils.h"
 
-#include "compat.h"
-#include "dnssd.h"
-#include "dnssdint.h"
-#include "global.h"
 #include "mdnsd.h"
-#include "utils.h"
 
-struct dnssd_s {
-    char *name;
-    int name_len;
-
-    char *hw_addr;
-    int hw_addr_len;
-
-    char *pk;
-
-    uint32_t features1;
-    uint32_t features2;
-
-    unsigned char pin_pw;
-
+typedef struct dnssd_private_s {
     mdnsd_txt_t raop_record;
     mdnsd_txt_t airplay_record;
 
@@ -59,7 +43,7 @@ struct dnssd_s {
     int airplay_registered;
 
     mdnsd_t *mdnsd;
-};
+} dnssd_private_t;
 
 static void dnssd_sanitize_label(char *label)
 {
@@ -87,21 +71,21 @@ static void dnssd_make_host_name(char *dst, size_t dst_len)
     snprintf(dst, dst_len, "%s.local", host);
 }
 
-static int dnssd_prepare_names(dnssd_t *dnssd)
+static int dnssd_prepare_names(dnssd_private_t *dnssd, dnssd_t *dnssd_public)
 {
     char hwaddr[2 * MAX_HWADDR_LEN + 1];
 
-    if (utils_hwaddr_raop(hwaddr, sizeof(hwaddr), dnssd->hw_addr, dnssd->hw_addr_len) < 0) {
+    if (utils_hwaddr_raop(hwaddr, sizeof(hwaddr), dnssd_public->hw_addr, dnssd_public->hw_addr_len) < 0) {
         return -1;
     }
 
     if (snprintf(dnssd->raop_name, sizeof(dnssd->raop_name), "%s@%s._raop._tcp.local",
-                 hwaddr, dnssd->name) >= (int) sizeof(dnssd->raop_name)) {
+                 hwaddr, dnssd_public->name) >= (int) sizeof(dnssd->raop_name)) {
         return -1;
     }
 
     if (snprintf(dnssd->airplay_name, sizeof(dnssd->airplay_name), "%s._airplay._tcp.local",
-                 dnssd->name) >= (int) sizeof(dnssd->airplay_name)) {
+                 dnssd_public->name) >= (int) sizeof(dnssd->airplay_name)) {
         return -1;
     }
 
@@ -109,13 +93,17 @@ static int dnssd_prepare_names(dnssd_t *dnssd)
     return 0;
 }
 
-static int dnssd_build_raop_txt(dnssd_t *dnssd)
+static int dnssd_build_raop_txt(dnssd_t *dnssd_public)
 {
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+
     char features[22] = {0};
     const char *pw = "false";
     const char *sf = RAOP_SF;
 
-    switch (dnssd->pin_pw) {
+    switch (dnssd_public->pin_pw) {
     case 1:
         pw = "true";
         sf = "0x8c";
@@ -129,7 +117,7 @@ static int dnssd_build_raop_txt(dnssd_t *dnssd)
         break;
     }
 
-    snprintf(features, sizeof(features), "0x%X,0x%X", dnssd->features1, dnssd->features2);
+    snprintf(features, sizeof(features), "0x%X,0x%X", dnssd_public->features1, dnssd_public->features2);
     dnssd->raop_record.length = 0;
 
     return mdnsd_txt_add(&dnssd->raop_record, "ch", RAOP_CH) ||
@@ -150,33 +138,37 @@ static int dnssd_build_raop_txt(dnssd_t *dnssd)
            mdnsd_txt_add(&dnssd->raop_record, "sf", sf) ||
            mdnsd_txt_add(&dnssd->raop_record, "vs", RAOP_VS) ||
            mdnsd_txt_add(&dnssd->raop_record, "vn", RAOP_VN) ||
-           mdnsd_txt_add(&dnssd->raop_record, "pk", dnssd->pk);
+           mdnsd_txt_add(&dnssd->raop_record, "pk", dnssd_public->pk);
 }
 
-static int dnssd_build_airplay_txt(dnssd_t *dnssd)
+static int dnssd_build_airplay_txt(dnssd_t *dnssd_public)
 {
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+
     char device_id[3 * MAX_HWADDR_LEN];
     char features[22] = {0};
 
-    if (utils_hwaddr_airplay(device_id, sizeof(device_id), dnssd->hw_addr, dnssd->hw_addr_len) < 0) {
+    if (utils_hwaddr_airplay(device_id, sizeof(device_id), dnssd_public->hw_addr, dnssd_public->hw_addr_len) < 0) {
         return -1;
     }
 
-    snprintf(features, sizeof(features), "0x%X,0x%X", dnssd->features1, dnssd->features2);
+    snprintf(features, sizeof(features), "0x%X,0x%X", dnssd_public->features1, dnssd_public->features2);    
     dnssd->airplay_record.length = 0;
 
     return mdnsd_txt_add(&dnssd->airplay_record, "deviceid", device_id) ||
            mdnsd_txt_add(&dnssd->airplay_record, "features", features) ||
-           mdnsd_txt_add(&dnssd->airplay_record, "pw", dnssd->pin_pw ? "true" : "false") ||
+           mdnsd_txt_add(&dnssd->airplay_record, "pw", dnssd_public->pin_pw ? "true" : "false") ||
            mdnsd_txt_add(&dnssd->airplay_record, "flags", "0x4") ||
            mdnsd_txt_add(&dnssd->airplay_record, "model", GLOBAL_MODEL) ||
-           mdnsd_txt_add(&dnssd->airplay_record, "pk", dnssd->pk) ||
+           mdnsd_txt_add(&dnssd->airplay_record, "pk", dnssd_public->pk) ||
            mdnsd_txt_add(&dnssd->airplay_record, "pi", AIRPLAY_PI) ||
            mdnsd_txt_add(&dnssd->airplay_record, "srcvers", AIRPLAY_SRCVERS) ||
            mdnsd_txt_add(&dnssd->airplay_record, "vv", AIRPLAY_VV);
 }
 
-static void dnssd_fill_airplay_service(dnssd_t *dnssd, mdnsd_service_t *service)
+static void dnssd_fill_airplay_service(dnssd_private_t *dnssd, mdnsd_service_t *service)
 {
     memset(service, 0, sizeof(*service));
     snprintf(service->type, sizeof(service->type), "%s", "_airplay._tcp.local");
@@ -186,7 +178,7 @@ static void dnssd_fill_airplay_service(dnssd_t *dnssd, mdnsd_service_t *service)
     service->registered = dnssd->airplay_registered;
 }
 
-static void dnssd_fill_raop_service(dnssd_t *dnssd, mdnsd_service_t *service)
+static void dnssd_fill_raop_service(dnssd_private_t *dnssd, mdnsd_service_t *service)
 {
     memset(service, 0, sizeof(*service));
     snprintf(service->type, sizeof(service->type), "%s", "_raop._tcp.local");
@@ -196,7 +188,7 @@ static void dnssd_fill_raop_service(dnssd_t *dnssd, mdnsd_service_t *service)
     service->registered = dnssd->raop_registered;
 }
 
-static void dnssd_update_mdnsd(dnssd_t *dnssd)
+static void dnssd_update_mdnsd(dnssd_private_t *dnssd)
 {
     mdnsd_service_t airplay;
     mdnsd_service_t raop;
@@ -206,61 +198,19 @@ static void dnssd_update_mdnsd(dnssd_t *dnssd)
     mdnsd_set_services(dnssd->mdnsd, &airplay, &raop);
 }
 
-dnssd_t *
-dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, unsigned char pin_pw)
+void *
+dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
-    char *end = NULL;
-    unsigned long features;
-    dnssd_t *dnssd;
-
+    dnssd_private_t *dnssd;
     if (error) *error = DNSSD_ERROR_NOERROR;
 
-    dnssd = (dnssd_t *) calloc(1, sizeof(dnssd_t));
+    dnssd = (dnssd_private_t *) calloc(1, sizeof(dnssd_private_t));
     if (!dnssd) {
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         return NULL;
     }
 
-    dnssd->pin_pw = pin_pw;
-
-    features = strtoul(FEATURES_1, &end, 16);
-    if (!end || (features & 0xFFFFFFFF) != features) {
-        free(dnssd);
-        if (error) *error = DNSSD_ERROR_BADFEATURES;
-        return NULL;
-    }
-    dnssd->features1 = (uint32_t) features;
-
-    features = strtoul(FEATURES_2, &end, 16);
-    if (!end || (features & 0xFFFFFFFF) != features) {
-        free(dnssd);
-        if (error) *error = DNSSD_ERROR_BADFEATURES;
-        return NULL;
-    }
-    dnssd->features2 = (uint32_t) features;
-
-    dnssd->name_len = name_len;
-    dnssd->name = calloc(1, name_len + 1);
-    if (!dnssd->name) {
-        free(dnssd);
-        if (error) *error = DNSSD_ERROR_OUTOFMEM;
-        return NULL;
-    }
-    memcpy(dnssd->name, name, name_len);
-
-    dnssd->hw_addr_len = hw_addr_len;
-    dnssd->hw_addr = calloc(1, dnssd->hw_addr_len);
-    if (!dnssd->hw_addr) {
-        free(dnssd->name);
-        free(dnssd);
-        if (error) *error = DNSSD_ERROR_OUTOFMEM;
-        return NULL;
-    }
-    memcpy(dnssd->hw_addr, hw_addr, hw_addr_len);
-
-    if (dnssd_prepare_names(dnssd)) {
-        free(dnssd->hw_addr);
-        free(dnssd->name);
+    if (dnssd_prepare_names(dnssd, dnssd_public)) {
         free(dnssd);
         if (error) *error = DNSSD_ERROR_HWADDRLEN;
         return NULL;
@@ -268,35 +218,34 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
 
     dnssd->mdnsd = mdnsd_init(dnssd->host_name);
     if (!dnssd->mdnsd) {
-        free(dnssd->hw_addr);
-        free(dnssd->name);
         free(dnssd);
         if (error) *error = DNSSD_ERROR_OUTOFMEM;
         return NULL;
     }
 
-    return dnssd;
+    return (void *) dnssd;
 }
 
 void
-dnssd_destroy(dnssd_t *dnssd)
+dnssd_private_destroy(void *private)
 {
-    if (dnssd) {
+    if (private) {
+        dnssd_private_t *dnssd = (dnssd_private_t *) private;
         mdnsd_destroy(dnssd->mdnsd);
-        free(dnssd->name);
-        free(dnssd->hw_addr);
         free(dnssd);
     }
 }
 
 int
-dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
+dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
 {
     int ret;
 
-    assert(dnssd);
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
 
-    if (dnssd_build_raop_txt(dnssd)) {
+    if (dnssd_build_raop_txt(dnssd_public)) {
         return -1;
     }
 
@@ -313,13 +262,15 @@ dnssd_register_raop(dnssd_t *dnssd, unsigned short port)
 }
 
 int
-dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
+dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
 {
     int ret;
 
-    assert(dnssd);
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
 
-    if (dnssd_build_airplay_txt(dnssd)) {
+    if (dnssd_build_airplay_txt(dnssd_public)) {
         return -1;
     }
 
@@ -336,37 +287,33 @@ dnssd_register_airplay(dnssd_t *dnssd, unsigned short port)
 }
 
 const char *
-dnssd_get_raop_txt(dnssd_t *dnssd, int *length)
+dnssd_get_raop_txt(dnssd_t *dnssd_public, int *length)
 {
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+    
     *length = dnssd->raop_record.length;
     return (const char *) dnssd->raop_record.bytes;
 }
 
 const char *
-dnssd_get_airplay_txt(dnssd_t *dnssd, int *length)
+dnssd_get_airplay_txt(dnssd_t *dnssd_public, int *length)
 {
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+
     *length = dnssd->airplay_record.length;
     return (const char *) dnssd->airplay_record.bytes;
 }
 
-const char *
-dnssd_get_name(dnssd_t *dnssd, int *length)
-{
-    *length = dnssd->name_len;
-    return dnssd->name;
-}
-
-const char *
-dnssd_get_hw_addr(dnssd_t *dnssd, int *length)
-{
-    *length = dnssd->hw_addr_len;
-    return dnssd->hw_addr;
-}
-
 void
-dnssd_unregister_raop(dnssd_t *dnssd)
+dnssd_unregister_raop(dnssd_t *dnssd_public)
 {
-    assert(dnssd);
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
 
     if (dnssd->raop_registered) {
         mdnsd_service_t service;
@@ -382,9 +329,11 @@ dnssd_unregister_raop(dnssd_t *dnssd)
 }
 
 void
-dnssd_unregister_airplay(dnssd_t *dnssd)
+dnssd_unregister_airplay(dnssd_t *dnssd_public)
 {
-    assert(dnssd);
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
 
     if (dnssd->airplay_registered) {
         mdnsd_service_t service;
@@ -396,34 +345,5 @@ dnssd_unregister_airplay(dnssd_t *dnssd)
 
     if (!dnssd->raop_registered) {
         mdnsd_stop(dnssd->mdnsd);
-    }
-}
-
-uint64_t dnssd_get_airplay_features(dnssd_t *dnssd) {
-    uint64_t features = ((uint64_t) dnssd->features2) << 32;
-    features += (uint64_t) dnssd->features1;
-    return features;
-}
-
-void dnssd_set_pk(dnssd_t *dnssd, char * pk_str) {
-    dnssd->pk = pk_str;
-}
-
-void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
-    uint32_t mask = 0;
-    uint32_t *features = 0;
-    if (bit < 0 || bit > 63) return;
-    if (val < 0 || val > 1) return;
-    if (bit >= 32) {
-        mask = 0x1 << (bit - 32);
-        features = &(dnssd->features2);
-    } else {
-        mask = 0x1 << bit;
-        features = &(dnssd->features1);
-    }
-    if (val) {
-        *features = *features | mask;
-    } else {
-        *features = *features & ~mask;
     }
 }

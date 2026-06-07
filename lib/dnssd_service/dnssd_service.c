@@ -12,18 +12,17 @@
  *  Lesser General Public License for more details.
  *
  *=================================================================
- * modified by fduncanh 2022
+ * modified by fduncanh 2022, 2026
  */
 
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <dns_sd.h>
 
 #include "../compat.h"
-#include <dns_sd.h>
 #include "../dnssd.h"
-
 #include "../dnssdint.h"
 #include "../global.h"
 #include "../utils.h"
@@ -131,7 +130,7 @@ typedef struct dnssd_private_s {
 } dnssd_private_t;
 
 void *
-dnssd_private_init(int *error)
+dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
     if (error) *error = DNSSD_ERROR_NOERROR;
 
