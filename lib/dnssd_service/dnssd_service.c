@@ -386,7 +386,9 @@ dnssd_unregister_raop(dnssd_t *dnssd_public)
 
     if (dnssd->airplay_service == NULL) {
         free(dnssd_public->name);
+	dnssd_public->name = NULL;
         free(dnssd_public->hw_addr);
+	dnssd_public->hw_addr= NULL;
     }
 }
 
@@ -409,6 +411,8 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
 
     if (dnssd->raop_service == NULL) {
         free(dnssd_public->name);
+        dnssd_public->name = NULL;
         free(dnssd_public->hw_addr);
+        dnssd_public->hw_addr= NULL;
     }
 }

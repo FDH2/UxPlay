@@ -100,11 +100,12 @@ void
 dnssd_destroy(dnssd_t *dnssd)
 {
     if (dnssd) {
-#ifdef WIN32
-        FreeLibrary(dnssd->module);
-#elif USE_LIBDL
-        dlclose(dnssd->module);
-#endif
+        if (dnssd->hw_addr) {
+            free (dnssd->hw_addr);
+        }
+        if (dnssd->name) {
+            free (dnssd->name);
+        }
         if (dnssd->dnssd_private) {
             dnssd_private_destroy(dnssd->dnssd_private);
         }
