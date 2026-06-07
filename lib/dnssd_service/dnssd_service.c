@@ -142,50 +142,50 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
 
 #ifdef WIN32
     dnssd->module = LoadLibraryA("dnssd.dll");
-	if (!dnssd->module) {
-		if (error) *error = DNSSD_ERROR_LIBNOTFOUND;
-		free(dnssd);
-		return NULL;
-	}
-	dnssd->DNSServiceRegister = (DNSServiceRegister_t)GetProcAddress(dnssd->module, "DNSServiceRegister");
-	dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)GetProcAddress(dnssd->module, "DNSServiceRefDeallocate");
-	dnssd->TXTRecordCreate = (TXTRecordCreate_t)GetProcAddress(dnssd->module, "TXTRecordCreate");
-	dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)GetProcAddress(dnssd->module, "TXTRecordSetValue");
-	dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)GetProcAddress(dnssd->module, "TXTRecordGetLength");
-	dnssd->TXTRecordGetBytesPtr = (TXTRecordGetBytesPtr_t)GetProcAddress(dnssd->module, "TXTRecordGetBytesPtr");
-	dnssd->TXTRecordDeallocate = (TXTRecordDeallocate_t)GetProcAddress(dnssd->module, "TXTRecordDeallocate");
+    if (!dnssd->module) {
+        if (error) *error = DNSSD_ERROR_LIBNOTFOUND;
+        free(dnssd);
+        return NULL;
+    }
+    dnssd->DNSServiceRegister = (DNSServiceRegister_t)GetProcAddress(dnssd->module, "DNSServiceRegister");
+    dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)GetProcAddress(dnssd->module, "DNSServiceRefDeallocate");
+    dnssd->TXTRecordCreate = (TXTRecordCreate_t)GetProcAddress(dnssd->module, "TXTRecordCreate");
+    dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)GetProcAddress(dnssd->module, "TXTRecordSetValue");
+    dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)GetProcAddress(dnssd->module, "TXTRecordGetLength");
+    dnssd->TXTRecordGetBytesPtr = (TXTRecordGetBytesPtr_t)GetProcAddress(dnssd->module, "TXTRecordGetBytesPtr");
+    dnssd->TXTRecordDeallocate = (TXTRecordDeallocate_t)GetProcAddress(dnssd->module, "TXTRecordDeallocate");
 
-	if (!dnssd->DNSServiceRegister || !dnssd->DNSServiceRefDeallocate || !dnssd->TXTRecordCreate ||
-	    !dnssd->TXTRecordSetValue || !dnssd->TXTRecordGetLength || !dnssd->TXTRecordGetBytesPtr ||
-	    !dnssd->TXTRecordDeallocate) {
-		if (error) *error = DNSSD_ERROR_PROCNOTFOUND;
-		FreeLibrary(dnssd->module);
-		free(dnssd);
-		return NULL;
-	}
+    if (!dnssd->DNSServiceRegister || !dnssd->DNSServiceRefDeallocate || !dnssd->TXTRecordCreate ||
+        !dnssd->TXTRecordSetValue || !dnssd->TXTRecordGetLength || !dnssd->TXTRecordGetBytesPtr ||
+        !dnssd->TXTRecordDeallocate) {
+        if (error) *error = DNSSD_ERROR_PROCNOTFOUND;
+        FreeLibrary(dnssd->module);
+        free(dnssd);
+        return NULL;
+    }
 #elif USE_LIBDL
     dnssd->module = dlopen("libdns_sd.so", RTLD_LAZY);
-	if (!dnssd->module) {
-		if (error) *error = DNSSD_ERROR_LIBNOTFOUND;
-		free(dnssd);
-		return NULL;
-	}
-	dnssd->DNSServiceRegister = (DNSServiceRegister_t)dlsym(dnssd->module, "DNSServiceRegister");
-	dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)dlsym(dnssd->module, "DNSServiceRefDeallocate");
-	dnssd->TXTRecordCreate = (TXTRecordCreate_t)dlsym(dnssd->module, "TXTRecordCreate");
-	dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)dlsym(dnssd->module, "TXTRecordSetValue");
-	dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)dlsym(dnssd->module, "TXTRecordGetLength");
-	dnssd->TXTRecordGetBytesPtr = (TXTRecordGetBytesPtr_t)dlsym(dnssd->module, "TXTRecordGetBytesPtr");
-	dnssd->TXTRecordDeallocate = (TXTRecordDeallocate_t)dlsym(dnssd->module, "TXTRecordDeallocate");
+    if (!dnssd->module) {
+      if (error) *error = DNSSD_ERROR_LIBNOTFOUND;
+      free(dnssd);
+      return NULL;
+    }
+    dnssd->DNSServiceRegister = (DNSServiceRegister_t)dlsym(dnssd->module, "DNSServiceRegister");
+    dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)dlsym(dnssd->module, "DNSServiceRefDeallocate");
+    dnssd->TXTRecordCreate = (TXTRecordCreate_t)dlsym(dnssd->module, "TXTRecordCreate");
+    dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)dlsym(dnssd->module, "TXTRecordSetValue");
+    dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)dlsym(dnssd->module, "TXTRecordGetLength");
+    dnssd->TXTRecordGetBytesPtr = (TXTRecordGetBytesPtr_t)dlsym(dnssd->module, "TXTRecordGetBytesPtr");
+    dnssd->TXTRecordDeallocate = (TXTRecordDeallocate_t)dlsym(dnssd->module, "TXTRecordDeallocate");
 
-	if (!dnssd->DNSServiceRegister || !dnssd->DNSServiceRefDeallocate || !dnssd->TXTRecordCreate ||
-	    !dnssd->TXTRecordSetValue || !dnssd->TXTRecordGetLength || !dnssd->TXTRecordGetBytesPtr ||
-	    !dnssd->TXTRecordDeallocate) {
-		if (error) *error = DNSSD_ERROR_PROCNOTFOUND;
-		dlclose(dnssd->module);
-		free(dnssd);
-		return NULL;
-	}
+    if (!dnssd->DNSServiceRegister || !dnssd->DNSServiceRefDeallocate || !dnssd->TXTRecordCreate ||
+        !dnssd->TXTRecordSetValue || !dnssd->TXTRecordGetLength || !dnssd->TXTRecordGetBytesPtr ||
+        !dnssd->TXTRecordDeallocate) {
+        if (error) *error = DNSSD_ERROR_PROCNOTFOUND;
+        dlclose(dnssd->module);
+        free(dnssd);
+        return NULL;
+    }
 #else
     dnssd->DNSServiceRegister = &DNSServiceRegister;
     dnssd->DNSServiceRefDeallocate = &DNSServiceRefDeallocate;
@@ -351,7 +351,7 @@ dnssd_get_raop_txt(dnssd_t *dnssd_public, int *length)
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;    
     assert(length);
 
-  *length = dnssd->TXTRecordGetLength(&dnssd->raop_record);
+    *length = dnssd->TXTRecordGetLength(&dnssd->raop_record);
     return dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record);
 }
 
@@ -383,13 +383,6 @@ dnssd_unregister_raop(dnssd_t *dnssd_public)
 
     dnssd->DNSServiceRefDeallocate(dnssd->raop_service);
     dnssd->raop_service = NULL;
-
-    if (dnssd->airplay_service == NULL) {
-        free(dnssd_public->name);
-	dnssd_public->name = NULL;
-        free(dnssd_public->hw_addr);
-	dnssd_public->hw_addr= NULL;
-    }
 }
 
 void
@@ -408,11 +401,4 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
 
     dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
     dnssd->airplay_service = NULL;
-
-    if (dnssd->raop_service == NULL) {
-        free(dnssd_public->name);
-        dnssd_public->name = NULL;
-        free(dnssd_public->hw_addr);
-        dnssd_public->hw_addr= NULL;
-    }
 }

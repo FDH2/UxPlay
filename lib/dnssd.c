@@ -49,7 +49,7 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
     char *end = NULL;
     unsigned long features  = strtoul(FEATURES_1, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
-        free (dnssd);
+        free(dnssd);
         if (error) *error = DNSSD_ERROR_BADFEATURES;
         return NULL;
     } 
@@ -57,7 +57,7 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
 
     features  = strtoul(FEATURES_2, &end, 16);
     if (!end || (features & 0xFFFFFFFF) != features) {
-        free (dnssd);
+        free(dnssd);
         if (error) *error = DNSSD_ERROR_BADFEATURES;
         return NULL;
     } 
@@ -101,10 +101,10 @@ dnssd_destroy(dnssd_t *dnssd)
 {
     if (dnssd) {
         if (dnssd->hw_addr) {
-            free (dnssd->hw_addr);
+            free(dnssd->hw_addr);
         }
         if (dnssd->name) {
-            free (dnssd->name);
+            free(dnssd->name);
         }
         if (dnssd->dnssd_private) {
             dnssd_private_destroy(dnssd->dnssd_private);
