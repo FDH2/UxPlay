@@ -24,7 +24,6 @@
 #include "../compat.h"
 #include "../dnssd.h"
 #include "../dnssdint.h"
-//#include "../global.h"
 #include "../utils.h"
 
 #include "mdnsd.h"
