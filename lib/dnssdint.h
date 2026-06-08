@@ -33,15 +33,15 @@
 //#define FEATURES_1 "0x527FFEE6" /* first 32 bits of features, with bit 27 ("supports legacy pairing") OFF */
 #define FEATURES_2  "0x0"        /* second 32 bits of features */
 #define RAOP_RHD "5.6.0.0"
-#define RAOP_SF "0x4"
+#define RAOP_SF "0x4"            /* systemFlags */
 #define RAOP_SV "false"
-#define RAOP_DA "true"
+#define RAOP_DA "true"          /* RFC2617 digest auth key */ 
 #define RAOP_SR "44100"         /* Sample rate: 44100 */
-#define RAOP_SS "16"            /* Sample size: 16 */
-#define RAOP_VS GLOBAL_VERSION  /* defined in global.h */
+#define RAOP_SS "16"            /* Sample size: 16-bit */
+#define RAOP_VS GLOBAL_VERSION  /* AirPlay version: defined in global.h */
 #define RAOP_TP "UDP"           /* Transport protocol. Possible values: UDP or TCP or TCP,UDP */
 #define RAOP_MD "0,1,2"         /* Metadata: text, artwork, progress */
-#define RAOP_VN "65537"
+#define RAOP_VN "65537"         /* airTunesProtocolVersion ?? (according to https://emanuelecozzi.net/docs/airplay2/discovery/ ) */
 
 #define AIRPLAY_SRCVERS GLOBAL_VERSION /*defined in global.h */
 #define AIRPLAY_FLAGS "0x84"
