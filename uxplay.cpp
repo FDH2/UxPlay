@@ -1926,7 +1926,7 @@ static int register_dnssd() {
                      "(see Apple's dns_sd.h)", dnssd_error);
             }
 #else
-            LOGE("dnssd_register_raop failed with error code %d; check UDP port 5353 and multicast access",
+            LOGE("dnssd_register_raop (dnssd_mdnsd) failed with error code %d; check UDP port 5353 and multicast access",
                  dnssd_error);
 #endif
             return -3;
@@ -1943,7 +1943,7 @@ static int register_dnssd() {
                  "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
                  "(see Apple's dns_sd.h)", dnssd_error);
 #else
-            LOGE("dnssd_register_raop failed with error code %d; check UDP port 5353 and multicast access",
+            LOGE("dnssd_register_raop (dnssd_mdnsd) failed with error code %d; check UDP port 5353 and multicast access",
                  dnssd_error);
 #endif
             return -4;
