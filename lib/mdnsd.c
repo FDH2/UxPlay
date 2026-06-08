@@ -210,13 +210,18 @@ static int mdns_add_a(mdns_packet_t *packet, const char *name, uint32_t addr,
     return 0;
 }
 
+static int mdns_has_ipv6_addr(const unsigned char addr[16])
+{
+    static const unsigned char zero[16] = {0};
+    return memcmp(addr, zero, sizeof(zero)) != 0;
+}
+
 static int mdns_add_aaaa(mdns_packet_t *packet, const char *name,
                          const unsigned char addr[16], uint32_t ttl)
 {
     size_t rdlength_pos;
-    static const unsigned char zero[16] = {0};
 
-    if (!memcmp(addr, zero, sizeof(zero))) {
+    if (!mdns_has_ipv6_addr(addr)) {
         return 0;
     }
     if (mdns_begin_rr(packet, name, DNS_TYPE_AAAA,
@@ -229,20 +234,28 @@ static int mdns_add_aaaa(mdns_packet_t *packet, const char *name,
 }
 
 static int mdns_add_host_records(mdnsd_t *mdnsd, mdns_packet_t *packet,
-                                 uint32_t ttl, unsigned int *answers)
+                                 uint32_t ttl, unsigned int *answers,
+                                 mdns_family_t family)
 {
-    if (mdns_add_a(packet, mdnsd->host_name, mdnsd->ipv4_addr, ttl)) {
-        return -1;
-    }
-    if (mdnsd->ipv4_addr) {
-        (*answers)++;
-    }
-
-    if (mdns_add_aaaa(packet, mdnsd->host_name, mdnsd->ipv6_addr, ttl)) {
-        return -1;
-    }
-    if (mdnsd->ipv6_scope_id) {
-        (*answers)++;
+    /*
+     * Treat the IPv4 and IPv6 sockets as logical mDNS interfaces. This keeps
+     * AirPlay clients from seeing cross-family host records in one response
+     * and opening two TCP connections for the same service.
+     */
+    if (family == MDNS_FAMILY_IPV4) {
+        if (mdns_add_a(packet, mdnsd->host_name, mdnsd->ipv4_addr, ttl)) {
+            return -1;
+        }
+        if (mdnsd->ipv4_addr) {
+            (*answers)++;
+        }
+    } else {
+        if (mdns_add_aaaa(packet, mdnsd->host_name, mdnsd->ipv6_addr, ttl)) {
+            return -1;
+        }
+        if (mdns_has_ipv6_addr(mdnsd->ipv6_addr)) {
+            (*answers)++;
+        }
     }
 
     return 0;
@@ -585,10 +598,9 @@ static int mdns_build_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
         }
     }
 
-    (void) family;
     if (include_host &&
         mdns_add_host_records(mdnsd, packet, ttl ? MDNS_TTL_HOST : 0,
-                              &answers)) {
+                              &answers, family)) {
         return -1;
     }
 
@@ -631,10 +643,9 @@ static int mdns_build_combined_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
         }
     }
 
-    (void) family;
     if (include_host &&
         mdns_add_host_records(mdnsd, packet, ttl ? MDNS_TTL_HOST : 0,
-                              &answers)) {
+                              &answers, family)) {
         return -1;
     }
 
