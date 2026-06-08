@@ -29,7 +29,7 @@
 
 
 dnssd_t *
-dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, int *error, unsigned char pin_pw)
+dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, unsigned char pin_pw, int *error)
 {
     /* pin_pw = 0: no pin or password
                 1: use onscreen pin for client access control
