@@ -236,16 +236,16 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "md", strlen(RAOP_MD), RAOP_MD);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "rhd", strlen(RAOP_RHD), RAOP_RHD);
     switch (dnssd_public->pin_pw) {
+    case 1:
+        /* sf bit 3 0x08  means "pin required" according to https://openairplay.github.io/airplay-spec/status_flags.html  */
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
+        dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen("0x8c"), "0x8c");
+        break;
     case 2:
     case 3:
         /* sf bit 7 0x80 means "password required" according to https://openairplay.github.io/airplay-spec/status_flags.html  */
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen("0x84"), "0x84");
-        break;
-    case 1:
-        /* sf bit 3 0x08  means "pin required" according to https://openairplay.github.io/airplay-spec/status_flags.html  */
-        dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("true"), "true");
-        dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen("0x8c"), "0x8c");
         break;
     default:
         dnssd->TXTRecordSetValue(&dnssd->raop_record, "pw", strlen("false"), "false");
@@ -257,8 +257,6 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "sv", strlen(RAOP_SV), RAOP_SV);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "tp", strlen(RAOP_TP), RAOP_TP);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "txtvers", strlen(RAOP_TXTVERS), RAOP_TXTVERS);
-    /* this was included "in error", negating sf setting for pin_pw = 1,2,3  */
-    // dnssd->TXTRecordSetValue(&dnssd->raop_record, "sf", strlen(RAOP_SF), RAOP_SF);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "vs", strlen(RAOP_VS), RAOP_VS);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "vn", strlen(RAOP_VN), RAOP_VN);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "pk", strlen(dnssd_public->pk), dnssd_public->pk);
