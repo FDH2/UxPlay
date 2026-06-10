@@ -5,6 +5,8 @@ add_library( dnssd
         STATIC
         ${DIR_SRCS})
 
+find_package(PkgConfig REQUIRED)
+
 #dns_sd 
 if ( NOT APPLE )
   pkg_search_module(AVAHI_DNSSD avahi-compat-libdns_sd)
@@ -39,7 +41,7 @@ if ( NOT APPLE )
      else()
         message( STATUS "found dns_sd.h in " ${DNSSD_INCLUDE_DIR} )
      endif()
-    target_include_directories(PRIVATE ${DNSSD_INCLUDE_DIR} )
+    target_include_directories(dnssd PRIVATE ${DNSSD_INCLUDE_DIR} )
   endif()
 endif()	
 
