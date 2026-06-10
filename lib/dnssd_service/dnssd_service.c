@@ -19,9 +19,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
-#include <dns_sd.h>
 
 #include "../compat.h"
+#include <dns_sd.h>
 #include "../dnssd.h"
 #include "../dnssdint.h"
 #include "../utils.h"
