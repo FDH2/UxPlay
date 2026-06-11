@@ -94,6 +94,7 @@ static int dnssd_prepare_names(dnssd_private_t *dnssd, dnssd_t *dnssd_public)
 
 static int dnssd_build_raop_txt(dnssd_t *dnssd_public)
 {
+  printf("dnssd_build_raop_txt\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
@@ -142,6 +143,7 @@ static int dnssd_build_raop_txt(dnssd_t *dnssd_public)
 
 static int dnssd_build_airplay_txt(dnssd_t *dnssd_public)
 {
+    printf("dnssd_build_airplay_txt\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
@@ -169,6 +171,7 @@ static int dnssd_build_airplay_txt(dnssd_t *dnssd_public)
 
 static void dnssd_fill_airplay_service(dnssd_private_t *dnssd, mdnsd_service_t *service)
 {
+  printf("dnssd_fill_airplay_service\n");
     memset(service, 0, sizeof(*service));
     snprintf(service->type, sizeof(service->type), "%s", "_airplay._tcp.local");
     snprintf(service->name, sizeof(service->name), "%s", dnssd->airplay_name);
@@ -179,6 +182,7 @@ static void dnssd_fill_airplay_service(dnssd_private_t *dnssd, mdnsd_service_t *
 
 static void dnssd_fill_raop_service(dnssd_private_t *dnssd, mdnsd_service_t *service)
 {
+    printf("dnssd_fill_raop_service\n");
     memset(service, 0, sizeof(*service));
     snprintf(service->type, sizeof(service->type), "%s", "_raop._tcp.local");
     snprintf(service->name, sizeof(service->name), "%s", dnssd->raop_name);
@@ -189,6 +193,7 @@ static void dnssd_fill_raop_service(dnssd_private_t *dnssd, mdnsd_service_t *ser
 
 static void dnssd_update_mdnsd(dnssd_private_t *dnssd)
 {
+    printf("dnssd_update_mdsnd\n");
     mdnsd_service_t airplay;
     mdnsd_service_t raop;
 
@@ -200,6 +205,7 @@ static void dnssd_update_mdnsd(dnssd_private_t *dnssd)
 void *
 dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
+    printf("dnssd_private_init\n");
     dnssd_private_t *dnssd;
     if (error) *error = DNSSD_ERROR_NOERROR;
 
@@ -239,7 +245,7 @@ int
 dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
 {
     int ret;
-
+  printf("dnssd_register_raop\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
@@ -264,7 +270,7 @@ int
 dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
 {
     int ret;
-
+  printf("dnssd_register_airplay\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
@@ -293,6 +299,7 @@ dnssd_get_raop_txt(dnssd_t *dnssd_public, int *length)
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
     
     *length = dnssd->raop_record.length;
+    printf("%s\n", dnssd->raop_record.bytes);
     return (const char *) dnssd->raop_record.bytes;
 }
 
@@ -304,12 +311,14 @@ dnssd_get_airplay_txt(dnssd_t *dnssd_public, int *length)
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
 
     *length = dnssd->airplay_record.length;
+    printf("%s\n", dnssd->airplay_record.bytes);
     return (const char *) dnssd->airplay_record.bytes;
 }
 
 void
 dnssd_unregister_raop(dnssd_t *dnssd_public)
 {
+    printf("dnssd_unregister_raop\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
@@ -330,6 +339,7 @@ dnssd_unregister_raop(dnssd_t *dnssd_public)
 void
 dnssd_unregister_airplay(dnssd_t *dnssd_public)
 {
+    printf("dnssd_register_airplay\n");
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;

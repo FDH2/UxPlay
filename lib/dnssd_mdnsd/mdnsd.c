@@ -71,6 +71,7 @@ struct mdnsd_s {
 
 static int mdns_put_u8(mdns_packet_t *packet, unsigned int value)
 {
+  //printf("mdns_put_u8\n");
     if (packet->length + 1 > sizeof(packet->bytes)) {
         return -1;
     }
@@ -80,6 +81,7 @@ static int mdns_put_u8(mdns_packet_t *packet, unsigned int value)
 
 static int mdns_put_u16(mdns_packet_t *packet, unsigned int value)
 {
+  //printf("mdns_put_u16\n");
     if (packet->length + 2 > sizeof(packet->bytes)) {
         return -1;
     }
@@ -90,6 +92,7 @@ static int mdns_put_u16(mdns_packet_t *packet, unsigned int value)
 
 static int mdns_put_u32(mdns_packet_t *packet, uint32_t value)
 {
+  //printf("mdns_put_u32\n");
     if (packet->length + 4 > sizeof(packet->bytes)) {
         return -1;
     }
@@ -102,6 +105,7 @@ static int mdns_put_u32(mdns_packet_t *packet, uint32_t value)
 
 static int mdns_put_bytes(mdns_packet_t *packet, const void *bytes, size_t length)
 {
+  //printf("mdns_put_bytes\n");
     if (packet->length + length > sizeof(packet->bytes)) {
         return -1;
     }
@@ -112,6 +116,7 @@ static int mdns_put_bytes(mdns_packet_t *packet, const void *bytes, size_t lengt
 
 static int mdns_put_name(mdns_packet_t *packet, const char *name)
 {
+  printf("mdns_put_name \"%s\"\n", name);
     const char *label = name;
 
     while (label && *label) {
@@ -136,6 +141,7 @@ static int mdns_put_name(mdns_packet_t *packet, const char *name)
 static int mdns_begin_rr(mdns_packet_t *packet, const char *name, unsigned int type,
                          unsigned int cls, uint32_t ttl, size_t *rdlength_pos)
 {
+    printf("mdns_begin_rr\n");
     if (mdns_put_name(packet, name) ||
         mdns_put_u16(packet, type) ||
         mdns_put_u16(packet, cls) ||
@@ -148,6 +154,7 @@ static int mdns_begin_rr(mdns_packet_t *packet, const char *name, unsigned int t
 
 static void mdns_end_rr(mdns_packet_t *packet, size_t rdlength_pos)
 {
+      printf("mdns_end_rr\n");
     size_t rdlength = packet->length - rdlength_pos - 2;
     packet->bytes[rdlength_pos] = (unsigned char) ((rdlength >> 8) & 0xff);
     packet->bytes[rdlength_pos + 1] = (unsigned char) (rdlength & 0xff);
@@ -156,6 +163,7 @@ static void mdns_end_rr(mdns_packet_t *packet, size_t rdlength_pos)
 static int mdns_add_ptr(mdns_packet_t *packet, const char *name, const char *ptr,
                         uint32_t ttl)
 {
+      printf("mdns_add_ptr\n");
     size_t rdlength_pos;
     if (mdns_begin_rr(packet, name, DNS_TYPE_PTR, DNS_CLASS_IN, ttl, &rdlength_pos) ||
         mdns_put_name(packet, ptr)) {
@@ -168,6 +176,7 @@ static int mdns_add_ptr(mdns_packet_t *packet, const char *name, const char *ptr
 static int mdns_add_srv(mdns_packet_t *packet, const char *name, unsigned short port,
                         const char *target, uint32_t ttl)
 {
+    printf("mdns_add_srv\n");
     size_t rdlength_pos;
     if (mdns_begin_rr(packet, name, DNS_TYPE_SRV, DNS_CLASS_IN | DNS_CACHE_FLUSH,
                       ttl, &rdlength_pos) ||
@@ -184,6 +193,7 @@ static int mdns_add_srv(mdns_packet_t *packet, const char *name, unsigned short 
 static int mdns_add_txt(mdns_packet_t *packet, const char *name, const mdnsd_txt_t *txt,
                         uint32_t ttl)
 {
+  printf("mdns_add_txt\n");
     size_t rdlength_pos;
     if (mdns_begin_rr(packet, name, DNS_TYPE_TXT, DNS_CLASS_IN | DNS_CACHE_FLUSH,
                       ttl, &rdlength_pos) ||
@@ -197,6 +207,7 @@ static int mdns_add_txt(mdns_packet_t *packet, const char *name, const mdnsd_txt
 static int mdns_add_a(mdns_packet_t *packet, const char *name, uint32_t addr,
                       uint32_t ttl)
 {
+      printf("mdns_add_a\n");
     size_t rdlength_pos;
     if (!addr) {
         return 0;
@@ -212,6 +223,7 @@ static int mdns_add_a(mdns_packet_t *packet, const char *name, uint32_t addr,
 
 static int mdns_has_ipv6_addr(const unsigned char addr[16])
 {
+      printf("mdns_has_ipv6_addr\n");
     static const unsigned char zero[16] = {0};
     return memcmp(addr, zero, sizeof(zero)) != 0;
 }
@@ -219,7 +231,8 @@ static int mdns_has_ipv6_addr(const unsigned char addr[16])
 static int mdns_add_aaaa(mdns_packet_t *packet, const char *name,
                          const unsigned char addr[16], uint32_t ttl)
 {
-    size_t rdlength_pos;
+    printf("mdns_add_aaaa\n");
+  size_t rdlength_pos;
 
     if (!mdns_has_ipv6_addr(addr)) {
         return 0;
@@ -237,6 +250,7 @@ static int mdns_add_host_records(mdnsd_t *mdnsd, mdns_packet_t *packet,
                                  uint32_t ttl, unsigned int *answers,
                                  mdns_family_t family)
 {
+      printf("mdns_add_host_records\n");
     /*
      * Treat the IPv4 and IPv6 sockets as logical mDNS interfaces. This keeps
      * AirPlay clients from seeing cross-family host records in one response
@@ -263,12 +277,14 @@ static int mdns_add_host_records(mdnsd_t *mdnsd, mdns_packet_t *packet,
 
 static uint16_t mdns_read_u16(const unsigned char *bytes)
 {
+  // printf("mdns_read_u16\n");
     return (uint16_t) (((uint16_t) bytes[0] << 8) | bytes[1]);
 }
 
 static int mdns_read_name(const unsigned char *packet, size_t packet_len,
                           size_t *offset, char *name, size_t name_len)
 {
+      printf("mdns_read_name\n");
     size_t pos = *offset;
     size_t out = 0;
     int jumped = 0;
@@ -330,6 +346,7 @@ static int mdns_read_name(const unsigned char *packet, size_t packet_len,
 
 static int mdns_name_equals(const char *left, const char *right)
 {
+  //printf("mdns_name_equals\n");
     while (*left && *right) {
         if (tolower((unsigned char) *left) != tolower((unsigned char) *right)) {
             return 0;
@@ -342,11 +359,13 @@ static int mdns_name_equals(const char *left, const char *right)
 
 static int mdns_query_type_matches(uint16_t query_type, uint16_t record_type)
 {
+      printf("query_type_matches\n");
     return query_type == record_type || query_type == DNS_TYPE_ANY;
 }
 
 static uint32_t mdns_get_default_ipv4(void)
 {
+      printf("mdns_get_default_ipv4\n");
     int fd;
     uint32_t addr = 0;
     struct sockaddr_in remote;
@@ -374,6 +393,7 @@ static uint32_t mdns_get_default_ipv4(void)
 
 static int mdns_get_default_ipv6(unsigned char addr[16], unsigned int *scope_id)
 {
+  printf("mdns_get_default_ipv6\n");
 #ifdef WIN32
     (void) addr;
     (void) scope_id;
@@ -432,6 +452,7 @@ static int mdns_get_default_ipv6(unsigned char addr[16], unsigned int *scope_id)
 
 static int mdns_open_socket4(uint32_t iface_addr)
 {
+  printf("mdns_open_socket_4\n");
     int fd;
     int one = 1;
     unsigned char ttl = 255;
@@ -490,6 +511,7 @@ static int mdns_open_socket4(uint32_t iface_addr)
 
 static int mdns_open_socket6(unsigned int scope_id)
 {
+    printf("mdns_open_socket_6\n");
     int fd;
     int one = 1;
     int hops = 255;
@@ -541,6 +563,7 @@ static int mdns_open_socket6(unsigned int scope_id)
 
 static int mdns_begin_response(mdns_packet_t *packet, size_t *count_pos)
 {
+    printf("mdns_begin_response\n");
     memset(packet, 0, sizeof(*packet));
     if (mdns_put_u16(packet, 0) ||
         mdns_put_u16(packet, DNS_FLAG_RESPONSE | DNS_FLAG_AUTHORITATIVE) ||
@@ -556,6 +579,7 @@ static int mdns_begin_response(mdns_packet_t *packet, size_t *count_pos)
 static void mdns_finish_response(mdns_packet_t *packet, size_t count_pos,
                                  unsigned int answers)
 {
+    printf("mdns_finish_response\n");
     packet->bytes[count_pos] = (unsigned char) ((answers >> 8) & 0xff);
     packet->bytes[count_pos + 1] = (unsigned char) (answers & 0xff);
 }
@@ -564,6 +588,7 @@ static int mdns_add_service_records(mdns_packet_t *packet,
                                     const mdnsd_service_t *service,
                                     const char *host_name, uint32_t ttl)
 {
+    printf("mdns_add_service_record\n");
     if (!service->registered) {
         return 0;
     }
@@ -580,6 +605,7 @@ static int mdns_build_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
                                int include_host, uint32_t ttl,
                                mdns_family_t family)
 {
+    printf("mdns_build_response\n");
     size_t count_pos;
     unsigned int answers = 0;
     size_t before;
@@ -613,6 +639,7 @@ static int mdns_build_combined_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
                                         int include_host, uint32_t ttl,
                                         mdns_family_t family)
 {
+    printf("mdns_build_combined_response\n");
     size_t count_pos;
     unsigned int answers = 0;
     size_t before;
@@ -660,6 +687,7 @@ static int mdns_build_combined_response(mdnsd_t *mdnsd, mdns_packet_t *packet,
 static void mdns_send_packet4(mdnsd_t *mdnsd, const mdns_packet_t *packet,
                               const struct sockaddr_in *to)
 {
+  printf("mdns_send_packet_4\n");
     struct sockaddr_in addr;
 
     if (mdnsd->sock_fd4 == -1 || !packet->length) {
@@ -682,6 +710,7 @@ static void mdns_send_packet4(mdnsd_t *mdnsd, const mdns_packet_t *packet,
 static void mdns_send_packet6(mdnsd_t *mdnsd, const mdns_packet_t *packet,
                               const struct sockaddr_in6 *to)
 {
+    printf("mdns_send_packet_6\n");
     struct sockaddr_in6 addr;
 
     if (mdnsd->sock_fd6 == -1 || !packet->length) {
@@ -706,6 +735,7 @@ static void mdns_send_service_locked(mdnsd_t *mdnsd, const mdnsd_service_t *serv
                                      int include_host, uint32_t ttl,
                                      mdns_family_t family, const void *to)
 {
+    printf("mdns_send_packet_locked\n");
     mdns_packet_t packet;
 
     if (service->registered &&
@@ -724,6 +754,7 @@ static void mdns_send_response_locked(mdnsd_t *mdnsd, int include_airplay,
                                       uint32_t ttl, mdns_family_t family,
                                       const void *to)
 {
+    printf("mdns_send_response_locked\n");
     mdns_packet_t packet;
 
     if (include_airplay && include_raop &&
@@ -759,6 +790,7 @@ static void mdns_send_response_locked(mdnsd_t *mdnsd, int include_airplay,
 
 static void mdns_announce_locked(mdnsd_t *mdnsd, uint32_t ttl)
 {
+      printf("mdns_announce_locked\n");
     mdns_send_response_locked(mdnsd, 1, 1, 1, ttl, MDNS_FAMILY_IPV4, NULL);
     mdns_send_response_locked(mdnsd, 1, 1, 1, ttl, MDNS_FAMILY_IPV6, NULL);
 }
@@ -767,6 +799,7 @@ static int mdns_question_matches_service(const mdnsd_t *mdnsd, const char *name,
                                          uint16_t type, int *airplay, int *raop,
                                          int *host)
 {
+      printf("mdns_question_matches_service\n");
     if (mdns_name_equals(name, "_services._dns-sd._udp.local") &&
         mdns_query_type_matches(type, DNS_TYPE_PTR)) {
         if (mdnsd->airplay.registered) {
@@ -814,6 +847,7 @@ static void mdns_handle_query(mdnsd_t *mdnsd, const unsigned char *bytes,
                               size_t length, mdns_family_t family,
                               const void *from, int from_port)
 {
+  printf("mdns_handle_query\n");
     uint16_t flags;
     uint16_t qdcount;
     size_t offset = 12;
@@ -869,6 +903,7 @@ static void mdns_handle_query(mdnsd_t *mdnsd, const unsigned char *bytes,
 
 static THREAD_RETVAL mdns_thread(void *arg)
 {
+    printf("mdns_thread\n");
     mdnsd_t *mdnsd = arg;
 
     for (;;) {
@@ -934,6 +969,7 @@ static THREAD_RETVAL mdns_thread(void *arg)
 
 int mdnsd_txt_add(mdnsd_txt_t *txt, const char *key, const char *value)
 {
+  //printf("mdnsd_txt_add\n");
     char item[256];
     int length = snprintf(item, sizeof(item), "%s=%s", key, value ? value : "");
 
@@ -950,6 +986,7 @@ int mdnsd_txt_add(mdnsd_txt_t *txt, const char *key, const char *value)
 
 mdnsd_t *mdnsd_init(const char *host_name)
 {
+    printf("mdnsd_init\n");
     mdnsd_t *mdnsd = calloc(1, sizeof(*mdnsd));
     if (!mdnsd) {
         return NULL;
@@ -965,6 +1002,7 @@ mdnsd_t *mdnsd_init(const char *host_name)
 
 void mdnsd_destroy(mdnsd_t *mdnsd)
 {
+    printf("mdnsd_destroy\n");
     if (!mdnsd) {
         return;
     }
@@ -976,6 +1014,7 @@ void mdnsd_destroy(mdnsd_t *mdnsd)
 
 int mdnsd_start(mdnsd_t *mdnsd)
 {
+    printf("mdnsd_start\n");
     if (!mdnsd) {
         return -1;
     }
@@ -1031,6 +1070,7 @@ int mdnsd_start(mdnsd_t *mdnsd)
 
 void mdnsd_stop(mdnsd_t *mdnsd)
 {
+      printf("mdnsd_stop\n");
     int fd4 = -1;
     int fd6 = -1;
     thread_handle_t thread = 0;
@@ -1065,6 +1105,7 @@ void mdnsd_stop(mdnsd_t *mdnsd)
 void mdnsd_set_services(mdnsd_t *mdnsd, const mdnsd_service_t *airplay,
                         const mdnsd_service_t *raop)
 {
+      printf("mdnsd_set_services\n");
     if (!mdnsd) {
         return;
     }
@@ -1085,6 +1126,7 @@ void mdnsd_set_services(mdnsd_t *mdnsd, const mdnsd_service_t *airplay,
 
 void mdnsd_announce(mdnsd_t *mdnsd, uint32_t ttl)
 {
+  printf("mdnsd_announce\n");
     if (!mdnsd) {
         return;
     }
@@ -1096,6 +1138,7 @@ void mdnsd_announce(mdnsd_t *mdnsd, uint32_t ttl)
 
 void mdnsd_goodbye(mdnsd_t *mdnsd, const mdnsd_service_t *service)
 {
+  printf("mdnsd_goodbye\n");
     if (!mdnsd || !service) {
         return;
     }
