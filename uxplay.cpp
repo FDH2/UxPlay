@@ -63,7 +63,6 @@
 #include "lib/raop.h"
 #include "lib/stream.h"
 #include "lib/logger.h"
-#include "lib/dnssd.h"
 #include "lib/crypto.h"
 #include "renderers/video_renderer.h"
 #include "renderers/audio_renderer.h"
@@ -1126,24 +1125,27 @@ static bool get_videorotate (const char *str, videoflip_t *videoflip) {
 }
 
 static void append_hostname(std::string &server_name) {
+    std::string hostname;
 #ifdef _WIN32   /*modification for compilation on Windows */
     char buffer[256] = "";
     unsigned long size = sizeof(buffer);
     if (GetComputerNameA(buffer, &size)) {
-        std::string name = server_name;
-        name.append("@");
-        name.append(buffer);
-        server_name = name;
+        hostname.append(buffer);
     }
 #else
     struct utsname buf;
     if (!uname(&buf)) {
-        std::string name = server_name;
-        name.append("@");
-        name.append(buf.nodename);
-        server_name = name;
+        hostname.append(buf.nodename);
     }
 #endif
+    /* remove any ".local" suffix (causes namespace problem on macOS when using a custom mDNSResponder)*/
+    std::string dot_local = ".local";
+    size_t pos = hostname.find(dot_local);
+    if (pos != std::string::npos) {
+        hostname.erase(pos);
+    }
+    server_name.append("@");
+    server_name.append(hostname);
 }
 
 bool is_utf8(const char *string, bool *is_printable_ascii) {
