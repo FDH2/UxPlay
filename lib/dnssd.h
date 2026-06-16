@@ -30,6 +30,7 @@ extern "C" {
 #define DNSSD_ERROR_LIBNOTFOUND   3
 #define DNSSD_ERROR_PROCNOTFOUND  4
 #define DNSSD_ERROR_BADFEATURES   5
+#define DNSSD_ERROR_BADNAME       6
 
 typedef struct dnssd_s {
 

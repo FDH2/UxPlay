@@ -35,8 +35,22 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
                 1: use onscreen pin for client access control
                 2 or 3: require password for client access control  
     */
-    
+    const char *dot_local = ".local";
+  
     if (error) *error = DNSSD_ERROR_NOERROR;
+  
+    /* first verify that  name is a null-terminated string with strlen = name_len, and is not ".local" */
+    if (*(name + name_len) != '\0' || name_len != (int) strlen(name) || !strcmp(name, dot_local)) {
+        if (error) *error = DNSSD_ERROR_BADNAME;
+        return NULL;
+    }
+
+    /* use only that part of name before any substring ".local"
+       (this fixes  namespace issues when a custom mDNSResponder is used on macOS) */
+    const char *dot_local_start = strstr(name, dot_local);
+    if (dot_local_start) {
+        name_len = dot_local_start - name;
+    }
 
     dnssd_t *dnssd = (dnssd_t *) calloc(1, sizeof(dnssd_t));
     if (!dnssd) {
@@ -86,7 +100,6 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
     dnssd->dnssd_private = NULL;
     dnssd->dnssd_private = dnssd_private_init(dnssd, error);
     if (!dnssd->dnssd_private) {
-        if (error) *error = DNSSD_ERROR_OUTOFMEM;
         free(dnssd->hw_addr);
         free(dnssd->name);
         free(dnssd);
