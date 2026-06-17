@@ -239,6 +239,14 @@ dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len,
     }
     dnssd->features2 = (uint32_t) features;
 
+    /* remove any instance of '.local' in name*/
+    assert(*(name + name_len) == '\0');
+    const char *dot_local = strstr(name, ".local");
+    if (dot_local) {
+        name_len = dot_local - name;
+    }
+    assert (name_len > 0);
+    
     dnssd->name_len = name_len;
     dnssd->name = calloc(1, name_len + 1);
     if (!dnssd->name) {
