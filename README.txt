@@ -47,7 +47,7 @@
 -   (for Linux/\*BSD Desktop Environments using D-Bus). New option
     `-scrsv <n>` provides screensaver inhibition (e.g., to prevent
     screensaver function while watching mirrored videos without keyboard
-    or mouse activity): n = 0 (off) n=1 (on while streaming video) n=2
+    or mouse activity): n = 0 (off) n=1 (on during video activity) n=2
     (always on while UxPlay is running). Tested on
     Gnome/KDE/Cinnamon/Mate/Xfce 4: may need adjustment for other
     Desktop Environments (please report). (watch output of
@@ -873,9 +873,16 @@ users)**: install the GStreamer release for macOS from
 its own pkg-config, so you don't have to install one.) Install both the
 gstreamer-1.0 and gstreamer-1.0-devel packages. After downloading,
 Shift-Click on them to install (they install to
-/Library/FrameWorks/GStreamer.framework). Homebrew or MacPorts users
-should **not** install (or should uninstall) the GStreamer supplied by
-their package manager, if they use the "official" release.
+/Library/FrameWorks/GStreamer.framework).
+
+-   **Because GStreamer packages are unsigned, recent macOS will reject
+    your initial attempt to install them with "Shift-Click": you then
+    have to go to System Settings-\>Privacy & Security-\>Security and
+    click on "Open Anyway" to proceed with the installation.**
+
+Homebrew or MacPorts users should **not** install (or should uninstall)
+the GStreamer supplied by their package manager, if they use the
+"official" release.
 
 -   Since GStreamer v1.22, the "Official" (gstreamer.freedesktop.org)
     macOS binaries require a wrapper "gst_macos_main" around the actual

@@ -843,7 +843,14 @@ users)**: install the GStreamer release for macOS from
 its own pkg-config, so you don't have to install one.) Install both the
 gstreamer-1.0 and gstreamer-1.0-devel packages. After downloading,
 Shift-Click on them to install (they install to
-/Library/FrameWorks/GStreamer.framework). Homebrew or MacPorts users
+/Library/FrameWorks/GStreamer.framework).
+
+* **Because GStreamer packages are unsigned, recent macOS will reject your
+initial attempt to install them with "Shift-Click":
+you then have to go to System Settings->Privacy & Security->Security  and
+click on "Open Anyway" to proceed with the installation.**
+
+Homebrew or MacPorts users
 should **not** install (or should uninstall) the GStreamer supplied by
 their package manager, if they use the "official" release.
 
