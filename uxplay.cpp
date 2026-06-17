@@ -1407,8 +1407,8 @@ static void parse_arguments (int argc, char *argv[]) {
             audiosink.erase();
             audiosink.append(argv[++i]);
         } else if (arg == "-t") {
-            fprintf(stderr,"The uxplay option \"-t\" has been removed: it was a workaround for an  Avahi issue.\n");
-            fprintf(stderr,"The correct solution is to open network port UDP 5353 in the firewall for mDNS queries\n");
+            fprintf(stderr,"The uxplay option \"-t\" has been removed.\n");
+            fprintf(stderr,"The correct solution is to open network port UDP 5353 in the firewall for mDNS queries.\n");
             exit(1);
         } else if (arg == "-nc") {
             new_window_closing_behavior = false;
@@ -1919,18 +1919,8 @@ static int register_dnssd() {
     dnssd_error = dnssd_register_raop(dnssd, raop_port);
     if (dnssd_error) {
         if (ble_filename.empty()) {
-            if (dnssd_error == -65537) {
-                LOGE("No DNS-SD Server found (DNSServiceRegister call returned kDNSServiceErr_Unknown)");
-            } else if (dnssd_error == -65548) {
-                LOGE("DNSServiceRegister call returned kDNSServiceErr_NameConflict");
-                LOGI("Is another instance of %s running with the same DeviceID (MAC address) or using same network ports?",
-                     DEFAULT_NAME);
-                LOGI("Use options -m ... and -p ... to allow multiple instances of %s to run concurrently", DEFAULT_NAME); 
-            } else {
-                LOGE("dnssd_register_raop failed with error code %d\n"
-                     "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-                     "(see Apple's dns_sd.h)", dnssd_error);
-            }
+            LOGE("dnssd_register_raop failed with error code %d; check UDP port 5353 and multicast access",
+                 dnssd_error);
             return -3;
         } else {
             LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
@@ -1940,9 +1930,8 @@ static int register_dnssd() {
     dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
     if (dnssd_error) {
         if (ble_filename.empty()) {
-            LOGE("dnssd_register_airplay failed with error code %d\n"
-                 "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-                 "(see Apple's dns_sd.h)", dnssd_error);
+            LOGE("dnssd_register_airplay failed with error code %d; check UDP port 5353 and multicast access",
+                 dnssd_error);
             return -4;
         } else {
             LOGI("dnssd_register_airplay failed: ignoring because Bluetooth LE service discovery may be available");   
@@ -2895,13 +2884,6 @@ int main (int argc, char *argv[]) {
     if (unveil("/", "rwc") == -1 || unveil(NULL, NULL) == -1) {
         err(1, "unveil");
     }
-#endif
-
-#ifdef SUPPRESS_AVAHI_COMPAT_WARNING
-    // suppress avahi_compat nag message.  avahi emits a "nag" warning (once)
-    // if  getenv("AVAHI_COMPAT_NOWARN") returns null.
-    static char avahi_compat_nowarn[] = "AVAHI_COMPAT_NOWARN=1";
-    if (!getenv("AVAHI_COMPAT_NOWARN")) putenv(avahi_compat_nowarn);
 #endif
 
     /* for HLS video language preferences */
