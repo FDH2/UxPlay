@@ -947,6 +947,16 @@ downloads, "UxPlay" for "git clone" downloads) and build/install with
     affect the (small) initial OpenGL mirror window size, but the window
     can be expanded using the mouse or trackpad.
 
+-   With `-vs osxvideosink`, the image expands to fill the window, not
+    preserving the image's aspect ratio. You may wish to use
+    `-vs "osxvideosink force-aspect-ratio=true"` to maintain the
+    original aspect ratio.
+
+-   *On older releases of GStreamer, there were issues involving windows
+    not closing properly, that required the UxPlay option "-nc": these
+    issues in GStreamer seem fixed now, but if you experience them, try
+    using "-nc".*
+
 Unfortunately, it seems that the macOS Bluetooth stack does not allow
 users to broadcast Bluetooth LE advertisements of the type needed for
 Bluetooth LE service discovery ("manufacture-specific" advertisements),

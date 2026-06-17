@@ -927,6 +927,14 @@ needed.</p></li>
 <li><p>In the case of glimagesink, the resolution settings “-s wxh” may
 not affect the (small) initial OpenGL mirror window size, but the window
 can be expanded using the mouse or trackpad.</p></li>
+<li><p>With <code>-vs osxvideosink</code>, the image expands to fill the
+window, not preserving the image’s aspect ratio. You may wish to use
+<code>-vs "osxvideosink force-aspect-ratio=true"</code> to maintain the
+original aspect ratio.</p></li>
+<li><p><em>On older releases of GStreamer, there were issues involving
+windows not closing properly, that required the UxPlay option “-nc”:
+these issues in GStreamer seem fixed now, but if you experience them,
+try using “-nc”.</em></p></li>
 </ul>
 <p>Unfortunately, it seems that the macOS Bluetooth stack does not allow
 users to broadcast Bluetooth LE advertisements of the type needed for
