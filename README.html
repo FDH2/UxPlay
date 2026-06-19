@@ -1949,6 +1949,19 @@ when the client sends the “Stop Mirroring” signal, try the no-close
 option “-nc” that leaves the video window open.</p>
 <h3 id="gstreamer-issues-missing-plugins-etc.">4. GStreamer issues
 (missing plugins, etc.):</h3>
+<p>If UxPlay issues no error messages, but GStreamer video seems not to
+be working, test your GStreamer installation inside a terminal window
+with</p>
+<pre><code>gst-launch-1.0 videotestsrc ! autovideosink
+</code></pre>
+<p>If autovideosink finds a working videosink, a video test pattern
+should be displayed. Then test the various videosinks (see the -vs entry
+in <code>man uxplay</code> for a list) to see which work on your system.
+Also use</p>
+<pre><code>gst-inspect-1.0 | grep sink | grep [V,v]ideo</code></pre>
+<p>to see which videosinks GStreamer believes are installed. Repeat the
+gst-launch-1.0 command, replacing “autovideosink” by the name of each
+videosink you wish to test.</p>
 <ul>
 <li>clearing the user’s GStreamer cache with
 <code>rm -rf ~/.cache/gstreamer-1.0/*</code> may be the solution to

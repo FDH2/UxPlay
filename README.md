@@ -1933,6 +1933,25 @@ option "-nc" that leaves the video window open.
 
 ### 4. GStreamer issues (missing plugins, etc.):
 
+If UxPlay issues no error messages, but GStreamer video seems not to be working,
+test your GStreamer installation inside a terminal window with
+
+```
+gst-launch-1.0 videotestsrc ! autovideosink
+
+```
+If autovideosink finds a working videosink, a video test pattern should be displayed.
+Then test the various videosinks (see the -vs entry in `man uxplay` for a list) to see
+which work on your system.  Also use
+
+```
+gst-inspect-1.0 | grep sink | grep [V,v]ideo
+```
+
+to see which videosinks GStreamer believes are installed.   Repeat the gst-launch-1.0 command,
+replacing "autovideosink" by the name of each videosink you wish to test.
+
+
 -   clearing the user's GStreamer cache with
     `rm -rf ~/.cache/gstreamer-1.0/*` may be the solution to problems
     where gst-inspect-1.0 does not show a plugin that you believe is
