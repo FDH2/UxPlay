@@ -91,7 +91,8 @@
   #define DEFAULT_SRGB_FIX false
 #endif
 
-static std::string server_name = DEFAULT_NAME;
+static const char *appname = DEFAULT_NAME;
+static std::string server_name = appname;
 static bool server_name_is_utf8 = false;
 static dnssd_t *dnssd = NULL;
 static raop_t *raop = NULL;
@@ -217,7 +218,6 @@ static DBusConnection *dbus_connection = NULL;
 static dbus_uint32_t dbus_cookie = 0;
 static DBusPendingCall *dbus_pending = NULL;
 static bool dbus_last_message = false;
-static const char *appname = DEFAULT_NAME;
 static const char *reason_always = "mirroring client: inhibit always";
 static const char *reason_active = "actively receiving video";
 static float previous_hls_position = 0.0f;
@@ -1914,23 +1914,14 @@ static int parse_dmap_header(const unsigned char *metadata, char *tag, int *len)
 
 static int register_dnssd() {
     int dnssd_error;
+    int dnssd_type = 0;
     uint64_t features;
     
     dnssd_error = dnssd_register_raop(dnssd, raop_port);
     if (dnssd_error) {
         if (ble_filename.empty()) {
-            if (dnssd_error == -65537) {
-                LOGE("No DNS-SD Server found (DNSServiceRegister call returned kDNSServiceErr_Unknown)");
-            } else if (dnssd_error == -65548) {
-                LOGE("DNSServiceRegister call returned kDNSServiceErr_NameConflict");
-                LOGI("Is another instance of %s running with the same DeviceID (MAC address) or using same network ports?",
-                     DEFAULT_NAME);
-                LOGI("Use options -m ... and -p ... to allow multiple instances of %s to run concurrently", DEFAULT_NAME); 
-            } else {
-                LOGE("dnssd_register_raop failed with error code %d\n"
-                     "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-                     "(see Apple's dns_sd.h)", dnssd_error);
-            }
+            LOGE("dnssd_register_raop failed with error code %d", dnssd_error);
+            dnssd_error_text(&dnssd_error, appname);
             return -3;
         } else {
             LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
@@ -1940,9 +1931,8 @@ static int register_dnssd() {
     dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
     if (dnssd_error) {
         if (ble_filename.empty()) {
-            LOGE("dnssd_register_airplay failed with error code %d\n"
-                 "mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
-                 "(see Apple's dns_sd.h)", dnssd_error);
+            LOGE("dnssd_register_airplay failed with error code %d", dnssd_error);
+            dnssd_error_text(&dnssd_error, appname);
             return -4;
         } else {
             LOGI("dnssd_register_airplay failed: ignoring because Bluetooth LE service discovery may be available");   

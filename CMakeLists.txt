@@ -49,16 +49,16 @@ else()
   set( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
 endif()
 
+set ( USE_DNS_SD TRUE)
+if (USE_DNS_SD)
+  message ( STATUS "******** using Bounjour/Apple dns_sd.h for Service Discovery")
+  add_subdirectory( lib/dns_sd)
+endif()
+
 add_subdirectory( lib/llhttp )
 add_subdirectory( lib/playfair )
 add_subdirectory( lib )
 add_subdirectory( renderers )
-
-set (USE_DNS_SD TRUE)
-if (USE_DNS_SD)
-  add_subdirectory( lib/dns_sd)
-endif()
-
 
 if  ( GST_MACOS )
      add_definitions( -DGST_MACOS )

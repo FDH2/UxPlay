@@ -1,11 +1,5 @@
 include_directories( playfair llhttp )
 
-
-if (USE_DNS_SD )
-  message( STATUS "******** Compiling to use  BonJour/DNS_SD" )
-  include_directories( dns_sd )
-endif()
-
 message( STATUS "*** CFLAGS \"" ${CMAKE_C_FLAGS} "\" from build environment will be postpended to CMAKE_CFLAGS" )
 
 # Common x86/x86_64 cflags
