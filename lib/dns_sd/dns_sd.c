@@ -402,3 +402,18 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
     dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
     dnssd->airplay_service = NULL;
 }
+
+void dnssd_error_text(int *dnssd_error, const char *appname) {
+    printf("*** dnssd_implementation: external, dns_sd.h\n");
+    if (*dnssd_error == -65537) {
+        printf("    No DNS-SD Server found (DNSServiceRegister call returned kDNSServiceErr_Unknown)\n");
+    } else if (*dnssd_error == -65548) {
+        printf("    DNSServiceRegister call returned kDNSServiceErr_NameConflict\n");
+        printf("    Is another instance of %s running with the same DeviceID (MAC address) or using same network ports?\n",
+	        appname);
+        printf("    Use options -m ... and -p ... to allow multiple instances of %s to run concurrently\n", appname); 
+    } else {
+        printf("    mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+	       "(see Apple's dns_sd.h)\n", *dnssd_error);
+    }
+}
