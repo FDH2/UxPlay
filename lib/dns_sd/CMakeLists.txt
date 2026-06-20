@@ -1,0 +1,48 @@
+aux_source_directory(. dnssd_src)
+set(DIR_SRCS ${dnssd_src})
+include_directories(.)
+add_library( dnssd 
+        STATIC
+        ${DIR_SRCS})
+
+find_package(PkgConfig REQUIRED)
+
+#dns_sd 
+if ( NOT APPLE )
+  pkg_search_module(AVAHI_DNSSD avahi-compat-libdns_sd)
+  if (AVAHI_DNSSD_FOUND)
+    target_include_directories(dnssd PRIVATE ${AVAHI_DNSSD_INCLUDE_DIRS} )
+    find_library( DNSSD ${AVAHI_DNSSD_LIBRARIES} PATH ${AVAHI_DNSSD_LIBDIR})
+    target_link_libraries(dnssd PUBLIC ${DNSSD} )
+  else()  # can also build if mDNSResponder or another implementation of dns_sd is present instead of Avahi
+    if ( WIN32 )
+      if (DEFINED ENV{BONJOUR_SDK_HOME}) 
+        set(BONJOUR_SDK "$ENV{BONJOUR_SDK_HOME}" )
+      else()
+        set(BONJOUR_SDK "C:\\Program Files\\Bonjour SDK")
+      endif()
+      message( STATUS "BONJOUR_SDK_HOME " ${BONJOUR_SDK} )
+      set(DNSSD "${BONJOUR_SDK}/Lib/x64/dnssd.lib")
+      target_link_libraries(dnssd ${DNSSD} )
+      message( STATUS "dns_sd: using " ${DNSSD} )
+      find_path(DNSSD_INCLUDE_DIR dns_sd.h HINTS ${BONJOUR_SDK}/Include )
+    else()
+      find_library( DNSSD dns_sd )
+      if( NOT DNSSD )
+        message( FATAL_ERROR "libdns_sd missing; can be provided by avahi_compat-libdns_sd or mDNSResponder." )
+      else()
+        message( STATUS "dns_sd:  found" ${DNSSD} )
+      endif()
+      target_link_libraries(dnssd PUBLIC ${DNSSD} ) 
+      find_path(DNSSD_INCLUDE_DIR dns_sd.h HINTS ${CMAKE_INSTALL_INCLUDEDIR} )
+    endif()
+    if ( NOT DNSSD_INCLUDE_DIR )
+       message( FATAL_ERROR " dns_sd.h not found ")
+     else()
+        message( STATUS "found dns_sd.h in " ${DNSSD_INCLUDE_DIR} )
+     endif()
+    target_include_directories(dnssd PRIVATE ${DNSSD_INCLUDE_DIR} )
+  endif()
+endif()	
+
+

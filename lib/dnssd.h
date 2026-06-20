@@ -30,10 +30,30 @@ extern "C" {
 #define DNSSD_ERROR_LIBNOTFOUND   3
 #define DNSSD_ERROR_PROCNOTFOUND  4
 #define DNSSD_ERROR_BADFEATURES   5
+#define DNSSD_ERROR_BADNAME       6
 
-typedef struct dnssd_s dnssd_t;
+typedef struct dnssd_s {
 
-DNSSD_API dnssd_t *dnssd_init(const char *name, int name_len, const char *hw_addr, int hw_addr_len, int *error, unsigned char pin_pw);
+    char *name;
+    int name_len;
+
+    char *hw_addr;
+    int hw_addr_len;
+
+    char *pk;
+
+    uint32_t features1;
+    uint32_t features2;
+
+    unsigned char pin_pw;
+
+    void *dnssd_private;
+} dnssd_t;
+
+void *dnssd_private_init(dnssd_t *dnssd_public, int *error);
+void dnssd_private_destroy(void *dnssd_private);
+  
+DNSSD_API dnssd_t *dnssd_init(const char *name, int name_len, const char *hw_addr, int hw_addr_len, unsigned char pin_pw, int *error);
 
 DNSSD_API int dnssd_register_raop(dnssd_t *dnssd, unsigned short port);
 DNSSD_API int dnssd_register_airplay(dnssd_t *dnssd, unsigned short port);

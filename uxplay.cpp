@@ -1983,7 +1983,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
               = 3: client must enter randoe 4-digit password displayed like an  onscreen pin (every access)
               = 0:  no access control
     */
-    dnssd = dnssd_init(name.c_str(), strlen(name.c_str()), hw_addr.data(), hw_addr.size(), &dnssd_error, pin_pw);
+    dnssd = dnssd_init(name.c_str(), strlen(name.c_str()), hw_addr.data(), hw_addr.size(), pin_pw, &dnssd_error);
     if (dnssd_error) {
         LOGE("Could not initialize dnssd library!: error %d", dnssd_error);
         return 1;

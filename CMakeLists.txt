@@ -54,6 +54,12 @@ add_subdirectory( lib/playfair )
 add_subdirectory( lib )
 add_subdirectory( renderers )
 
+set (USE_DNS_SD TRUE)
+if (USE_DNS_SD)
+  add_subdirectory( lib/dns_sd)
+endif()
+
+
 if  ( GST_MACOS )
      add_definitions( -DGST_MACOS )
      message ( STATUS "define GST_MACOS" )
