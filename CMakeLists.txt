@@ -42,19 +42,21 @@ if( UNIX AND NOT APPLE )
 endif()
 
 if( UNIX AND NOT APPLE )
-  add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
   # convert AirPlay colormap 1:3:7:1 to sRGB (1:1:7:1), needed on Linux and BSD
   add_definitions( -DFULL_RANGE_RGB_FIX )
 else()
   set( CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE )
 endif()
 
-set ( USE_DNS_SD TRUE )
 if (USE_DNS_SD)
   message ( STATUS "******** using Bounjour/Apple dns_sd.h for Service Discovery")
   add_subdirectory( lib/dns_sd)
+  if (UNIX AND NOT APPLE)
+    add_definitions( -DSUPPRESS_AVAHI_COMPAT_WARNING )
+  endif()
 else()
   message ( STATUS "******** using internal minimal mDNSResponder implementation (lib/mdnsd) for Service Discovery")
+  message ( STATUS "******** use \"cmake -DUSE_DNS_SD=1\" to build with the previously-used Apple/Avahi dns-sd.h code")
   add_subdirectory( lib/mdnsd)
 endif()
 

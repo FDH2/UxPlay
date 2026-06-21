@@ -2,6 +2,19 @@
 
 ### **Now developed at the GitHub site <https://github.com/FDH2/UxPlay> (where ALL user issues should be posted, and latest versions can be found).**
 
+-   \*\*NEW in v 1.74 (Experimental) (June 2026)
+
+    **This is a trial of a future release with new contributed code that
+    provides a minimal internal mDNSResponder implemention that removes
+    dependence on avahi (linux) or Apple's Bonjour (Windows and macOS).
+    The previous implementation based on Apple's dns_sd.h is still
+    available by compiling UxPlay using `cmake -DUSE_DNS_SD=1`**
+
+    *Comments about issues with this new internal mdns implementation,
+    and whether it should become the default (with the external
+    Avahi/Bonjour implementation remaining as an alternative build
+    option), or vice versa, are extremely welcome.* (Issue #529 )
+
 -   **NEW in v1.73, up to v1.73.6** (March 2026):
 
 -   Some YouTube app HLS videos now offer alternative language tracks
