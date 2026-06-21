@@ -1,13 +1,24 @@
 <h1
-id="uxplay-1.73-airplay-mirror-and-airplay-audio-server-for-linux-macos-and-unix-also-runs-on-windows.">UxPlay
-1.73: AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix
-(also runs on Windows).</h1>
+id="uxplay-1.74-experimental-airplay-mirror-and-airplay-audio-server-for-linux-macos-and-unix-also-runs-on-windows.">UxPlay
+1.74 (Experimental): AirPlay-Mirror and AirPlay-Audio server for Linux,
+macOS, and Unix (also runs on Windows).</h1>
 <h3
 id="now-developed-at-the-github-site-httpsgithub.comfdh2uxplay-where-all-user-issues-should-be-posted-and-latest-versions-can-be-found."><strong>Now
 developed at the GitHub site <a href="https://github.com/FDH2/UxPlay"
 class="uri">https://github.com/FDH2/UxPlay</a> (where ALL user issues
 should be posted, and latest versions can be found).</strong></h3>
 <ul>
+<li><p>**NEW in v 1.74 (Experimental) (June 2026)</p>
+<p><strong>This is a trial of a future release with new contributed code
+that provides a minimal internal mDNSResponder implemention that removes
+dependence on avahi (linux) or Apple’s Bonjour (Windows and macOS). The
+previous implementation based on Apple’s dns_sd.h is still available by
+compiling UxPlay using <code>cmake -DUSE_DNS_SD=1</code></strong></p>
+<p><em>Comments about issues with this new internal mdns implementation,
+and whether it should become the default (with the external
+Avahi/Bonjour implementation remaining as an alternative build option),
+or vice versa, are extremely welcome.</em> (Issue <a
+href="https://github.com/FDH2/UxPlay/issues/529">#529</a></p></li>
 <li><p><strong>NEW in v1.73, up to v1.73.6</strong> (March
 2026):</p></li>
 <li><p>Some YouTube app HLS videos now offer alternative language tracks
@@ -2093,6 +2104,8 @@ an AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
+<p>1.74 2026-06-21 Optional minimal internal mDNSResponder to replace
+Bonjour/Avahi</p>
 <p>1.73.6 2026-03-22 Fix “not a socket” message uxplay bug. Futher
 uxplay-beacon.py improvements (Only use GLib in BlueZ module)</p>
 <p>1.73.4 2026-03-15 Modularize Bluetooth support for uxplay-beacon. Add

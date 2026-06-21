@@ -1,6 +1,21 @@
-# UxPlay 1.73: AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix (also runs on Windows).
+# UxPlay 1.74 (Experimental): AirPlay-Mirror and AirPlay-Audio server for Linux, macOS, and Unix (also runs on Windows).
 
 ### **Now developed at the GitHub site <https://github.com/FDH2/UxPlay> (where ALL user issues should be posted, and latest versions can be found).**
+
+-   **NEW in v 1.74 (Experimental) (June 2026)
+
+     **This is a trial of a future release with new contributed code that provides
+     a minimal internal mDNSResponder implemention that removes dependence
+     on avahi (linux) or Apple's Bonjour (Windows and macOS).  The previous
+     implementation based on Apple's dns_sd.h is still available by compiling
+     UxPlay using `cmake -DUSE_DNS_SD=1`**
+
+     *Comments about issues with this new internal mdns implementation, and
+     whether it should become the default (with the external Avahi/Bonjour
+     implementation remaining as an alternative build option), or vice versa,
+     are extremely welcome.*  (Issue [#529](https://github.com/FDH2/UxPlay/issues/529)
+
+
 
 -  **NEW in v1.73, up to  v1.73.6** (March 2026):
 
@@ -2089,6 +2104,9 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
+1.74  2026-06-21  Optional minimal internal mDNSResponder to replace
+Bonjour/Avahi
+
 1.73.6 2026-03-22  Fix "not a socket" message uxplay bug.
 Futher uxplay-beacon.py improvements (Only use GLib in BlueZ module)
 
