@@ -350,8 +350,9 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
 
 void dnssd_error_text(int *dnssd_error, const  char *appname) {
     printf("*** dnssd_implementation: internal, mdnsd\n");
-    printf(" mdnsd.c error %d\n", *dnssd_error);
+    printf("setup or start of self-contained mDNSResponder (lib/mdnsd) failed; check UDP port 5353 and multicast access");
+    if (*dnssd_error != -1) {
+        int sock_err = - *dnssd_error;
+        printf("Socket error %d: %s\n", sock_err, SOCKET_ERROR_STRING(sock_err));
+    }
 }
-
-
-  
