@@ -28,7 +28,7 @@
 
 -   Support for **service discovery using a Bluetooth LE "beacon"** for both Linux/\*BSD and Windows (as an alternative to Bonjour/Rendezvous DNS-SD
     service discovery) was introduced in v1.73 and improved in 1.73.4 - 1.73.6.  This can be used on networks that do not allow the user to run a  DNS_SD service.**
-    The user must run a Bluetooth LE "beacon", (Bluetooth  4.0 or later is needed, a cheap USD "dongle" will do.). The
+    The user must run a Bluetooth LE "beacon", (Bluetooth  4.0 or later is needed, a cheap USB "dongle" will do.). The
     beacon is managed by a Python >= 3.6 script `uxplay-beacon.py`. Loadable Python modules provide appropriate Bluetooth LE  support for Linux, Windows,
     and FreeBSD;  _macOS is only supported by the BleuIO USB dongle which uniquely has its own Bluetooth LE stack based on a Renesas SoC, and is seen by the
     host as a serial modem (this can be used on all the operating systems supported by Uxplay, including other BSD variants)._    The beacon runs independently
