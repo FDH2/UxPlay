@@ -8,7 +8,10 @@
     provides a minimal internal mDNSResponder implemention that removes
     dependence on avahi (linux) or Apple's Bonjour (Windows and macOS).
     The previous implementation based on Apple's dns_sd.h is still
-    available by compiling UxPlay using `cmake -DUSE_DNS_SD=1`**
+    available by compiling UxPlay using `cmake -DUSE_DNS_SD=1`** (By
+    default, UxPlay on macOS continues to use Bonjour: to test the
+    UxPlay internal mdns implementation on macOS, use
+    `cmake -DUSE_MDNS=1`).
 
     *Comments about issues with this new internal mdns implementation,
     and whether it should become the default (with the external
@@ -35,7 +38,7 @@
     and improved in 1.73.4 - 1.73.6. This can be used on networks that
     do not allow the user to run a DNS_SD service.\*\* The user must run
     a Bluetooth LE "beacon", (Bluetooth 4.0 or later is needed, a cheap
-    USD "dongle" will do.). The beacon is managed by a Python \>= 3.6
+    USB "dongle" will do.). The beacon is managed by a Python \>= 3.6
     script `uxplay-beacon.py`. Loadable Python modules provide
     appropriate Bluetooth LE support for Linux, Windows, and FreeBSD;
     *macOS is only supported by the BleuIO USB dongle which uniquely has
@@ -442,15 +445,22 @@ GStreamer \< 1.20 is detected, a fix needed by screen-sharing apps
 
 1.  `sudo apt install libssl-dev libplist-dev`". (*unless you need to
     build OpenSSL and libplist from source*).
-2.  `sudo apt install libavahi-compat-libdnssd-dev`
+
+2.  `sudo apt install libavahi-compat-libdnssd-dev` (*only needed if you
+    are building with `cmake -DUSE_DNS_SD=1` to use an Avahi as an
+    external DNS_SD service to provide Service Discovery*).
+
 3.  `sudo apt install libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev`.
     (\**Skip if you built Gstreamer from source*)
+
 4.  `cmake .` (*For a cleaner build, which is useful if you modify the
     source, replace this by* "`mkdir build; cd build; cmake ..`": *you
     can then delete the contents of the `build` directory if needed,
     without affecting the source.*) Also add any cmake "`-D`" options
     here as needed (e.g, `-DNO_X11_DEPS=ON` or `-DNO_MARCH_NATIVE=ON`).
+
 5.  `make`
+
 6.  `sudo make install` (you can afterwards uninstall with
     `sudo make uninstall` in the same directory in which this was run).
 
@@ -599,6 +609,22 @@ the VA-API plugins for Intel/AMD graphics are provided by
 
 ### Starting and running UxPlay
 
+-   A method to enable Service Discovery (so AirPlay clients on the
+    local network can find the AirPlay service provided by UxPlay) must
+    be set up. The standard method used by UxPlay is to announce the
+    service on the **mDNS network port UDP 5353, which must be opened
+    for mdns queries if a firewall is active on the host computer **.
+    Previously, UxPlay needed an external `DNS_SD` service (Apple's
+    Bonjour service, usually implemented on Linux/\*BSD by Avahi or
+    mDNSResponder, but UxPlay now also supplies its own built-in
+    'minimal' version of mDNSResponder. The choice between using the
+    built-in version or an external service is a compile-time option.
+
+-   If use of mdns is not possible on your network, or you prefer not to
+    use it, there is now an alternative Service Discovery method using a
+    Bluetooth LE beacon. See the instructions on [Bluetooth beacon
+    setup](#bluetooth-le-beacon-setup).
+
 Since UxPlay-1.64, UxPlay can be started with options read from a
 configuration file, which will be the first found of (1) a file with a
 path given by environment variable `$UXPLAYRC`, (2) `~/.uxplayrc` in the
@@ -613,23 +639,19 @@ fullscreen mode with F11 or (held-down left Alt)+Enter keys. Use Ctrl-C
 (or close the window) to terminate it when done.
 
 If the UxPlay server is not seen by the iOS client's drop-down "Screen
-Mirroring" panel, check that your DNS-SD server (usually avahi-daemon)
-is running: do this in a terminal window with
-`systemctl status avahi-daemon`. If this shows the avahi-daemon is not
-running, control it with
+Mirroring" panel, Service Discovery is not working. If you are using an
+external DNS_SD service (usually avahi-daemon) check that it is running:
+do this in a terminal window with `systemctl status avahi-daemon`. If
+this shows the avahi-daemon is not running, control it with
 `sudo systemctl [start,stop,enable,disable] avahi-daemon` (on
 non-systemd systems, such as \*BSD, use
-`sudo service avahi-daemon [status, start, stop, restart, ...]`). If
-UxPlay is seen, but the client fails to connect when it is selected,
-there may be a firewall on the server that prevents UxPlay from
-receiving client connection requests unless some network ports are
-opened: **if a firewall is active, also open UDP port 5353 (for mDNS
-queries) needed by Avahi**. See [Troubleshooting](#troubleshooting)
-below for help with this or other problems.
+`sudo service avahi-daemon [status, start, stop, restart, ...]`).
 
-Note that there is now an alternative Service Discovery method using a
-Bluetooth LE beacon. See the instructions on [Bluetooth beacon
-setup](#bluetooth-le-beacon-setup).
+If UxPlay is seen, but the client fails to connect when it is selected,
+there may be a firewall on the server that prevents UxPlay from
+receiving client connection requests unless some additional network
+ports are opened: See [Troubleshooting](#troubleshooting) below for help
+with this or other problems.
 
 -   Unlike an Apple TV, the UxPlay server does not by default require
     clients to initially "pair" with it using a pin code displayed by
@@ -937,6 +959,13 @@ and change into the UxPlay source directory ("UxPlay-master" for zipfile
 downloads, "UxPlay" for "git clone" downloads) and build/install with
 "cmake . ; make ; sudo make install" (same as for Linux).
 
+-   **NEW**: UxPlay now optionally supplies its own minimal
+    implementation of an mDNSResponder, which can replace use of Apple's
+    built in Apple Bonjour service. Since there seems no advantage in
+    using it on Apple, the default will be to use the native Bonjour
+    service on macOS. To use the UxPlay implementation (which is tested
+    and works on macOS), compile with `cmake -DUSE_MDNS=1`.
+
 -   Running UxPlay while checking for GStreamer warnings (do this with
     "export GST_DEBUG=2" before runnng UxPlay) reveals that with the
     default (since UxPlay 1.64) use of timestamps for video
@@ -984,6 +1013,10 @@ below](#bluetooth-le-beacon-setup).
 
 -   tested on Windows 10 and 11, 64-bit.
 
+-   **NEW: Uxplay now supplies its own self-contained mdns replacement
+    for Bonjour, making step 1 unnecessary unless you choose to use
+    Bonjour.** To use Bonjour, compile with `cmake -DUSE_DNS_SD=1`.
+
 1.  Download and install **Bonjour SDK for Windows v3.0**. You can
     download the SDK without any registration at
     [softpedia.com](https://www.softpedia.com/get/Programming/SDK-DDK/Bonjour-SDK.shtml),
@@ -993,10 +1026,9 @@ below](#bluetooth-le-beacon-setup).
     site). This should install the Bonjour SDK as
     `C:\Program Files\Bonjour SDK`.
 
--   \*\*NEW: while you still need to install the Bonjour SDK to build
-    UxPlay, there is now an alternative method for Service Discovery
-    using a Bluetooth Low Energy (BLE) beacon on Windows. See
-    [instructions below](#bluetooth-le-beacon-setup).
+-   \*\*NEW: There is also now an alternative (non-mdns) method for
+    Service Discovery using a Bluetooth Low Energy (BLE) beacon on
+    Windows. See [instructions below](#bluetooth-le-beacon-setup).
 
 2.  (This is for 64-bit Windows; a build for 32-bit Windows should be
     possible, but is not tested.) The unix-like MSYS2 build environment
