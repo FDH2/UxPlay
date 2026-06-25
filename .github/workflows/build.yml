@@ -1,0 +1,134 @@
+name: Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+env:
+  BUILD_TYPE: RelWithDebInfo
+  # Disable interactive features
+  DEBIAN_FRONTEND: noninteractive
+  HOMEBREW_NO_ANALYTICS: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            g++ \
+            make \
+            libssl-dev \
+            libplist-dev \
+            gstreamer1.0-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-x \
+            libgl1-mesa-dev \
+            libdbus-1-dev \
+            pkg-config
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DNO_X11_DEPS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify binary
+        run: |
+          test -x build/uxplay
+          ls -la build/uxplay
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Remove untrusted Homebrew AWS tap
+        run: brew untap aws/tap || true
+
+      - name: Install dependencies
+        run: |
+          brew install \
+            cmake \
+            openssl@3 \
+            libplist \
+            glib \
+            gstreamer \
+            gst-plugins-base \
+            gst-plugins-good \
+            orc \
+            meson
+
+      - name: Set OpenSSL path
+        run: |
+          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DNO_X11_DEPS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify binary
+        run: |
+          test -x build/uxplay
+          ls -la build/uxplay
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-libplist
+            mingw-w64-x86_64-gstreamer
+            mingw-w64-x86_64-gst-plugins-base
+            mingw-w64-x86_64-gst-plugins-good
+            mingw-w64-x86_64-pkg-config
+            base-devel
+
+      - name: Configure CMake
+        shell: msys2 {0}
+        env:
+          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
+        run: |
+          cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DNO_X11_DEPS=ON
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+      - name: Verify binary
+        shell: msys2 {0}
+        run: |
+          test -f build/uxplay.exe
+          ls -la build/uxplay.exe
