@@ -137,6 +137,26 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .PP
 .TP
 \fB\-as\fR 0     (or \fB\-a\fR) Turn audio off, streamed video only.
+.IP
+   This only disables local audio playback; it does not change what
+.IP
+   UxPlay advertises, so a client may still route audio to it. See
+.IP
+   \fB\-naa\fR below.
+.TP
+\fB\-naa\fI [mode]\fR  (or \fB\-\-no\-audio\-advertise\fI [mode]\fR) EXPERIMENTAL:
+.IP
+   narrow the AirPlay/DNS-SD advertisement so clients are less likely
+.IP
+   to route audio to UxPlay, instead of only muting local playback.
+.IP
+   Implies \fB\-a\fR. mode is "bits", "raop", or "both" (default "both"
+.IP
+   if mode is omitted). Some AirPlay clients are known to disconnect
+.IP
+   mirroring after 30/60 seconds when audio support is not advertised;
+.IP
+   see specs/no-audio-advertisement.md for details and known risks.
 .TP
 \fB\-al\fR x     Audio latency in seconds (default 0.25) reported to client.
 .TP

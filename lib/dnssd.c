@@ -151,6 +151,71 @@ void dnssd_set_pk(dnssd_t *dnssd, char * pk_str) {
     dnssd->pk = pk_str;
 }
 
+void dnssd_set_default_airplay_features(dnssd_t *dnssd, int hls_support, int h265_support, int setup_legacy_pairing) {
+    /* default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0 */
+
+    dnssd_set_airplay_features(dnssd,  0, 0); // AirPlay video supported
+    dnssd_set_airplay_features(dnssd,  1, 1); // photo supported
+    dnssd_set_airplay_features(dnssd,  2, 1); // video protected with FairPlay DRM
+    dnssd_set_airplay_features(dnssd,  3, 0); // volume control supported for videos
+
+    dnssd_set_airplay_features(dnssd,  4, 0); // http live streaming (HLS) supported
+    dnssd_set_airplay_features(dnssd,  5, 1); // slideshow supported
+    dnssd_set_airplay_features(dnssd,  6, 1); //
+    dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
+
+    dnssd_set_airplay_features(dnssd,  8, 0); // screen rotation  supported
+    dnssd_set_airplay_features(dnssd,  9, 1); // audio supported
+    dnssd_set_airplay_features(dnssd, 10, 1); //
+    dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
+
+    dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported
+    dnssd_set_airplay_features(dnssd, 13, 1); // photo preloading  supported
+    dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
+    dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork
+
+    dnssd_set_airplay_features(dnssd, 16, 1); // Metadata bit 2 support:  Soundtrack  Progress
+    dnssd_set_airplay_features(dnssd, 17, 1); // Metadata bit 0 support:  Text (DAACP) "Now Playing" info.
+    dnssd_set_airplay_features(dnssd, 18, 1); // Audio format 1 support:
+    dnssd_set_airplay_features(dnssd, 19, 1); // Audio format 2 support: must be set for AirPlay 2 multiroom audio
+
+    dnssd_set_airplay_features(dnssd, 20, 1); // Audio format 3 support: must be set for AirPlay 2 multiroom audio
+    dnssd_set_airplay_features(dnssd, 21, 1); // Audio format 4 support:
+    dnssd_set_airplay_features(dnssd, 22, 1); // Authentication type 4: FairPlay authentication
+    dnssd_set_airplay_features(dnssd, 23, 0); // Authentication type 1: RSA Authentication
+
+    dnssd_set_airplay_features(dnssd, 24, 0); //
+    dnssd_set_airplay_features(dnssd, 25, 1); //
+    dnssd_set_airplay_features(dnssd, 26, 0); // Has Unified Advertiser info
+    dnssd_set_airplay_features(dnssd, 27, 1); // Supports Legacy Pairing
+
+    dnssd_set_airplay_features(dnssd, 28, 1); //
+    dnssd_set_airplay_features(dnssd, 29, 0); //
+    dnssd_set_airplay_features(dnssd, 30, 1); // RAOP support: with this bit set, the AirTunes service is not required.
+    dnssd_set_airplay_features(dnssd, 31, 0); //
+
+    /* needed for HLS video support */
+    dnssd_set_airplay_features(dnssd, 0, (int) hls_support);
+    dnssd_set_airplay_features(dnssd, 4, (int) hls_support);
+
+    /* needed for h265 video support */
+    dnssd_set_airplay_features(dnssd, 42, (int) h265_support);
+
+    /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
+    dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
+}
+
+void dnssd_apply_no_audio_advertise(dnssd_t *dnssd) {
+    /* clears the feature bits that claim audio support/capability; see
+     * specs/no-audio-advertisement.md "--no-audio-advertise bits" mode */
+    dnssd_set_airplay_features(dnssd,  9, 0); // audio supported
+    dnssd_set_airplay_features(dnssd, 11, 0); // audio packet redundancy supported
+    dnssd_set_airplay_features(dnssd, 18, 0); // Audio format 1 support
+    dnssd_set_airplay_features(dnssd, 19, 0); // Audio format 2 support
+    dnssd_set_airplay_features(dnssd, 20, 0); // Audio format 3 support
+    dnssd_set_airplay_features(dnssd, 21, 0); // Audio format 4 support
+}
+
 void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
     uint32_t mask = 0;
     uint32_t *features = 0;

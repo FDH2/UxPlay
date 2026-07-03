@@ -75,7 +75,7 @@ if  ( GST_MACOS )
      message ( STATUS "define GST_MACOS" )
 endif()
 
-add_executable( uxplay uxplay.cpp )
+add_executable( uxplay uxplay.cpp audio_advertise.cpp )
 target_link_libraries( uxplay renderers airplay )
 if (DBUS_FOUND)
       target_link_libraries( uxplay ${DBUS_LIBRARY})
@@ -112,6 +112,12 @@ install( FILES Bluetooth_LE_beacon/uxplay_beacon_module_HCI.py
          PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
 endif()
 
+
+option( BUILD_TESTS "Build UxPlay unit tests" ON )
+if ( BUILD_TESTS )
+  enable_testing()
+  add_subdirectory( tests )
+endif()
 
 # uninstall target
 if(NOT TARGET uninstall)

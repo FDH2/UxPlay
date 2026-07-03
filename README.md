@@ -1454,7 +1454,37 @@ GStreamer documentation), and some choices of audiosink might not work
 on your system.
 
 **-as 0** (or just **-a**) suppresses playing of streamed audio, but
-displays streamed video.
+displays streamed video. **This only disables audio playback on the UxPlay
+server itself.** It does not change what UxPlay advertises to the client, so
+macOS/iOS may still select UxPlay as the system audio output during
+mirroring, and the user may experience silence with no obvious cause. When
+`-a`/`-as 0` is used without `--no-audio-advertise` (below), UxPlay logs a
+startup warning about this.
+
+**-naa \[*mode*\]** (or **--no-audio-advertise \[*mode*\]**) is an
+**experimental** option that narrows the AirPlay/DNS-SD advertisement itself,
+in an attempt to stop macOS/iOS from selecting UxPlay as an audio output in
+the first place, rather than merely muting playback after the fact. It
+implies `-a`. Optional *mode* is one of:
+
+- **bits** — clear the AirPlay feature bits that claim audio support (bit 9
+  and related bits) in the advertised `features`/`ft` values.
+- **raop** — do not register the `_raop._tcp` (AirTunes) service at all.
+- **both** (default, used when *mode* is omitted) — both of the above.
+
+This is genuinely experimental: clearing the audio-support feature bit is
+known, from upstream testing (see issues
+[#303](https://github.com/FDH2/UxPlay/issues/303),
+[#442](https://github.com/FDH2/UxPlay/issues/442), and
+[#489](https://github.com/FDH2/UxPlay/issues/489)), to make some AirPlay
+clients send a `TEARDOWN` request roughly 30–60 seconds into a mirroring
+session, ending it. No fix for that client-side behavior is known. See
+[`specs/no-audio-advertisement.md`](specs/no-audio-advertisement.md) for the
+full rationale and known risks, and
+[`docs/manual-test-no-audio-advertise.md`](docs/manual-test-no-audio-advertise.md)
+for a real-device verification procedure. Because of the unresolved
+teardown behavior, this is not the default and is not recommended for
+routine use yet.
 
 **-al *x*** specifies an audio latency *x* in (decimal) seconds in
 Audio-only (ALAC), that is reported to the client. Values in the range
@@ -2135,6 +2165,32 @@ be changed in global.h. UxPlay also works if it declares itself as an
 AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
+
+### 7. macOS/iOS routes audio to UxPlay even though audio playback was disabled.
+
+This happens because `-a` (and `-as 0`) only stop UxPlay from *playing*
+received audio locally — they do not change what UxPlay *advertises* to the
+client. The client has no way to know the server doesn't want to be used for
+audio, so macOS in particular may still pick UxPlay as the system audio
+output when screen mirroring starts, and the user gets silence instead of
+sound with no clear explanation. As of this version, `-a`/`-as 0` used alone
+prints a startup warning explaining this.
+
+The **experimental** `--no-audio-advertise` (or `-naa`) option, described
+above in the Usage section, narrows the actual AirPlay/DNS-SD advertisement
+instead of only muting local playback. It is not the default because
+clearing the AirPlay "audio supported" feature bit is known, from upstream
+issues [#303](https://github.com/FDH2/UxPlay/issues/303),
+[#442](https://github.com/FDH2/UxPlay/issues/442) and
+[#489](https://github.com/FDH2/UxPlay/issues/489), to make some clients send
+a `TEARDOWN` request roughly 30–60 seconds into the mirroring session — a
+client-side AirPlay protocol behavior with no known fix (it was reproduced
+against an independent, unrelated AirPlay server implementation, ruling out
+a UxPlay-specific bug). See
+[`specs/no-audio-advertisement.md`](specs/no-audio-advertisement.md) for
+details and
+[`docs/manual-test-no-audio-advertise.md`](docs/manual-test-no-audio-advertise.md)
+for how to verify behavior on real hardware.
 
 # Changelog
 1.74  2026-06-21  Optional minimal internal mDNSResponder to replace

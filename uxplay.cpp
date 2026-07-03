@@ -67,6 +67,7 @@
 #include "renderers/video_renderer.h"
 #include "renderers/audio_renderer.h"
 #include "renderers/mux_renderer.h"
+#include "audio_advertise.h"
 #ifdef DBUS
 #include <dbus/dbus.h>
 #endif
@@ -112,6 +113,9 @@ static unsigned char compression_type = 0;
 static std::string audiosink = "autoaudiosink";
 static int  audiodelay = -1;
 static bool use_audio = true;
+static bool no_audio_advertise = false; // --no-audio-advertise [bits|raop|both], see specs/no-audio-advertisement.md
+static bool naa_clear_bits = false;
+static bool naa_skip_raop = false;
 #if __APPLE__
 static bool new_window_closing_behavior = false;
 #else
@@ -969,6 +973,11 @@ static void print_info (char *name) {
     printf("          some choices:pulsesink,alsasink,pipewiresink,jackaudiosink,\n");
     printf("          osssink,oss4sink,osxaudiosink,wasapisink,directsoundsink.\n");
     printf("-as 0     (or -a)  Turn audio off, streamed video only\n");
+    printf("-naa [m]  (or --no-audio-advertise [m]) EXPERIMENTAL: narrow the AirPlay\n");
+    printf("          advertisement so clients are less likely to route audio here;\n");
+    printf("          implies \"-a\". m = \"bits\"|\"raop\"|\"both\" (default \"both\").\n");
+    printf("          May cause some clients to disconnect after 30/60s; see\n");
+    printf("          specs/no-audio-advertisement.md\n");
     printf("-artp pl  Use rtpL16pay to send decoded audio elsewhere: \"pl\"\n");
     printf("          is the remaining pipeline, starting with rtpL16pay options:\n");
     printf("          e.g. \"pt=96 ! udpsink host=127.0.0.1 port=5002\"\n");
@@ -1360,6 +1369,23 @@ static void parse_arguments (int argc, char *argv[]) {
                 use_random_hw_addr  = true;
             }
         } else if (arg == "-a") {
+            use_audio = false;
+        } else if (uxplay_is_no_audio_advertise_flag(arg)) {
+            no_audio_advertise = true;
+            naa_clear_bits = true;
+            naa_skip_raop = true;
+            if (i < argc - 1 && *argv[i+1] != '-') {
+                bool clear_bits = false, skip_raop = false;
+                if (uxplay_parse_no_audio_advertise_mode(argv[i+1], clear_bits, skip_raop)) {
+                    naa_clear_bits = clear_bits;
+                    naa_skip_raop = skip_raop;
+                    i++;
+                } else {
+                    fprintf(stderr, "invalid \"%s %s\": mode must be \"bits\", \"raop\", or \"both\"\n",
+                            arg.c_str(), argv[i+1]);
+                    exit(1);
+                }
+            }
             use_audio = false;
         } else if (arg == "-d") {
             if (i < argc - 1 && *argv[i+1] != '-') {
@@ -1917,15 +1943,19 @@ static int register_dnssd() {
     int dnssd_type = 0;
     uint64_t features;
     
-    dnssd_error = dnssd_register_raop(dnssd, raop_port);
-    if (dnssd_error) {
-        if (ble_filename.empty()) {
-            LOGE("dnssd_register_raop failed with error code %d", dnssd_error);
-            dnssd_error_text(&dnssd_error, appname);
-            return -3;
-        } else {
-            LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
+    if (uxplay_should_register_raop(naa_skip_raop)) {
+        dnssd_error = dnssd_register_raop(dnssd, raop_port);
+        if (dnssd_error) {
+            if (ble_filename.empty()) {
+                LOGE("dnssd_register_raop failed with error code %d", dnssd_error);
+                dnssd_error_text(&dnssd_error, appname);
+                return -3;
+            } else {
+                LOGI("dnssd_register_raop failed: ignoring because Bluetooth LE service discovery may be available");
+            }
         }
+    } else {
+        LOGI("no_audio_advertise: skipping _raop._tcp registration");
     }
 
     dnssd_error = dnssd_register_airplay(dnssd, airplay_port);
@@ -1979,102 +2009,18 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
         return 1;
     }
 
-    /* after dnssd starts, reset the default feature set here 
+    /* after dnssd starts, reset the default feature set here
      * (overwrites features set in dnssdint.h)
-     * default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0 */
+     * default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0
+     * bit table lives in lib/dnssd.c (dnssd_set_default_airplay_features) so
+     * it can be unit-tested without GStreamer; see tests/test_dnssd_features.c
+     * and specs/no-audio-advertisement.md. bits 32-63 beyond bit 42 are
+     * unused: see https://emanualcozzi.net/docs/airplay2/features */
+    dnssd_set_default_airplay_features(dnssd, (int) hls_support, (int) h265_support, (int) setup_legacy_pairing);
 
-    dnssd_set_airplay_features(dnssd,  0, 0); // AirPlay video supported 
-    dnssd_set_airplay_features(dnssd,  1, 1); // photo supported 
-    dnssd_set_airplay_features(dnssd,  2, 1); // video protected with FairPlay DRM 
-    dnssd_set_airplay_features(dnssd,  3, 0); // volume control supported for videos
-
-    dnssd_set_airplay_features(dnssd,  4, 0); // http live streaming (HLS) supported
-    dnssd_set_airplay_features(dnssd,  5, 1); // slideshow supported 
-    dnssd_set_airplay_features(dnssd,  6, 1); // 
-    dnssd_set_airplay_features(dnssd,  7, 1); // mirroring supported
-
-    dnssd_set_airplay_features(dnssd,  8, 0); // screen rotation  supported 
-    dnssd_set_airplay_features(dnssd,  9, 1); // audio supported 
-    dnssd_set_airplay_features(dnssd, 10, 1); //  
-    dnssd_set_airplay_features(dnssd, 11, 1); // audio packet redundancy supported
-
-    dnssd_set_airplay_features(dnssd, 12, 1); // FaiPlay secure auth supported 
-    dnssd_set_airplay_features(dnssd, 13, 1); // photo preloading  supported 
-    dnssd_set_airplay_features(dnssd, 14, 1); // Authentication bit 4:  FairPlay authentication
-    dnssd_set_airplay_features(dnssd, 15, 1); // Metadata bit 1 support:   Artwork 
-
-    dnssd_set_airplay_features(dnssd, 16, 1); // Metadata bit 2 support:  Soundtrack  Progress 
-    dnssd_set_airplay_features(dnssd, 17, 1); // Metadata bit 0 support:  Text (DAACP) "Now Playing" info.
-    dnssd_set_airplay_features(dnssd, 18, 1); // Audio format 1 support:   
-    dnssd_set_airplay_features(dnssd, 19, 1); // Audio format 2 support: must be set for AirPlay 2 multiroom audio 
-
-    dnssd_set_airplay_features(dnssd, 20, 1); // Audio format 3 support: must be set for AirPlay 2 multiroom audio 
-    dnssd_set_airplay_features(dnssd, 21, 1); // Audio format 4 support:
-    dnssd_set_airplay_features(dnssd, 22, 1); // Authentication type 4: FairPlay authentication
-    dnssd_set_airplay_features(dnssd, 23, 0); // Authentication type 1: RSA Authentication
-
-    dnssd_set_airplay_features(dnssd, 24, 0); // 
-    dnssd_set_airplay_features(dnssd, 25, 1); // 
-    dnssd_set_airplay_features(dnssd, 26, 0); // Has Unified Advertiser info
-    dnssd_set_airplay_features(dnssd, 27, 1); // Supports Legacy Pairing
-
-    dnssd_set_airplay_features(dnssd, 28, 1); //  
-    dnssd_set_airplay_features(dnssd, 29, 0); // 
-    dnssd_set_airplay_features(dnssd, 30, 1); // RAOP support: with this bit set, the AirTunes service is not required. 
-    dnssd_set_airplay_features(dnssd, 31, 0); // 
-
-
-    /*  bits 32-63: see  https://emanualcozzi.net/docs/airplay2/features 
-    dnssd_set_airplay_features(dnssd, 32, 0); // isCarPlay when ON,; Supports InitialVolume when OFF
-    dnssd_set_airplay_features(dnssd, 33, 0); // Supports Air Play Video Play Queue
-    dnssd_set_airplay_features(dnssd, 34, 0); // Supports Air Play from cloud (requires that bit 6 is ON)
-    dnssd_set_airplay_features(dnssd, 35, 0); // Supports TLS_PSK
-
-    dnssd_set_airplay_features(dnssd, 36, 0); //
-    dnssd_set_airplay_features(dnssd, 37, 0); //
-    dnssd_set_airplay_features(dnssd, 38, 0); //  Supports Unified Media Control (CoreUtils Pairing and Encryption)
-    dnssd_set_airplay_features(dnssd, 39, 0); //
-
-    dnssd_set_airplay_features(dnssd, 40, 0); // Supports Buffered Audio
-    dnssd_set_airplay_features(dnssd, 41, 0); // Supports PTP
-    dnssd_set_airplay_features(dnssd, 42, 0); // Supports Screen Multi Codec (allows h265 video)
-    dnssd_set_airplay_features(dnssd, 43, 0); // Supports System Pairing
-
-    dnssd_set_airplay_features(dnssd, 44, 0); // is AP Valeria Screen Sender
-    dnssd_set_airplay_features(dnssd, 45, 0); //
-    dnssd_set_airplay_features(dnssd, 46, 0); // Supports HomeKit Pairing and Access Control
-    dnssd_set_airplay_features(dnssd, 47, 0); //
-
-    dnssd_set_airplay_features(dnssd, 48, 0); // Supports CoreUtils Pairing and Encryption
-    dnssd_set_airplay_features(dnssd, 49, 0); //
-    dnssd_set_airplay_features(dnssd, 50, 0); // Metadata bit 3: "Now Playing" info sent by bplist not DAACP test
-    dnssd_set_airplay_features(dnssd, 51, 0); // Supports Unified Pair Setup and MFi Authentication
-
-    dnssd_set_airplay_features(dnssd, 52, 0); // Supports Set Peers Extended Message
-    dnssd_set_airplay_features(dnssd, 53, 0); //
-    dnssd_set_airplay_features(dnssd, 54, 0); // Supports AP Sync
-    dnssd_set_airplay_features(dnssd, 55, 0); // Supports WoL
-
-    dnssd_set_airplay_features(dnssd, 56, 0); // Supports Wol
-    dnssd_set_airplay_features(dnssd, 57, 0); //
-    dnssd_set_airplay_features(dnssd, 58, 0); // Supports Hangdog Remote Control
-    dnssd_set_airplay_features(dnssd, 59, 0); // Supports AudioStreamConnection setup
-
-    dnssd_set_airplay_features(dnssd, 60, 0); // Supports Audo Media Data Control         
-    dnssd_set_airplay_features(dnssd, 61, 0); // Supports RFC2198 redundancy
-    */
-
-    /* needed for HLS video support */
-    dnssd_set_airplay_features(dnssd, 0, (int) hls_support);
-    dnssd_set_airplay_features(dnssd, 4, (int) hls_support);
-    // not sure about this one (bit 8, screen rotation supported):
-    //dnssd_set_airplay_features(dnssd, 8, (int) hls_support);
-    
-    /* needed for h265 video support */
-    dnssd_set_airplay_features(dnssd, 42, (int) h265_support);
-
-    /* bit 27 of Features determines whether the AirPlay2 client-pairing protocol will be used (1) or not (0) */
-    dnssd_set_airplay_features(dnssd, 27, (int) setup_legacy_pairing);
+    if (naa_clear_bits) {
+        dnssd_apply_no_audio_advertise(dnssd);
+    }
     return 0;
 }
 
@@ -2997,6 +2943,17 @@ int main (int argc, char *argv[]) {
     if (audiosink == "0") {
         use_audio = false;
         dump_audio = false;
+    }
+    if (uxplay_should_warn_audio_advertise(use_audio, no_audio_advertise)) {
+        LOGI("Audio playback is disabled locally, but UxPlay still advertises audio support. "
+             "macOS/iOS may still route audio to this receiver.");
+    }
+    if (uxplay_should_warn_audio_still_playing(use_audio, no_audio_advertise)) {
+        LOGI("no_audio_advertise is enabled, but local audio playback was not disabled; this should not happen.");
+    }
+    if (no_audio_advertise) {
+        LOGI("Experimental no-audio advertisement mode enabled. Some AirPlay clients may "
+             "disconnect after 30/60 seconds if they require an audio stream during mirroring.");
     }
     if (dump_video) {
         if (video_dump_limit > 0) {

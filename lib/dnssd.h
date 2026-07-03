@@ -70,6 +70,14 @@ DNSSD_API void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val);
 DNSSD_API uint64_t dnssd_get_airplay_features(dnssd_t *dnssd);
 DNSSD_API void dnssd_set_pk(dnssd_t *dnssd, char * pk_str);
 
+/* sets the default AirPlay feature bitmask (moved verbatim from uxplay.cpp's
+ * start_dnssd(), see specs/no-audio-advertisement.md) */
+DNSSD_API void dnssd_set_default_airplay_features(dnssd_t *dnssd, int hls_support, int h265_support, int setup_legacy_pairing);
+
+/* clears the feature bits that claim audio support (9, 11, 18, 19, 20, 21);
+ * used by the experimental "--no-audio-advertise bits"/"both" modes */
+DNSSD_API void dnssd_apply_no_audio_advertise(dnssd_t *dnssd);
+
 DNSSD_API void dnssd_destroy(dnssd_t *dnssd);
 
 #ifdef __cplusplus
