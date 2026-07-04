@@ -75,6 +75,15 @@ uxplay -d --no-audio-advertise raop
 - Since the feature bitmask is untouched in this mode, also note whether the
   client behaves differently from the `-a`-alone baseline (step 1) purely
   from `_raop._tcp` being absent.
+- Also run the `GET /info` wire probe from §3 below: `txtRAOP` must be absent
+  from the response, and the debug log should show the
+  `raop_handler_info: raop TXT record empty (service not registered), omitting txtRAOP`
+  line when the probe runs.
+- Note: AirPlay feature bit 30 ("RAOP support: with this bit set, the AirTunes
+  service is not required") is still set in this mode, so a client may treat
+  the `_airplay._tcp` port itself as RAOP-capable. If you want to go further,
+  bit 30 can additionally be cleared in the source (one line:
+  `dnssd_set_airplay_features(dnssd, 30, 0)`) — report results upstream.
 
 ### 2c. `both` mode (default — combination, also untested by upstream)
 
@@ -111,6 +120,26 @@ and dump its TXT record:
 dns-sd -L "<UxPlay instance name>" _airplay._tcp local
 dns-sd -Z _airplay._tcp local   # zone-file-style dump, includes TXT records
 ```
+
+### BLE / `GET /info` path (no BLE hardware needed)
+
+UxPlay also serves both TXT record contents over its RTSP `GET /info`
+handler; this is the path Bluetooth LE service discovery uses. The BLE-shaped
+branch triggers on any CSeq-less RTSP/1.0 request whose URL contains the
+`txtAirPlay`/`txtRAOP` tokens, so it can be probed with plain `nc` from any
+host — no BLE hardware required (`curl` won't work: it speaks HTTP/1.1, and
+this branch requires RTSP/1.0). The port is the TCP port advertised by the
+`_airplay._tcp` service (shown by `dns-sd -L` above; UxPlay uses one port for
+both services):
+
+```bash
+printf 'GET /info?txtAirPlay?txtRAOP RTSP/1.0\r\n\r\n' | nc <server-ip> <port>
+```
+
+Expected: the binary-plist response body contains the `txtAirPlay` key in
+every mode, and contains `txtRAOP` only in the baseline and `bits` modes. In
+`raop` and `both` modes `txtRAOP` must be **absent** (not present-but-empty),
+and the server's `-d` log should print the "omitting txtRAOP" debug line.
 
 ## 4. Reporting results
 

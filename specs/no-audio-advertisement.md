@@ -47,6 +47,20 @@ Bare `--no-audio-advertise` (no trailing token) is equivalent to `--no-audio-adv
 | `raop` | Skip registration of the `_raop._tcp` service entirely — it will not appear in `dns-sd -B _raop._tcp` output at all. The feature bitmask is left at its normal default. This combination has **not** been tested upstream. |
 | `both` (default) | Both of the above — the narrowest advertisement UxPlay can currently produce that still offers `_airplay._tcp` mirroring. |
 
+The mDNS records are not the only place the advertisement is served from: the RTSP
+`GET /info` handler (`raop_handler_info()` in `lib/raop_handlers.h`) also returns the
+`_airplay._tcp`/`_raop._tcp` TXT record contents inside its plist response — both in the
+Bluetooth LE service-discovery variant (request without a `CSeq` header) and in the
+bplist-`qualifier` variant. Since the raop TXT buffer is only ever built by
+`dnssd_register_raop()`, in `raop`/`both` modes that buffer stays empty, and the handler
+now **omits** an unbuilt/empty TXT record from the response (previously it emitted an
+empty `txtRAOP` data node). The `features` integer in the same `GET /info` response is
+read live from the shared bitmask, so `bits` mode was already reflected on that path.
+This keeps the BLE/`GET /info` discovery surface consistent with the mDNS one, while
+preserving the existing fallback where a *failed* (rather than skipped) `_raop._tcp`
+registration still serves its TXT over BLE: both mDNS backends build the TXT buffer
+before the network registration step, so in that case the buffer is non-empty.
+
 In every mode, `--no-audio-advertise` **implies local audio playback is disabled**
 (`use_audio` is forced to `false`), regardless of `-as <sink>` or argument order. There is no
 way to narrow the advertisement while keeping local playback on — the task and this spec
@@ -109,6 +123,14 @@ Upstream (`FDH2/UxPlay`) has already investigated clearing AirPlay feature bit 9
   ~60s teardown, or introduces different client behavior (e.g., at the discovery level
   rather than the session level). Treat `raop` and `both` as genuinely experimental and
   unverified until confirmed via `docs/manual-test-no-audio-advertise.md` on real hardware.
+- **Feature bit 30 remains set in `raop`/`both` modes.** Bit 30 is documented (both in
+  UxPlay's own bit table and in the OpenAirPlay features table) as "RAOP support: with this
+  bit set, the AirTunes service is not required" — i.e., the client is told the
+  `_airplay._tcp` port itself is a RAOP-capable endpoint. So even with `_raop._tcp`
+  unregistered, a client may still route audio via the unified advertisement. Clearing
+  bit 30 as well is a further untested variant deliberately left out of scope here (a
+  one-line experiment: `dnssd_set_airplay_features(dnssd, 30, 0)`); it is unknown whether
+  clients would still start mirroring at all in that configuration.
 - Because of the above, `--no-audio-advertise` must never become the default, and every
   startup log message it produces must say "experimental."
 
@@ -142,6 +164,11 @@ Explicitly **not** automated (requires real hardware / real mDNS traffic, see
 
 - Whether `_raop._tcp` actually disappears from `dns-sd -B _raop._tcp` output on the
   network.
+- Whether the `GET /info` plist response omits `txtRAOP` in `raop`/`both` modes
+  (`raop_handler_info()` is a static function in a header that pulls in the full raop
+  stack, so it is not unit-testable in this framework-free harness; see the `nc` wire
+  probe in `docs/manual-test-no-audio-advertise.md` §3, which exercises exactly the code
+  path used by BLE service discovery).
 - Whether a real macOS/iOS client actually avoids selecting UxPlay as its audio output.
 - Whether the ~60s TEARDOWN occurs, is avoided, or changes timing under `bits`, `raop`, or
   `both`.

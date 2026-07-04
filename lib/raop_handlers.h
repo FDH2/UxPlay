@@ -93,16 +93,26 @@ raop_handler_info(raop_conn_t *conn,
         add_txt_raop = (bool) strstr(url, txtRAOP);
     }
     
+    /* never emit an empty TXT record: if a service was not registered
+     * (e.g. --no-audio-advertise raop|both skipped dnssd_register_raop),
+     * its TXT buffer was never built and the getter returns length 0 */
     if (add_txt_airplay) {
         const char *txt = dnssd_get_airplay_txt(raop->dnssd, &len);
-        plist_t txt_airplay_node = plist_new_data(txt, len);
-        plist_dict_set_item(res_node, txtAirPlay, txt_airplay_node);
+        if (txt && len > 0) {
+            plist_t txt_airplay_node = plist_new_data(txt, len);
+            plist_dict_set_item(res_node, txtAirPlay, txt_airplay_node);
+        }
     }
 
     if (add_txt_raop) {
         const char *txt = dnssd_get_raop_txt(raop->dnssd, &len);
-        plist_t txt_raop_node = plist_new_data(txt, len);
-        plist_dict_set_item(res_node, txtRAOP, txt_raop_node);
+        if (txt && len > 0) {
+            plist_t txt_raop_node = plist_new_data(txt, len);
+            plist_dict_set_item(res_node, txtRAOP, txt_raop_node);
+        } else {
+            logger_log(raop->logger, LOGGER_DEBUG,
+                       "raop_handler_info: raop TXT record empty (service not registered), omitting txtRAOP");
+        }
     }
   
     /* don't need anything below here in the response to initial  "txtAirPlay" GET/info request */
