@@ -1138,7 +1138,12 @@ raop_handler_set_parameter(raop_conn_t *conn,
             if ((datalen >= 8) && !strncmp(datastr, "volume: ", 8)) {
                 float vol = 0.0f;
                 sscanf(datastr+8, "%f", &vol);
-                raop_rtp_set_volume(conn->raop_rtp, vol);
+                if (raop_rtp_is_running(conn->raop_rtp)) {
+                    raop_rtp_set_volume(conn->raop_rtp, vol);
+                } else if (raop->callbacks.audio_set_volume) {
+                    /* set volume in playbin (hls) */
+                    raop->callbacks.audio_set_volume(raop->callbacks.cls, vol);
+                }
             } else if ((datalen >= 10) && !strncmp(datastr, "progress: ", 10)) {
                 uint32_t start = 0, curr = 0, end = 0;
                 sscanf(datastr+10, "%"PRIu32"/%"PRIu32"/%"PRIu32, &start, &curr, &end);

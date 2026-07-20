@@ -1180,3 +1180,12 @@ bool video_renderer_eos_watch() {
     }
     return false; 
 }
+
+void video_renderer_hls_set_volume(double volume) {
+    if (!renderer || strcmp(renderer->codec, hls)) {
+       return;
+    }
+    volume = (volume > 10.0) ? 10.0 : volume;
+    volume = (volume < 0.0) ? 0.0 : volume;
+    g_object_set(renderer->pipeline, "volume", volume, NULL);
+}
