@@ -887,9 +887,21 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
-    /* we only support HLS if the playback location is terminated by "/master.m3u8" */
+    /* HLS playlists are proxied through the local FCUP handler. Other HTTP(S)
+     * media can be handed directly to the configured video player. */
     const char *uri_suffix = strstr(playback_location, "/master.m3u8");
-    if (!uri_suffix) { 
+    if (!uri_suffix) {
+        if (!strncmp(playback_location, "http://", strlen("http://")) ||
+            !strncmp(playback_location, "https://", strlen("https://"))) {
+            raop->callbacks.on_video_play(
+                raop->callbacks.cls, playback_location, start_position_seconds);
+            raop_destroy_airplay_video(raop, id);
+            plist_mem_free(playback_location);
+            if (req_root_node) {
+                plist_free(req_root_node);
+            }
+            return;
+        }
         logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
         goto play_error;
     } else {
