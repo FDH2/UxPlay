@@ -173,9 +173,12 @@ http_handler_set_property(raop_conn_t *conn,
                   1: pause   (pause playing)
                   2: none    (do nothing)             
 
-        reverseEndTime   (only used when rate < 0) time at which reverse playback ends
-        forwardEndTime   (only used when rate > 0) time at which reverse playback ends
-        selectedMediaArray contains plist with language choice:
+        reverseEndTime   (only used when rate < 0) time at which reverse playback ends (sent to reset previous values)
+        forwardEndTime   (only used when rate > 0) time at which reverse playback ends (sent to reset previous values)
+        selectedMediaArray contains plist with language choice
+        interstitialEvents   usually sent to reset any previously registered interstitial events (advertisements)
+        isInterestedInDateRange  indicates #EXT-X-DATERANGE (or #EXT-X-PROGRAM-DATE-TIME) tags may occur in Media playlists
+        textMarkupArray configure subtitle positioning and test renderering properties (data is XML-formatted textMarkupArray)
     */
 
     airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
@@ -259,7 +262,10 @@ http_handler_set_property(raop_conn_t *conn,
         plist_mem_free(language_code);
     } else if (!strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
-        !strcmp(property, "actionAtItemEnd")) {
+        !strcmp(property, "actionAtItemEnd") ||
+        !strcmp(property, "interstitialEvents") ||
+        !strcmp(property, "textMarkupArray") ||
+        !strcmp(property, "isInterestedInDateRange")) {
         logger_log(raop->logger, LOGGER_DEBUG, "property %s is known but unhandled", property);
 
         plist_t errResponse = plist_new_dict();
