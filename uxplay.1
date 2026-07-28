@@ -1,4 +1,4 @@
-.TH UXPLAY "1" "2026-06-21" "UxPlay 1.74" "User Commands"
+.TH UXPLAY "1" "2026-08-03" "UxPlay 1.74" "User Commands"
 .SH NAME
 uxplay \- start AirPlay server
 .SH SYNOPSIS
@@ -23,9 +23,9 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
 .TP
-\fB\-lang\fR xx  HLS language preferences ("fr:es:..", overrides $LANGUAGE)
+\fB\-lang\fR ... Ranked HLS language preferences ("fr:pt-BR:.."); " " = none
 .TP
-\fB\-lang\fR    (or -lang 0): play undubbed HLS version (overrides $LANGUAGE)
+\fB\-slang\fR ...Ranked HLS subtitle language preferences (overrides -lang) 
 .TP
 \fB\-scrsv\fI n\fR  Screensaver override \fIn\fR:0=off 1=on while displaying video 2=always on.
 .TP

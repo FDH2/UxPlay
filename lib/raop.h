@@ -117,8 +117,7 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang);
-char *raop_get_lang(raop_t *raop);
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang, const char *lang_subtitles, const char* lang_system);
 uint64_t get_local_time();
 void raop_handle_eos(raop_t *raop);
 
@@ -128,7 +127,7 @@ RAOP_API void raop_set_log_level(raop_t *raop, int level);
 RAOP_API void raop_set_log_callback(raop_t *raop, raop_log_callback_t callback, void *cls);
 RAOP_API int raop_set_plist(raop_t *raop, const char *plist_item, const int value);
 RAOP_API void raop_set_port(raop_t *raop, unsigned short port);
-RAOP_API void raop_set_lang(raop_t *raop, const char *lang);
+RAOP_API void raop_set_lang(raop_t *raop, const char *lang, const char *lang_subtitles, const char *lang_system);
 RAOP_API void raop_set_udp_ports(raop_t *raop, unsigned short port[3]);
 RAOP_API void raop_set_tcp_ports(raop_t *raop, unsigned short port[2]);
 RAOP_API unsigned short raop_get_port(raop_t *raop);
