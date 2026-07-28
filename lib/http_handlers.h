@@ -173,96 +173,21 @@ http_handler_set_property(raop_conn_t *conn,
                   1: pause   (pause playing)
                   2: none    (do nothing)             
 
+        selectedMediaArray contains plist with info on master playlist default AUDIO (soun) language, and if SUBTITLES (sbtl) are present.
         reverseEndTime   (only used when rate < 0) time at which reverse playback ends (sent to reset previous values)
         forwardEndTime   (only used when rate > 0) time at which reverse playback ends (sent to reset previous values)
-        selectedMediaArray contains plist with language choice
-        interstitialEvents   usually sent to reset any previously registered interstitial events (advertisements)
-        isInterestedInDateRange  indicates #EXT-X-DATERANGE (or #EXT-X-PROGRAM-DATE-TIME) tags may occur in Media playlists
+        interstitialEvents  sent twice to reset any previously registered interstitial events (advertisements)
         textMarkupArray configure subtitle positioning and test renderering properties (data is XML-formatted textMarkupArray)
+        isInterestedInDateRange  indicates #EXT-X-DATERANGE (or #EXT-X-PROGRAM-DATE-TIME) tags may occur in Media playlists
+
     */
 
     airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
     assert(airplay_video);
-    if (!strcmp(property, "selectedMediaArray")) {
-        /* verify that this request contains a binary plist*/
-        char *header_str = NULL;
-        int request_datalen = 0;
-        http_request_get_header_string(request, &header_str);
-        bool is_plist = strstr(header_str,"apple-binary-plist");
-        free(header_str);
-        if (!is_plist) {
-            logger_log(raop->logger, LOGGER_DEBUG, "POST /setProperty?selectedMediaArray"
-                       "does not provide an apple-binary-plist");
-            goto post_error;
-        }
-
-        const char *request_data = http_request_get_data(request, &request_datalen);
-        plist_t req_root_node = NULL;
-        plist_from_bin(request_data, request_datalen, &req_root_node);
-        plist_t req_value_node = plist_dict_get_item(req_root_node, "value");
-
-        if (!req_value_node || !PLIST_IS_ARRAY(req_value_node)) {	  
-            logger_log(raop->logger, LOGGER_INFO, "POST /setProperty?selectedMediaArray"
-                   " did not provide expected plist from client");
-            goto post_error;
-        }
-
-        int count = plist_array_get_size(req_value_node);
-        char *name = NULL;
-        char *code = NULL;
-        char *language_name = NULL;
-        char *language_code = NULL;
-        for (int i = 0; i < count; i++) {
-            plist_t req_value_array_node = plist_array_get_item(req_value_node,i);
-            if (!language_name) {
-                plist_t req_value_options_name_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsName");
-                if (PLIST_IS_STRING(req_value_options_name_node)) {
-                    plist_get_string_val(req_value_options_name_node, &name);
-                    if (name) {
-                        language_name = (char *) calloc(strlen(name) + 1, sizeof(char));
-                        if (!language_name) {
-                            printf("Memory allocation failed\n");
-                            exit(1);
-                        }
-                        memcpy(language_name, name, strlen(name));
-                        plist_mem_free(name);
-                    }
-                }
-            }
-            if (!language_code) {
-                plist_t req_value_options_code_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsUnicodeLanguageIdentifier");
-                if (PLIST_IS_STRING(req_value_options_code_node)) {
-                    plist_get_string_val(req_value_options_code_node, &code);
-                    if (code) {
-                        language_code = (char *) calloc(strlen(code) + 1, sizeof(char));
-                        if (!language_code) {
-                            printf("Memory allocation failed\n");
-                            exit(1);
-                        }
-                        memcpy(language_code, code, strlen(code));
-                        plist_mem_free(code);
-                    }
-                }
-            }
-            if (language_code && language_name) {
-                break;
-            } else {
-                plist_free (req_value_array_node);
-                continue;
-            }
-        }
-        plist_free (req_root_node);
-        if (language_code && language_name) {
-            set_language_code(airplay_video, language_code, strlen(language_code));
-            set_language_name(airplay_video, language_name, strlen(language_name));
-            logger_log(raop->logger, LOGGER_INFO, "stored language from MediaSelectionOptions: %s \"%s\"",
-                       get_language_code(airplay_video), get_language_name(airplay_video));
-        }
-        plist_mem_free(language_name);
-        plist_mem_free(language_code);
-    } else if (!strcmp(property, "reverseEndTime") ||
+    if (!strcmp(property, "actionAtItemEnd") ||
+        !strcmp(property, "selectedMediaArray") ||
+        !strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
-        !strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "interstitialEvents") ||
         !strcmp(property, "textMarkupArray") ||
         !strcmp(property, "isInterestedInDateRange")) {
@@ -837,7 +762,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     assert(id >= 0);
 
     raop->current_video = id;
-    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang);
+    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang, raop->lang_subtitles, raop->lang_system);
     airplay_video = hls_get_current_video(raop);
     assert(airplay_video);
     set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
