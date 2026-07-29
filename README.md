@@ -981,7 +981,8 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
 
 ## Building UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64 compiler.
 
--   tested on Windows 10 and 11, 64-bit.
+-   tested on Windows 10 and 11, 64-bit (x86\_64), and on Windows 11 on ARM64 (via the
+    native CLANGARM64 MSYS2 environment, see below).
 
 * **NEW: Uxplay now supplies its own self-contained mdns replacement for Bonjour, making step 1 unnecessary unless
     you choose to use Bonjour.**  To use Bonjour, compile with `cmake -DUSE_DNS_SD=1`.
@@ -1003,6 +1004,20 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
     will be used: download and install MSYS2 from the official site
     [https://www.msys2.org/](https://www.msys2.org). Accept the default
     installation location `C:\mysys64`.
+
+    * **Windows on ARM (e.g. Snapdragon-based PCs): tested working.**
+    MSYS2's installer auto-detects an ARM64 host and installs the
+    ARM64 build of MSYS2, which provides a native **CLANGARM64**
+    environment in addition to the x86_64 UCRT64/MINGW64 ones. Everywhere
+    below that says `ucrt64` or `mingw-w64-ucrt-x86_64-*`, ARM64 users
+    should instead use the **"MSYS2 CLANGARM64"** terminal (from the
+    Start menu) and the `mingw-w64-clang-aarch64-*` package names, e.g.
+    `mingw-w64-clang-aarch64-cmake` instead of `mingw-w64-ucrt-x86_64-cmake`,
+    and substitute `clangarm64` for `ucrt64` in directory/prefix paths.
+    All packages needed to build and run UxPlay (cmake, the clang
+    toolchain, ninja, libplist, gstreamer + plugins) are available
+    natively for `clangarm64` in the MSYS2 repos; no x86_64 emulation
+    is required.
 
 3.  [MSYS2 packages](https://packages.msys2.org/package/) are installed
     with a variant of the "pacman" package manager used by Arch Linux.
@@ -1036,6 +1051,8 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
         pacman -S mingw-w64-ucrt-x86_64-libplist mingw-w64-ucrt-x86_64-gstreamer mingw-w64-ucrt-x86_64-gst-plugins-base
     ```
 
+    (on Windows ARM64/CLANGARM64: `pacman -S mingw-w64-clang-aarch64-libplist mingw-w64-clang-aarch64-gstreamer mingw-w64-clang-aarch64-gst-plugins-base`)
+
     If you are trying a different Windows build system, MSVC versions of
     GStreamer for Windows are available from the [official GStreamer
     site](https://gstreamer.freedesktop.org/download/), but only the
@@ -1059,6 +1076,9 @@ and can be used on networks that don't allow DNS_SD.  See [instructions below](#
     documentation in `C:/msys64/ucrt64/share/...`) with
 
     `cmake --install . --prefix $HOME/../../ucrt64`
+
+    (on Windows ARM64/CLANGARM64, use `--prefix $HOME/../../clangarm64` instead)
+
     You can later uninstall uxplay by returning to the build directory and running
 
     `ninja uninstall`
@@ -1078,6 +1098,7 @@ have `<plugin>` given by
 
 Other possible MSYS2 gstreamer plugin packages you might use are listed
 in [MSYS2 packages](https://packages.msys2.org/package/).
+(on Windows ARM64/CLANGARM64, substitute `mingw-w64-clang-aarch64-gst-<plugin>`.)
 
 You also will need to grant permission to the uxplay executable
 uxplay.exe to access data through the Windows firewall. You may
@@ -1087,6 +1108,51 @@ Security-\>Windows Security-\>Firewall & network protection -\> allow an
 app through firewall**. If your virus protection flags uxplay.exe as
 "suspicious" (but without a true malware signature) you may need to give
 it an exception.
+
+### Troubleshooting the Windows build
+
+-   **Error: "The code execution cannot proceed because
+    libglib-2.0-0.dll was not found."** (or a similar message naming
+    another `lib*.dll`) when running `uxplay.exe` from outside the MSYS2
+    terminal (e.g. by double-clicking it, or from a plain PowerShell/cmd
+    window): this happens because `uxplay.exe`'s runtime DLLs
+    (glib, gstreamer, libplist, openssl, ...) live in the MSYS2
+    environment's `bin` directory (`C:\msys64\ucrt64\bin`, or
+    `C:\msys64\clangarm64\bin` on ARM64), and that directory isn't on
+    your Windows `PATH` by default. Fix this either by:
+      *  running `uxplay.exe` via its full installed path (e.g.
+         `C:\msys64\ucrt64\bin\uxplay.exe`), since Windows also searches
+         the executable's own directory for DLLs, as noted above; or
+      *  permanently adding that `bin` directory to your user `PATH`
+         (Windows Settings -\> System -\> About -\> Advanced system
+         settings -\> Environment Variables), so plain `uxplay` works
+         from any terminal. This requires opening a **new** terminal
+         window afterwards -- `PATH` changes don't apply to windows
+         already open.
+
+-   **UxPlay starts with no errors, but no AirPlay device ever appears
+    on the iPhone/iPad:** this is almost always the Windows Firewall
+    silently blocking the inbound mDNS discovery queries and/or the
+    AirPlay connection, rather than a UxPlay problem. In addition to
+    the general firewall permission above, you can add an explicit
+    inbound-allow rule for `uxplay.exe` from an **elevated**
+    PowerShell:
+
+    ```powershell
+    New-NetFirewallRule -DisplayName "UxPlay" -Direction Inbound `
+        -Program "C:\path\to\uxplay.exe" -Action Allow `
+        -Profile Private -Protocol Any
+    ```
+
+    Also check that: your PC's network connection is on the **Private**
+    network profile, not Public (`Get-NetConnectionProfile` in
+    PowerShell shows this -- Windows restricts discovery traffic more
+    aggressively on Public networks); the iPhone/iPad and the PC are on
+    the *same* Wi-Fi network (not one of them on cellular/VPN, and not
+    a router/AP with "client/AP isolation" enabled on a guest network,
+    which blocks devices from discovering each other even on the same
+    SSID); and that no third-party antivirus/firewall is separately
+    blocking the app.
 
 Now test by running "`uxplay`" (in a MSYS2 UCRT64 terminal window.  If you need
 to specify the audiosink, there are two main choices on Windows: the
