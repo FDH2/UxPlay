@@ -1011,14 +1011,17 @@ below](#bluetooth-le-beacon-setup).
 
 ## Building UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64 compiler.
 
--   tested on Windows 10 and 11, 64-bit.
+-   tested on Windows 10 and 11, 64-bit on x86_64, and Windows 11 on
+    ARM.
 
--   **NEW: Uxplay now supplies its own self-contained mdns replacement
-    for Bonjour, making step 1 unnecessary unless you choose to use
-    Bonjour.** To use Bonjour, compile with `cmake -DUSE_DNS_SD=1`.
+-   **NEW: Uxplay \>=1.74 now supplies its own self-contained mdns
+    replacement for Bonjour, making step 1 unnecessary unless you choose
+    to use Bonjour.** To use Bonjour, compile with
+    `cmake -DUSE_DNS_SD=1`.
 
-1.  Download and install **Bonjour SDK for Windows v3.0**. You can
-    download the SDK without any registration at
+1.  On UxPlay \< 1.74 (and to optionally still use Bonjour on UxPlay \>=
+    1.74), you must download and install **Bonjour SDK for Windows
+    v3.0**. You can download the SDK without any registration at
     [softpedia.com](https://www.softpedia.com/get/Programming/SDK-DDK/Bonjour-SDK.shtml),
     or get it from the official Apple site
     [https://developer.apple.com/download](https://developer.apple.com/download/all/?q=Bonjour%20SDK%20for%20Windows)
@@ -1041,22 +1044,31 @@ below](#bluetooth-le-beacon-setup).
     Open a "MSYS2" terminal from the MSYS2 tab in the Windows Start
     menu, and update the new MSYS2 installation with "pacman -Syu".
 
-    -   \_NEW: MSYS2 now recommends using the newer UCRT64 terminal
-        environment (which uses the newer Microsoft UCRT "Universal C
-        RunTime Library", included as part of the Windows OS since
-        Windows 10) rather than the MINGW64 terminal environment (which
-        uses the older Microsoft MSVCRT C library, which has "legacy"
-        status, but is available on all Windows systems). If you wish to
-        use the legacy MSVCRT library, to support older Windows
-        versions, modify the instructions below as follows:
+    -   \_NEW: On Intel x84-64 systems, MSYS2 now recommends using the
+        newer UCRT64 terminal environment (which uses the newer
+        Microsoft UCRT "Universal C RunTime Library", included as part
+        of the Windows OS since Windows 10) rather than the MINGW64
+        terminal environment (which uses the older Microsoft MSVCRT C
+        library, which has "legacy" status, but is available on all
+        Windows systems). If you wish to use the legacy MSVCRT library,
+        to support older Windows versions, modify the instructions below
+        as follows:
 
     (1) change the MSYS2 terminal type from UCRT64 to MINGW64; (2)
         modify mingw-w64-ucrt-x86_64-\* package names to
         mingw-w64-x86_64-\*, (just omit "-ucrt");
-    (2) replace `ucrt64` by `mingw64` in directory names.\_
+    (2) replace `ucrt64` by `mingw64` in paths and directory names.\_
 
-    Open a new MSYS2 UCRT64 terminal, and install the gcc compiler and
-    cmake:
+    -   \_NEW: on ARM (e.g. Snapdragon-based PC's): modify all
+        instructions below as follows:
+
+    (1) change the MSYS2 terminal type from UCRT64 to CLANGARM64; (2)
+        modify mingw-w64-ucrt-x86_64-\* package names to
+        mingw-w64-clang-aarch64-\*;
+    (2) replace `ucrt64` by `clangarm64` in paths and directory names.\_
+
+    Open a new MSYS2 terminal (UCRT64, CLANGARM64 or MINGW64, as
+    appropriate), and install the gcc compiler and cmake:
 
     `pacman -S mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-gcc`
 
@@ -1124,8 +1136,29 @@ app through firewall**. If your virus protection flags uxplay.exe as
 "suspicious" (but without a true malware signature) you may need to give
 it an exception.
 
-Now test by running "`uxplay`" (in a MSYS2 UCRT64 terminal window. If
-you need to specify the audiosink, there are two main choices on
+Now test by running "`uxplay`" in the appropriate MSYS2 terminal window
+(UCRT64/CLANGARM64/MINGW64). If UxPlay starts with no error, but is not
+seen by the client, this is almost always a Windows firewall issue. In
+addition to the above firewall setting, you may also need to add an
+explicit "Inbound-Allow" rule for uxplay.exe, which can be done from an
+**elevated** PowerShell:
+
+    ```powershell
+    New-NetFirewallRule -DisplayName "UxPlay" -Direction Inbound `
+        -Program "C:\path\to\uxplay.exe" -Action Allow `
+        -Profile Private -Protocol Any
+    ```
+
+Also check that: your PC's network connection is on the **Private**
+network profile, not Public (`Get-NetConnectionProfile` in PowerShell
+shows this -- Windows restricts discovery traffic more aggressively on
+Public networks); the iPhone/iPad and the PC are on the *same* Wi-Fi
+network (not one of them on cellular/VPN, and not a router/AP with
+"client/AP isolation" enabled on a guest network, which blocks devices
+from discovering each other even on the same SSID); and that no
+third-party antivirus/firewall is separately blocking the app.
+
+If you need to specify the audiosink, there are two main choices on
 Windows: the older DirectSound plugin "`-as directsoundsink`", and the
 more modern Windows Audio Session API (wasapi) plugin
 "`-as wasapisink`", which supports [additional
@@ -1159,7 +1192,14 @@ d3d11).*
     option**).
 
 The executable uxplay.exe can also be run without the MSYS2 environment,
-in the Windows Terminal, with `C:\msys64\ucrt64\bin\uxplay`.
+in the Windows Terminal, using the full path,
+e.g. `C:\msys64\ucrt64\bin\uxplay`. (This makes Windows search the
+executable's directory for needed MSYS2 DLL libraries). Use of the full
+path can be avoided by permanently adding `C:\msys64\ucrt64\bin` (with
+any necessary modifications of `ucrt64`) to your user path: (do this in
+Windows Settings -\> System -\> About -\> Advanced System Settings -\>
+Environment Varianbles: this only becomes active after a new user
+terminal is opened).
 
 There is a new modernized Windows Terminal application available from
 Microsoft that provides various terminals, and can be customized to also
