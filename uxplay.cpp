@@ -159,6 +159,7 @@ static std::vector<std::string> allowed_clients;
 static std::vector<std::string> blocked_clients;
 static bool restrict_clients;
 static bool setup_legacy_pairing = false;
+static bool peer_to_peer = false;
 static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients)  3: random pw*/
 static std::string password = "";
 static guint min_password_length = MIN_PASSWORD_LENGTH;
@@ -921,6 +922,8 @@ static void print_info (char *name) {
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
+    printf("-p2p      Advertise and accept AirPlay over Apple peer-to-peer (macOS)\n");
+    printf("          requires -pin; makes UxPlay visible to nearby Apple devices\n");
     printf("-reg [fn] Keep a register in $HOME/.uxplay.register to verify returning\n");
     printf("          client pin-registration; (option: use file \"fn\" for this)\n");
     printf("-pw [pwd] Require use of password to control client access;\n");
@@ -1615,6 +1618,8 @@ static void parse_arguments (int argc, char *argv[]) {
                 }
                 pin = n + 10000;
             }
+	} else if (arg == "-p2p") {
+            peer_to_peer = true;
 	} else if (arg == "-reg") {
             registration_list = true;
             pairing_register.erase();
@@ -1978,6 +1983,7 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
         LOGE("Could not initialize dnssd library!: error %d", dnssd_error);
         return 1;
     }
+    dnssd_set_peer_to_peer(dnssd, (int) peer_to_peer);
 
     /* after dnssd starts, reset the default feature set here 
      * (overwrites features set in dnssdint.h)
@@ -2929,6 +2935,17 @@ int main (int argc, char *argv[]) {
         read_config_file(config_file.c_str(), argv[0]);
     }
     parse_arguments (argc, argv);
+
+    if (peer_to_peer) {
+#ifndef UXPLAY_HAVE_APPLE_P2P
+        fprintf(stderr, "option -p2p requires macOS and the Apple Bonjour DNS-SD backend\n");
+        exit(1);
+#endif
+        if (!setup_legacy_pairing) {
+            fprintf(stderr, "option -p2p requires -pin [nnnn] for the tested legacy-pairing path\n");
+            exit(1);
+        }
+    }
 
     log_level = (debug_log ? LOGGER_DEBUG_DATA : LOGGER_INFO);
     if (debug_log && suppress_packet_debug_data) {

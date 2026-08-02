@@ -33,6 +33,12 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    without option, pin is random: optionally use fixed pin xxxx.
 .TP
+\fB\-p2p\fR      Advertise and accept AirPlay over Apple peer-to-peer interfaces.
+.IP
+   macOS with Apple Bonjour only; requires \fB\-pin\fR. This opt-in feature
+   makes UxPlay visible to nearby Apple devices and uses the private macOS
+   socket option SO_RECV_ANYIF. It is unavailable with \-DUSE_MDNS=1.
+.TP
 \fB\-reg\fI [fn]\fR Keep a register in $HOME/.uxplay.register to verify returning
 .IP
    client pin-registration; (option: use file "fn" for this)
