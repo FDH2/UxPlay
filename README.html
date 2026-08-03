@@ -21,7 +21,16 @@ internal mdns implementation on macOS, use
 and whether it should become the default (with the external
 Avahi/Bonjour implementation remaining as an alternative build option),
 or vice versa, are extremely welcome.</em> (Issue <a
-href="https://github.com/FDH2/UxPlay/issues/529">#529</a></p></li>
+href="https://github.com/FDH2/UxPlay/issues/529">#529</a></p>
+<p>Reworked HLS language choice with complete rewrite (unwanted langauge
+renderings are now removed from master playlist manifest before
+playing): (1) can now independently give subtitle language preferences
+with e.g. <code>-slang pt-BR:pt</code>;</p>
+<ol start="2" type="1">
+<li><code>-lang</code>, <code>-slang</code> with no arguments clear the
+selections. (-lang entries are used if -slang is absent); detection of
+dubbed vs. undubbed audio renditions is removed.</li>
+</ol></li>
 <li><p><strong>NEW in v1.73, up to v1.73.6</strong> (March
 2026):</p></li>
 <li><p>Some YouTube app HLS videos now offer alternative language tracks
@@ -1239,13 +1248,18 @@ recommended player, but if some videos fail to play, you can try with
 version 2.)</em></p>
 <p><strong>-lang [list]</strong> Specify language preferences for
 YouTube app HLS videos, some of which now which offer a choice of
-language (based on AI dubbing). If this option is not used, preferences
-will be taken from environment variable $LANGUAGE, if set. Both methods
-specify the preference order by a list: e.g., <code>fr:es:en</code>, for
-French (first choice), Spanish (second choice), and English (third
-choice). If option <code>-lang</code> is not followed by a list (or
-<code>-list 0</code> is used), $LANGUAGE is ignored and undubbed audio
-is played.</p>
+language renditions (using AI dubbing of the original). If this option
+is not used, preferences will be taken from environment variables
+($LANGUAGE, $LC_ALL, $LC_MESSAGES, $LANG, searched in that order, until
+one is found). Specify the preference order by a colon-separated list:
+e.g., <code>fr:en-US:en</code>, for French (first choice, any variant),
+English (second choice, US regional variant), English (third choice, any
+variant). All blank characters in the string are removed before
+processing; if option <code>-lang</code> is not followed by a list, any
+previous language selection is removed.</p>
+<p><strong>-slang [list]</strong>. Similar to <code>-lang</code>, but
+specifies language preferences for subtitle languages. (If not present,
+preferences specified by <code>-lang ...</code> will be used.)</p>
 <p><strong>-scrsv n</strong>. (since 1.73) (So far, only implemented on
 Linux/*BSD systems using D-Bus). Inhibit the screensaver in the absence
 of keyboard input (e.g., while watching video), using the
@@ -2172,7 +2186,7 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
 <p>1.74 2026-06-21 Optional minimal internal mDNSResponder to replace
-Bonjour/Avahi</p>
+Bonjour/Avahi. Reworked language selection for HLS video.</p>
 <p>1.73.6 2026-03-22 Fix “not a socket” message uxplay bug. Futher
 uxplay-beacon.py improvements (Only use GLib in BlueZ module)</p>
 <p>1.73.4 2026-03-15 Modularize Bluetooth support for uxplay-beacon. Add
