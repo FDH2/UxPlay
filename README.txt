@@ -19,6 +19,15 @@
     option), or vice versa, are extremely welcome.* (Issue
     [#529](https://github.com/FDH2/UxPlay/issues/529)
 
+    Reworked HLS language choice with complete rewrite (unwanted
+    langauge renderings are now removed from master playlist manifest
+    before playing): (1) can now independently give subtitle language
+    preferences with e.g. `-slang pt-BR:pt`;
+
+    (2) `-lang`, `-slang` with no arguments clear the selections. (-lang
+        entries are used if -slang is absent); detection of dubbed
+        vs. undubbed audio renditions is removed.
+
 -   **NEW in v1.73, up to v1.73.6** (March 2026):
 
 -   Some YouTube app HLS videos now offer alternative language tracks
@@ -1230,13 +1239,20 @@ to use for playing HLS video. *(Playbin v3 is the recommended player,
 but if some videos fail to play, you can try with version 2.)*
 
 **-lang \[list\]** Specify language preferences for YouTube app HLS
-videos, some of which now which offer a choice of language (based on AI
-dubbing). If this option is not used, preferences will be taken from
-environment variable \$LANGUAGE, if set. Both methods specify the
-preference order by a list: e.g., `fr:es:en`, for French (first choice),
-Spanish (second choice), and English (third choice). If option `-lang`
-is not followed by a list (or `-list 0` is used), \$LANGUAGE is ignored
-and undubbed audio is played.
+videos, some of which now which offer a choice of language renditions
+(using AI dubbing of the original). If this option is not used,
+preferences will be taken from environment variables (\$LANGUAGE,
+\$LC_ALL, \$LC_MESSAGES, \$LANG, searched in that order, until one is
+found). Specify the preference order by a colon-separated list: e.g.,
+`fr:en-US:en`, for French (first choice, any variant), English (second
+choice, US regional variant), English (third choice, any variant). All
+blank characters in the string are removed before processing; if option
+`-lang` is not followed by a list, any previous language selection is
+removed.
+
+**-slang \[list\]**. Similar to `-lang`, but specifies language
+preferences for subtitle languages. (If not present, preferences
+specified by `-lang ...` will be used.)
 
 **-scrsv n**. (since 1.73) (So far, only implemented on Linux/\*BSD
 systems using D-Bus). Inhibit the screensaver in the absence of keyboard
@@ -2211,7 +2227,7 @@ what version UxPlay claims to be.
 # Changelog
 
 1.74 2026-06-21 Optional minimal internal mDNSResponder to replace
-Bonjour/Avahi
+Bonjour/Avahi. Reworked language selection for HLS video.
 
 1.73.6 2026-03-22 Fix "not a socket" message uxplay bug. Futher
 uxplay-beacon.py improvements (Only use GLib in BlueZ module)
