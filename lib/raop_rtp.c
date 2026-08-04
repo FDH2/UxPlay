@@ -612,7 +612,7 @@ raop_rtp_thread_udp(void *arg)
             if (raop_rtp->ct == 2 && packetlen == 44)  continue;   /* ignore the ALAC packets with format information only. */
 
             if (!raop_rtp->initial_sync && raop_rtp->ct == 2) {
-                /* Estimate initial ALAC sync on first audio data packet so dequeuing starts immediately and smoothly */
+                /* Start PTS clock immediately on first ALAC audio data packet so dequeuing starts cleanly without delay */
                 raop_rtp->client_ntp_sync = raop_ntp_get_local_time();
                 raop_rtp->rtp_sync = byteutils_get_int_be(packet, 4);
                 raop_rtp->initial_sync = true;
