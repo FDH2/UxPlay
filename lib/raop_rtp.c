@@ -40,14 +40,6 @@
 
 #define DELAY_AAC  0.20 //empirical, matches audio latency of about -0.25 sec after first clock sync event
 
-/* note: it is unclear what will happen in the unlikely event that this code is running at the time of the unix-time 
- * epoch event on 2038-01-19 at 3:14:08 UTC ! (but Apple will surely have removed AirPlay "legacy pairing" by then!) */
-
-typedef struct raop_rtp_sync_data_s {
-    uint64_t ntp_time;  // The local wall clock time (unix time in usec) at the time of rtp_time
-    uint64_t rtp_time;   // The remote rtp clock time corresponding to ntp_time
-} raop_rtp_sync_data_t;
-
 struct raop_rtp_s {
     logger_t *logger;
     raop_callbacks_t callbacks;
@@ -57,9 +49,6 @@ struct raop_rtp_s {
     double rtp_clock_rate;
 
     uint64_t ntp_start_time;
-    uint64_t rtp_start_time;
-    uint64_t rtp_time;
-    bool rtp_clock_started;
 
     uint32_t rtp_sync;
     uint64_t client_ntp_sync;
@@ -167,9 +156,6 @@ raop_rtp_init(logger_t *logger, raop_callbacks_t *callbacks, raop_ntp_t *ntp, co
     raop_rtp->initial_sync = false;
     
     raop_rtp->ntp_start_time = 0;
-    raop_rtp->rtp_start_time = 0;
-    raop_rtp->rtp_clock_started = false;
-
     
     raop_rtp->dacp_id = NULL;
     raop_rtp->active_remote_header = NULL;
@@ -408,7 +394,6 @@ raop_rtp_thread_udp(void *arg)
     bool logger_debug = (logger_get_level(raop_rtp->logger) >= LOGGER_DEBUG);
     bool logger_debug_data = (logger_get_level(raop_rtp->logger) >= LOGGER_DEBUG_DATA);
     raop_rtp->ntp_start_time = raop_ntp_get_local_time();
-    raop_rtp->rtp_clock_started = false;
 
     int no_resend = (raop_rtp->control_rport == 0); /* true when control_rport is not set */
 
