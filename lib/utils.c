@@ -191,6 +191,7 @@ char *utils_hex_to_string(const unsigned char *hex, int hex_len) {
 char *utils_data_to_string(const unsigned char *data, int datalen, int chars_per_line) {
     assert(datalen >= 0);
     assert(chars_per_line > 0);
+    assert (datalen < (SIZE_MAX -1 ) /3 );
     int len = 3*datalen + 1;
     if (datalen > chars_per_line) {
         len += (datalen-1)/chars_per_line;
