@@ -24,11 +24,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
-#ifdef _WIN32
-#define CAST (char *)
-#else
-#define CAST
-#endif
 
 #include "raop.h"
 #include "threads.h"
@@ -57,10 +52,8 @@ typedef struct raop_ntp_data_s {
 struct raop_ntp_s {
     logger_t *logger;
     raop_callbacks_t callbacks;
-
     thread_handle_t thread;
     mutex_handle_t run_mutex;
-
     mutex_handle_t wait_mutex;
     cond_handle_t wait_cond;
 
@@ -72,6 +65,7 @@ struct raop_ntp_s {
     int64_t sync_offset;
     int64_t sync_dispersion;
     int64_t sync_delay;
+    raop_ntp_session_t *ntp_session;
 
     // Socket address of the AirPlay client
     struct sockaddr_storage remote_saddr;
@@ -96,6 +90,162 @@ struct raop_ntp_s {
 
     uint64_t video_arrival_offset;
 };
+
+/* code for recv with kernel timestamp */
+
+#ifdef _WIN32
+#ifndef SIO_TIMESTAMPING
+#define SIO_TIMESTAMPING _W_WSAIOW(IOC_VENDOR, 235)
+#define TIMESTAMPING_FLAG_RX 0x00000001
+typedef struct{
+    ULONG FLAGS;
+} TIMESTAMPING_CONFIG;
+#endif
+#ifndef WSA_CMSG_SPACE
+#define WSA_CMSG_SPACE(len) (sizeof(struct cmsghdr) + (len))
+#endif
+static LARGE_INTEGER g_system_qpc_frequency =  {0};
+#endif
+
+void raop_ntp_global_init(void) {
+#ifdef _WIN32
+    QueryPerformanceFrequency(&g_system_qpc_frequency);
+#endif
+}
+
+raop_ntp_session_t* raop_ntp_session_create(int sock_fd) {
+    raop_ntp_session_t *session = (raop_ntp_session_t*)calloc(1, sizeof(raop_ntp_session_t));
+    if (!session) return NULL;
+    session->sock_fd = sock_fd;
+
+#if defined(_WIN32)
+    SOCKET wsock = (SOCKET)sock_fd;
+    session->qpc_frequency = g_system_qpc_frequency.QuadPart;
+
+    GUID guid = WSAID_WSARECVMSG;
+    DWORD bytes = 0;
+    LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
+    if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
+                 &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
+        session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
+    }
+
+    // Anchor this session's QPC baseline immediately at creation
+    LARGE_INTEGER qpc_start;
+    QueryPerformanceCounter(&qpc_start);
+    session->base_qpc_ticks = qpc_start.QuadPart;
+    
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    uint64_t windows_ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    session->base_system_time_us = (windows_ticks - 116444736000000000ULL) / 10ULL;
+
+    // Enable kernel timestamping explicitly on this isolated socket handle
+    TIMESTAMPING_CONFIG config = { .Flags = TIMESTAMPING_FLAG_RX };
+    DWORD bytes_returned = 0;
+    WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config), NULL, 0, &bytes_returned, NULL, NULL);
+#else
+    // POSIX path: Grab immediate time baseline (only used if kernel parsing falls back)
+    struct timeval tv_start;
+    gettimeofday(&tv_start, NULL);
+    session->base_system_time_us = ((uint64_t)tv_start.tv_sec * 1000000ULL) + (uint64_t)tv_start.tv_usec;
+
+    // Enable POSIX kernel tracking explicitly on this isolated file descriptor
+    int enable_ts = 1;
+    setsockopt(sock_fd, SOL_SOCKET, SO_TIMESTAMP, (const char*)&enable_ts, sizeof(enable_ts));
+#endif
+    return session;
+}
+
+ssize_t raop_ntp_session_recv(raop_ntp_session_t *session, char *buf, size_t buf_len, uint64_t *out_local_us) {
+    if (!session || !buf || buf_len == 0 || !out_local_us) return -1;
+
+#ifdef _WIN32
+    LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG)session->pWSARecvMsg_ptr;
+    
+    if (!pWSARecvMsg) {
+        int from_len = sizeof(struct sockaddr_in);
+        struct sockaddr_in client_addr;
+        ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, (struct sockaddr*)&client_addr, &from_len);        
+        LARGE_INTEGER qpc_now;
+        QueryPerformanceCounter(&qpc_now);
+        int64_t elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
+        *out_local_us = session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency);
+        return n;
+    }
+
+    WSABUF wsa_buf = { .len = (ULONG)buf_len, .buf = buf };
+    char control_buf[WSA_CMSG_SPACE(sizeof(UINT64))]; // Space for explicit 64-bit tick integer
+    
+    WSAMSG wsa_msg = {
+        .lpBuffers = &wsa_buf,
+        .dwBufferCount = 1,
+        .Control.len = sizeof(control_buf),
+        .Control.buf = control_buf
+    };
+
+    DWORD bytes_received = 0;
+    if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) == SOCKET_ERROR) {
+        return -1;
+    }
+
+    // Default Fallback: Calculate immediate application fallback interval
+    LARGE_INTEGER qpc_now;
+    QueryPerformanceCounter(&qpc_now);
+    int64_t default_elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
+    *out_local_us = session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+
+    // Extract exact kernel execution timestamp from Winsock control structures
+    PCMSGHDR cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
+    while (cmsg != NULL) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
+            // Pull directly as a clean 64-bit Unsigned Performance Counter Value
+            UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
+            
+            // Validate that the hardware ticking index is moving properly
+            if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
+                int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
+                
+                // Translate raw ticks to absolute high-precision microsecond timelines
+                *out_local_us = session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+            }
+            break;
+        }
+        cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
+    }
+    return (ssize_t)bytes_received;
+#else
+    struct sockaddr_in client_addr;
+    struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
+    char control_buf[CMSG_SPACE(sizeof(struct timeval))];
+    struct msghdr msg = {
+        .msg_name = &client_addr, .msg_namelen = sizeof(client_addr),
+        .msg_iov = &iov, .msg_iovlen = 1,
+        .msg_control = control_buf, .msg_controllen = sizeof(control_buf)
+    };
+    ssize_t n = recvmsg(session->sock_fd, &msg, 0);
+    if (n < 0) return n;
+    struct timeval tv_now;
+    gettimeofday(&tv_now, NULL);
+    *out_local_us = ((uint64_t)tv_now.tv_sec * 1000000ULL) + (uint64_t)tv_now.tv_usec;
+    struct cmsghdr *cmsg;
+    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
+            struct timeval *tv_kernel = (struct timeval *)CMSG_DATA(cmsg);
+            *out_local_us = ((uint64_t)tv_kernel->tv_sec * 1000000ULL) + (uint64_t)tv_kernel->tv_usec;
+            break;
+        }
+    }
+    return n;
+#endif
+}
+
+void raop_ntp_session_destroy(raop_ntp_session_t *ntp_session) {
+    if (ntp_session) {
+        CLOSESOCKET(ntp_session->sock_fd);
+        free(ntp_session);
+    }
+}
 
 /* for use in syncing audio before a first rtp_sync */
 void raop_ntp_set_video_arrival_offset(raop_ntp_t* raop_ntp, const uint64_t *offset) {
@@ -222,14 +372,22 @@ raop_ntp_init_socket(raop_ntp_t *raop_ntp, int use_ipv6)
         goto sockets_cleanup;
     }
 
+    raop_ntp->ntp_session = raop_ntp_session_create(tsock);
+    if (raop_ntp->ntp_session == NULL) {
+        logger_log(raop_ntp->logger, LOGGER_ERR, "raop_ntp: Failed to allocate high-precision session context");
+        goto sockets_cleanup;
+    }
+    
     // We're calling recvfrom without knowing whether there is any data, so we need a timeout
     uint32_t recv_timeout_msec = 300; 
 #ifdef _WIN32
     DWORD tv  = recv_timeout_msec;
+#define CAST (char *)    
 #else
     struct timeval tv;
     tv.tv_sec = recv_timeout_msec / (uint32_t) 1000;
     tv.tv_usec = ((uint32_t) 1000) * (recv_timeout_msec % (uint32_t) 1000);
+#define CAST
 #endif
     if (setsockopt(tsock, SOL_SOCKET, SO_RCVTIMEO, CAST &tv, sizeof(tv)) < 0) {
         goto sockets_cleanup;
@@ -244,7 +402,13 @@ raop_ntp_init_socket(raop_ntp_t *raop_ntp, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (tsock != -1) CLOSESOCKET(tsock);
+    if (raop_ntp->ntp_session != NULL) {
+        raop_ntp_session_destroy(raop_ntp->ntp_session);
+        raop_ntp->ntp_session = NULL;
+    } else if (tsock != -1) {
+        // Fallback to protect if the handle crashed out before session instantiation
+        CLOSESOCKET(tsock);
+    }
     return -1;
 }
 
@@ -316,13 +480,19 @@ raop_ntp_thread(void *arg)
                      sock_err, SOCKET_ERROR_STRING(sock_err));
         } else {
             // Read response
-            response_len = recvfrom(raop_ntp->tsock, (char *)response, sizeof(response), 0, NULL, NULL);
+            //response_len = recvfrom(raop_ntp->tsock, (char *)response, sizeof(response), 0, NULL, NULL);
+            uint64_t kernel_recv_time_microsecs;   // kernel recv timestamp in microsecs
+            response_len = raop_ntp_session_recv(raop_ntp->ntp_session, (char *) response, sizeof(response),
+                                                 &kernel_recv_time_microsecs);
             if (response_len < 0) {
                 char time[30];
                 ntp_timestamp_to_time(send_time, time, sizeof(time));
                 logger_log(raop_ntp->logger, LOGGER_DEBUG , "raop_ntp receive timeout (request sent %s)", time);
 	    } else {
-                recv_time = raop_ntp_get_local_time();
+                recv_time = kernel_recv_time_microsecs * 1000ULL;
+                //uint64_t recv_time_clock = raop_ntp_get_local_time();
+                //printf("===recv time (kernel) ===%lu\n", recv_time);
+                //printf("===recv time (clock)  ===%lu\n", recv_time_clock);
                 client_ref_time = byteutils_get_long_be(response, 24);
                 if (!raop_ntp->client_time_received) {
                     raop_ntp->client_time_received = true;
@@ -461,7 +631,11 @@ raop_ntp_stop(raop_ntp_t *raop_ntp)
 
     THREAD_JOIN(raop_ntp->thread);
 
-    if (raop_ntp->tsock != -1) {
+    if (raop_ntp->ntp_session != NULL) {
+        raop_ntp_session_destroy(raop_ntp->ntp_session);
+        raop_ntp->ntp_session = NULL;
+        raop_ntp->tsock = -1; 
+    } else if (raop_ntp->tsock != -1) {
         CLOSESOCKET(raop_ntp->tsock);
         raop_ntp->tsock = -1;
     }

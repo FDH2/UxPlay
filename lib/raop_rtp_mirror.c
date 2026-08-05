@@ -23,11 +23,6 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <netinet/tcp.h>
-#endif
 
 #include "raop.h"
 #include "netutils.h"
