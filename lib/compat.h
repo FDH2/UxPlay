@@ -16,7 +16,13 @@
 #define COMPAT_H
 
 #if defined(WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+ #define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mstcpip.h>
+#include <mswsock.h>
 #include <windows.h>
 #ifndef snprintf
 #define snprintf _snprintf
@@ -27,6 +33,7 @@
 #include <sys/ioctl.h>
 #include <sys/time.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
