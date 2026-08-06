@@ -94,13 +94,6 @@ struct raop_ntp_s {
 /* code for recv with kernel timestamp */
 
 #ifdef _WIN32
-#ifndef SIO_TIMESTAMPING
-#define SIO_TIMESTAMPING _W_WSAIOW(IOC_VENDOR, 235)
-#define TIMESTAMPING_FLAG_RX 0x00000001
-typedef struct{
-    ULONG FLAGS;
-} TIMESTAMPING_CONFIG;
-#endif
 #ifndef WSA_CMSG_SPACE
 #define WSA_CMSG_SPACE(len) (sizeof(struct cmsghdr) + (len))
 #endif
@@ -119,16 +112,7 @@ raop_ntp_session_t* raop_ntp_session_create(int sock_fd) {
     session->sock_fd = sock_fd;
 
 #if defined(_WIN32)
-    SOCKET wsock = (SOCKET)sock_fd;
     session->qpc_frequency = g_system_qpc_frequency.QuadPart;
-
-    GUID guid = WSAID_WSARECVMSG;
-    DWORD bytes = 0;
-    LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
-    if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
-                 &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
-        session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
-    }
 
     // Anchor this session's QPC baseline immediately at creation
     LARGE_INTEGER qpc_start;
@@ -140,10 +124,23 @@ raop_ntp_session_t* raop_ntp_session_create(int sock_fd) {
     uint64_t windows_ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
     session->base_system_time_us = (windows_ticks - 116444736000000000ULL) / 10ULL;
 
-    // Enable kernel timestamping explicitly on this isolated socket handle
+    #if defined(SIO_TIMESTAMPING)  //UCRT64 only, not available on MINGW64
+    SOCKET wsock = (SOCKET)sock_fd;
+    GUID guid = WSAID_WSARECVMSG;
+    DWORD bytes = 0;
+    LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
+    if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
+                 &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
+        session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
+    }
+
     TIMESTAMPING_CONFIG config = { .Flags = TIMESTAMPING_FLAG_RX };
     DWORD bytes_returned = 0;
     WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config), NULL, 0, &bytes_returned, NULL, NULL);
+    #else
+    // legacy MINGW64 fallback (no SIO_TIMEKEEPING kernel timestamping available)
+    session->pWSARecvMsg_ptr = NULL;
+    #endif
 #else
     // POSIX path: Grab immediate time baseline (only used if kernel parsing falls back)
     struct timeval tv_start;
@@ -161,59 +158,46 @@ ssize_t raop_ntp_session_recv(raop_ntp_session_t *session, char *buf, size_t buf
     if (!session || !buf || buf_len == 0 || !out_local_us) return -1;
 
 #ifdef _WIN32
+    #if defined(SIO_TIMESTAMPING)  //UCRT64 only
     LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG)session->pWSARecvMsg_ptr;
-    
-    if (!pWSARecvMsg) {
-        int from_len = sizeof(struct sockaddr_in);
-        struct sockaddr_in client_addr;
-        ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, (struct sockaddr*)&client_addr, &from_len);        
-        LARGE_INTEGER qpc_now;
-        QueryPerformanceCounter(&qpc_now);
-        int64_t elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
-        *out_local_us = session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency);
-        return n;
+    if (pWSARecvMsg != NULL) {
+        WSABUF wsa_buf = { .len = (ULONG)buf_len, .buf = buf };
+        char control_buf[WSA_CMSG_SPACE(sizeof(UINT64))];
+        WSAMSG wsa_msg = { .lpBuffers = &wsa_buf, .dwBufferCount = 1, .Control.len = sizeof(control_buf), .Control.buf = control_buf };
+        DWORD bytes_received = 0;
+        
+        if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) != SOCKET_ERROR) {
+            LARGE_INTEGER qpc_now;
+            QueryPerformanceCounter(&qpc_now);
+            int64_t default_elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
+            *out_local_us = session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+
+            PCMSGHDR cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
+            while (cmsg != NULL) {
+                if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
+                    UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
+                    if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
+                        int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
+                        *out_local_us = session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+                    }
+                    break;
+                }
+                cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
+            }
+            return (ssize_t)bytes_received;
+        }
     }
-
-    WSABUF wsa_buf = { .len = (ULONG)buf_len, .buf = buf };
-    char control_buf[WSA_CMSG_SPACE(sizeof(UINT64))]; // Space for explicit 64-bit tick integer
+    #endif
+    //fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
+    int from_len = sizeof(struct sockaddr_in);
+    struct sockaddr_in client_addr;
+    ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, (struct sockaddr*)&client_addr, &from_len);
     
-    WSAMSG wsa_msg = {
-        .lpBuffers = &wsa_buf,
-        .dwBufferCount = 1,
-        .Control.len = sizeof(control_buf),
-        .Control.buf = control_buf
-    };
-
-    DWORD bytes_received = 0;
-    if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) == SOCKET_ERROR) {
-        return -1;
-    }
-
-    // Default Fallback: Calculate immediate application fallback interval
     LARGE_INTEGER qpc_now;
     QueryPerformanceCounter(&qpc_now);
-    int64_t default_elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
-    *out_local_us = session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency);
-
-    // Extract exact kernel execution timestamp from Winsock control structures
-    PCMSGHDR cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
-    while (cmsg != NULL) {
-        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
-            // Pull directly as a clean 64-bit Unsigned Performance Counter Value
-            UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
-            
-            // Validate that the hardware ticking index is moving properly
-            if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
-                int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
-                
-                // Translate raw ticks to absolute high-precision microsecond timelines
-                *out_local_us = session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency);
-            }
-            break;
-        }
-        cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
-    }
-    return (ssize_t)bytes_received;
+    int64_t elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
+    *out_local_us = session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency);
+    return n;
 #else
     struct sockaddr_in client_addr;
     struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
