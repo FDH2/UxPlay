@@ -103,22 +103,23 @@ jobs:
       - name: Install MSYS2
         uses: msys2/setup-msys2@v2
         with:
+          msystem: UCRT64
           update: true
-          install: >
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-openssl
-            mingw-w64-x86_64-libplist
-            mingw-w64-x86_64-gstreamer
-            mingw-w64-x86_64-gst-plugins-base
-            mingw-w64-x86_64-gst-plugins-good
-            mingw-w64-x86_64-pkg-config
+          install: >-
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-libplist
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-pkg-config
             base-devel
 
       - name: Configure CMake
         shell: msys2 {0}
         env:
-          PKG_CONFIG_PATH: /mingw64/lib/pkgconfig
+          PKG_CONFIG_PATH: /ucrt64/lib/pkgconfig
         run: |
           cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DNO_X11_DEPS=ON
