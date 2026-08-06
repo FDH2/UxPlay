@@ -413,7 +413,8 @@ void dnssd_error_text(int *dnssd_error, const char *appname) {
 	        appname);
         printf("    Use options -m ... and -p ... to allow multiple instances of %s to run concurrently\n", appname); 
     } else {
-        printf("    mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
+        printf("dnssd_register_raop failed with error code %d\n"
+               " mDNS Error codes are in range FFFE FF00 (-65792) to FFFE FFFF (-65537) "
 	       "(see Apple's dns_sd.h)\n", *dnssd_error);
     }
 }
