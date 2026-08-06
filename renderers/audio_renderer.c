@@ -160,7 +160,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
             break;
         }
         g_string_append (launch, "audioconvert ! ");
-        g_string_append (launch, "audioresample ! ");    /* wasapisink must resample from 44.1 kHz to 48 kHz */
+        g_string_append (launch, "audioresample quality=10 ! ");    /* maximum resampling quality for 44.1kHz -> 48kHz audio */
         g_string_append (launch, "volume name=volume ! ");
 
         if (!audio_rtp) {
