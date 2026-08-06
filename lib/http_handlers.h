@@ -182,8 +182,6 @@ http_handler_set_property(raop_conn_t *conn,
 
     */
 
-    airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
-    assert(airplay_video);
     if (!strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "selectedMediaArray") ||
         !strcmp(property, "reverseEndTime") ||
@@ -883,8 +881,6 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         http_response_init(response, "HTTP/1.1", 404, "Not Found");
         return;
     }
-    const char *method = http_request_get_method(request);
-    assert (!strcmp(method, "GET"));
     const char *url = http_request_get_url(request);    
     const char* upgrade = http_request_get_header(request, "Upgrade");
     if (upgrade) {

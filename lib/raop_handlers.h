@@ -726,7 +726,7 @@ raop_handler_setup(raop_conn_t *conn,
                     unsigned char nonce[16] = { '\0' };
                     int len = 16;
                     uint64_t now = raop_ntp_get_local_time();
-                    assert (!pairing_session_make_nonce(conn->session, &now, url, nonce, len));
+                    pairing_session_make_nonce(conn->session, &now, url, nonce, len);
                     if (raop->nonce) {
                         free(raop->nonce);
                     }
