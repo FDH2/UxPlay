@@ -91,8 +91,18 @@ jobs:
           test -x build/uxplay
           ls -la build/uxplay
 
-  build-windows:
+  build-windows-intel:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        msystem: [UCRT64, MINGW64]
+        include:
+          - msystem: UCRT64
+            pkg_prefix: mingw-w64-ucrt-x86_64
+            path_prefix: ucrt64
+          - msystem: MINGW64
+            pkg_prefix: mingw-w64-x86_64
+            path_prefix: mingw64
     defaults:
       run:
         shell: msys2 {0}
@@ -103,33 +113,79 @@ jobs:
       - name: Install MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: ${{ matrix.msystem }}
           update: true
           install: >-
-            mingw-w64-ucrt-x86_64-cmake
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-openssl
-            mingw-w64-ucrt-x86_64-libplist
-            mingw-w64-ucrt-x86_64-gstreamer
-            mingw-w64-ucrt-x86_64-gst-plugins-base
-            mingw-w64-ucrt-x86_64-gst-plugins-good
-            mingw-w64-ucrt-x86_64-pkg-config
+            ${{ matrix.pkg_prefix }}-cmake
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-openssl
+            ${{ matrix.pkg_prefix }}-libplist
+            ${{ matrix.pkg_prefix }}-gstreamer
+            ${{ matrix.pkg_prefix }}-gst-plugins-base
+            ${{ matrix.pkg_prefix }}-gst-plugins-good
+            ${{ matrix.pkg_prefix }}-pkg-config
             base-devel
 
       - name: Configure CMake
-        shell: msys2 {0}
         env:
-          PKG_CONFIG_PATH: /ucrt64/lib/pkgconfig
+          PKG_CONFIG_PATH: /${{ matrix.path_prefix }}/lib/pkgconfig
         run: |
           cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
             -DNO_X11_DEPS=ON
 
       - name: Build
-        shell: msys2 {0}
         run: cmake --build build --parallel
 
       - name: Verify binary
-        shell: msys2 {0}
         run: |
           test -f build/uxplay.exe
           ls -la build/uxplay.exe
+
+
+  build-windows-arm64:
+    runs-on: windows-11-arm
+    strategy:
+      matrix:
+        msystem: [CLANGARM64]
+        include:
+          - msystem: CLANGARM64
+            pkg_prefix: mingw-w64-clang-aarch64
+            path_prefix: clangarm64
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: >-
+            ${{ matrix.pkg_prefix }}-cmake
+            ${{ matrix.pkg_prefix }}-gcc
+            ${{ matrix.pkg_prefix }}-openssl
+            ${{ matrix.pkg_prefix }}-libplist
+            ${{ matrix.pkg_prefix }}-gstreamer
+            ${{ matrix.pkg_prefix }}-gst-plugins-base
+            ${{ matrix.pkg_prefix }}-gst-plugins-good
+            ${{ matrix.pkg_prefix }}-pkg-config
+            base-devel
+
+      - name: Configure CMake
+        env:
+          PKG_CONFIG_PATH: /${{ matrix.path_prefix }}/lib/pkgconfig
+        run: |
+          cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+            -DNO_X11_DEPS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Verify binary
+        run: |
+          test -f build/uxplay.exe
+          ls -la build/uxplay.exe
+
