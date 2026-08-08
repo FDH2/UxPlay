@@ -881,3 +881,7 @@ void raop_handle_eos(raop_t *raop) {
 uint64_t get_local_time() {
     return raop_ntp_get_local_time();
 }
+
+void ntp_global_init(void) {
+    raop_ntp_global_init();
+}

@@ -2881,6 +2881,11 @@ int main (int argc, char *argv[]) {
     std::string config_file = "";
 
 #ifdef _WIN32
+    /* initialise Windows kernel qpc frequency for recv timestamping */
+    ntp_global_init();
+#endif
+
+#ifdef _WIN32
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
         LOGE("Could not set control handler");
         exit(1);

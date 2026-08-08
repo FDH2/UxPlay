@@ -712,6 +712,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
 
+    if (id >= 0 && !get_playback_location(raop->airplay_video[id])) {
+        raop_destroy_airplay_video(raop, id);
+        id = -1;
+    }
+
     /* check if playlist is already downloaded and stored (may have been interrupted by advertisements ) */
     if (id >= 0) {
       //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
@@ -793,19 +798,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     } else {
         plist_get_string_val(req_content_location_node, &playback_location);
     }
-
-    plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
-    if (!req_client_proc_name_node) {
-        goto play_error;
-    } else {
-        plist_get_string_val(req_client_proc_name_node, &client_proc_name);
-        if (!strstr(supported_hls_proc_names, client_proc_name)){
-            logger_log(raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
-                       client_proc_name, supported_hls_proc_names);
-        }
-        plist_mem_free(client_proc_name);
-    }
-
+    /* we support HLS playlists if the playback location is terminated by "/master.m3u8", otherwise pass location to player */
+    const char *uri_suffix = strstr(playback_location, "/master.m3u8");    
+    
     plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
     if (!req_start_position_seconds_node) {
         logger_log(raop->logger, LOGGER_INFO, "No Start-Position-Seconds in Play request");	    
@@ -816,12 +811,23 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
-    /* we only support HLS if the playback location is terminated by "/master.m3u8" */
-    const char *uri_suffix = strstr(playback_location, "/master.m3u8");
-    if (!uri_suffix) { 
-        logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
-        goto play_error;
-    } else {
+    /* we now also support playing video from direct Content-Location sources  (such as Safari on iOS/macOS via airplay button)) */ 
+    if (!strncmp(playback_location, "http://", strlen("http://")) ||
+        !strncmp(playback_location, "https://", strlen("https://"))) {
+        set_playback_location(airplay_video, playback_location, strlen(playback_location));
+        raop->callbacks.on_video_play(raop->callbacks.cls,
+                                      get_playback_location(airplay_video),
+                                      start_position_seconds);
+    } else if (uri_suffix) {
+        plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
+        if (req_client_proc_name_node) {
+            plist_get_string_val(req_client_proc_name_node, &client_proc_name);
+            if (!strstr(supported_hls_proc_names, client_proc_name)){
+                logger_log(raop->logger, LOGGER_WARNING, "Unsupported m3u8 HLS streaming format: clientProcName %s not found in supported list: %s",
+                           client_proc_name, supported_hls_proc_names);
+            }
+            plist_mem_free(client_proc_name);
+        }
         size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
         char *location = (char *) calloc(len + 1, sizeof(char));
         if (!location) {
@@ -839,12 +845,15 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         }
         strcat(uri_prefix, playback_location);
         char *end = strstr(uri_prefix, "/master.m3u8");
-        *end = '\0';						  
+        *end = '\0';
         set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
         free (uri_prefix);
+        set_next_media_uri_id(airplay_video, 0);
+        fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);
+        goto play_error;
     }
-    set_next_media_uri_id(airplay_video, 0);
-    fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
     plist_mem_free(playback_location);
 
