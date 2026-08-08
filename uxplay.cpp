@@ -2457,6 +2457,7 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
         audio_dumpfile = NULL;
     }
     audio_type = type;
+    remote_clock_offset = 0;
     
     if (use_audio) {
       audio_renderer_start(ct);

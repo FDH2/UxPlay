@@ -595,10 +595,18 @@ raop_rtp_thread_udp(void *arg)
 	    
             if (raop_rtp->ct == 2 && packetlen == 44)  continue;   /* ignore the ALAC packets with format information only. */
 
-            raop_buffer_enqueue(raop_rtp->buffer, packet, packetlen, 1);
+            if (!raop_rtp->initial_sync && raop_rtp->ct == 2) {
+                /* Start PTS clock immediately on first ALAC audio data packet so dequeuing starts cleanly without delay */
+                raop_rtp->client_ntp_sync = raop_ntp_get_local_time();
+                raop_rtp->rtp_sync = byteutils_get_int_be(packet, 4);
+                raop_rtp->initial_sync = true;
+            }
+
+            int result = raop_buffer_enqueue(raop_rtp->buffer, packet, packetlen, 1);
+            assert(result >= 0);
 
             if (!raop_rtp->initial_sync) {
-                /* wait until the first sync before dequeing ALAC */
+                /* wait until the first sync before dequeing */
                 continue;
             } else {
             // Render continuous buffer entries
