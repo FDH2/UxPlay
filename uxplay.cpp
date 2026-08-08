@@ -177,7 +177,9 @@ static bool h265_support = false;
 static int n_video_renderers = 0;
 static int n_audio_renderers = 0;
 static bool hls_support = false;
-static std::string lang = "";
+static std::string lang_requested = "";
+static std::string lang_subtitles = "";
+static std::string lang_system = "";
 static std::string url = "";
 static guint gst_x11_window_id = 0;
 static guint video_eos_watch_id = 0;
@@ -916,8 +918,8 @@ static void print_info (char *name) {
     printf("          n=1,2,.. format = H264/5, ALAC/AAC. Default fn=\"recording\"\n");
     printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
-    printf("-lang xx  HLS language preferences (\"fr:es:..\", overrides $LANGUAGE)\n");
-    printf("-lang     (or -lang 0): play undubbed HLS version (overrides $LANGUAGE)\n");
+    printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
+    printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
@@ -1730,10 +1732,17 @@ static void parse_arguments (int argc, char *argv[]) {
                 playbin_version = (guint) n;
             }
         } else if (arg == "-lang") {
-            lang.erase();
+            lang_requested.erase();
             if (i < argc - 1 && *argv[i+1] != '-') {
-                lang = argv[++i];
+                lang_requested = argv[++i];
             }
+            lang_requested.erase(std::remove(lang_requested.begin(), lang_requested.end(), ' '), lang_requested.end());
+        } else if (arg == "-slang") {
+            lang_subtitles.erase();
+            if (i < argc - 1 && *argv[i+1] != '-') {
+                lang_subtitles = argv[++i];
+            }
+            lang_subtitles.erase(std::remove(lang_subtitles.begin(), lang_subtitles.end(), ' '), lang_subtitles.end()); 
         } else if (arg == "-h265") {
             h265_support = true;
         } else if (arg == "-nofreeze") {
@@ -2873,6 +2882,11 @@ int main (int argc, char *argv[]) {
     std::string config_file = "";
 
 #ifdef _WIN32
+    /* initialise Windows kernel qpc frequency for recv timestamping */
+    ntp_global_init();
+#endif
+
+#ifdef _WIN32
     if (!SetConsoleCtrlHandler(CtrlHandler, TRUE)) {
         LOGE("Could not set control handler");
         exit(1);
@@ -2896,13 +2910,7 @@ int main (int argc, char *argv[]) {
     if (!getenv("AVAHI_COMPAT_NOWARN")) putenv(avahi_compat_nowarn);
 #endif
 
-    /* for HLS video language preferences */
-    char *lang_env = getenv("LANGUAGE");
-    if (lang_env && strlen(lang_env)) {
-        lang.erase();
-        lang = lang_env;
-    }
-    
+
     char *rcfile = NULL;
     /* see if option -rc was given */
     for (int i = 1; i < argc ; i++) {
@@ -2935,8 +2943,34 @@ int main (int argc, char *argv[]) {
     if (debug_log && suppress_packet_debug_data) {
         log_level = LOGGER_DEBUG;
     }
+    if (hls_support) {
+        /* get system language choice(s) */
+        char *lang_env = getenv("LANGUAGE");
+        if (lang_env && strlen(lang_env)) {
+            lang_system.erase();
+            lang_system = lang_env;
+        }
+        if (lang_system.empty()) {
+            lang_env = getenv("LC_ALL");
+            if (!(lang_env && strlen(lang_env))) {
+                lang_env = getenv("LC_MESSAGES");
+            }
+            if (!(lang_env && strlen(lang_env))) {
+                lang_env = getenv("LANG");
+            }
+            if (lang_env && strlen(lang_env)) {
+                lang_system.erase();
+                lang_system = lang_env;
+                size_t pos = lang_system.find('.');
+                if (pos != std::string::npos) {
+                    lang_system.erase(pos);
+                }
+                std::replace(lang_system.begin(), lang_system.end(), '_', '-');
+            }
+        }
+        g_assert(!lang_system.empty());
+    }
 
-    
 #ifdef _WIN32    /*  use utf-8 terminal output; don't buffer stdout in WIN32 when debug_log = false */
     SetConsoleOutputCP(CP_UTF8);
     if (!debug_log) {
@@ -3198,10 +3232,10 @@ int main (int argc, char *argv[]) {
         cleanup();
     }
 
-    if (lang.length() > 1) {
-        raop_set_lang(raop, lang.c_str());
+    if (hls_support) {
+        raop_set_lang(raop, lang_requested.c_str(), lang_subtitles.c_str(), lang_system.c_str());
     }
-    
+
 #define PID_MAX 4194304 // 2^22
     if (ble_filename.length()) {
 #ifdef _WIN32

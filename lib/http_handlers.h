@@ -173,96 +173,19 @@ http_handler_set_property(raop_conn_t *conn,
                   1: pause   (pause playing)
                   2: none    (do nothing)             
 
+        selectedMediaArray contains plist with info on master playlist default AUDIO (soun) language, and if SUBTITLES (sbtl) are present.
         reverseEndTime   (only used when rate < 0) time at which reverse playback ends (sent to reset previous values)
         forwardEndTime   (only used when rate > 0) time at which reverse playback ends (sent to reset previous values)
-        selectedMediaArray contains plist with language choice
-        interstitialEvents   usually sent to reset any previously registered interstitial events (advertisements)
-        isInterestedInDateRange  indicates #EXT-X-DATERANGE (or #EXT-X-PROGRAM-DATE-TIME) tags may occur in Media playlists
+        interstitialEvents  sent twice to reset any previously registered interstitial events (advertisements)
         textMarkupArray configure subtitle positioning and test renderering properties (data is XML-formatted textMarkupArray)
+        isInterestedInDateRange  indicates #EXT-X-DATERANGE (or #EXT-X-PROGRAM-DATE-TIME) tags may occur in Media playlists
+
     */
 
-    airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
-    assert(airplay_video);
-    if (!strcmp(property, "selectedMediaArray")) {
-        /* verify that this request contains a binary plist*/
-        char *header_str = NULL;
-        int request_datalen = 0;
-        http_request_get_header_string(request, &header_str);
-        bool is_plist = strstr(header_str,"apple-binary-plist");
-        free(header_str);
-        if (!is_plist) {
-            logger_log(raop->logger, LOGGER_DEBUG, "POST /setProperty?selectedMediaArray"
-                       "does not provide an apple-binary-plist");
-            goto post_error;
-        }
-
-        const char *request_data = http_request_get_data(request, &request_datalen);
-        plist_t req_root_node = NULL;
-        plist_from_bin(request_data, request_datalen, &req_root_node);
-        plist_t req_value_node = plist_dict_get_item(req_root_node, "value");
-
-        if (!req_value_node || !PLIST_IS_ARRAY(req_value_node)) {	  
-            logger_log(raop->logger, LOGGER_INFO, "POST /setProperty?selectedMediaArray"
-                   " did not provide expected plist from client");
-            goto post_error;
-        }
-
-        int count = plist_array_get_size(req_value_node);
-        char *name = NULL;
-        char *code = NULL;
-        char *language_name = NULL;
-        char *language_code = NULL;
-        for (int i = 0; i < count; i++) {
-            plist_t req_value_array_node = plist_array_get_item(req_value_node,i);
-            if (!language_name) {
-                plist_t req_value_options_name_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsName");
-                if (PLIST_IS_STRING(req_value_options_name_node)) {
-                    plist_get_string_val(req_value_options_name_node, &name);
-                    if (name) {
-                        language_name = (char *) calloc(strlen(name) + 1, sizeof(char));
-                        if (!language_name) {
-                            printf("Memory allocation failed\n");
-                            exit(1);
-                        }
-                        memcpy(language_name, name, strlen(name));
-                        plist_mem_free(name);
-                    }
-                }
-            }
-            if (!language_code) {
-                plist_t req_value_options_code_node =  plist_dict_get_item(req_value_array_node,"MediaSelectionOptionsUnicodeLanguageIdentifier");
-                if (PLIST_IS_STRING(req_value_options_code_node)) {
-                    plist_get_string_val(req_value_options_code_node, &code);
-                    if (code) {
-                        language_code = (char *) calloc(strlen(code) + 1, sizeof(char));
-                        if (!language_code) {
-                            printf("Memory allocation failed\n");
-                            exit(1);
-                        }
-                        memcpy(language_code, code, strlen(code));
-                        plist_mem_free(code);
-                    }
-                }
-            }
-            if (language_code && language_name) {
-                break;
-            } else {
-                plist_free (req_value_array_node);
-                continue;
-            }
-        }
-        plist_free (req_root_node);
-        if (language_code && language_name) {
-            set_language_code(airplay_video, language_code, strlen(language_code));
-            set_language_name(airplay_video, language_name, strlen(language_name));
-            logger_log(raop->logger, LOGGER_INFO, "stored language from MediaSelectionOptions: %s \"%s\"",
-                       get_language_code(airplay_video), get_language_name(airplay_video));
-        }
-        plist_mem_free(language_name);
-        plist_mem_free(language_code);
-    } else if (!strcmp(property, "reverseEndTime") ||
+    if (!strcmp(property, "actionAtItemEnd") ||
+        !strcmp(property, "selectedMediaArray") ||
+        !strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
-        !strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "interstitialEvents") ||
         !strcmp(property, "textMarkupArray") ||
         !strcmp(property, "isInterestedInDateRange")) {
@@ -789,6 +712,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
 
+    if (id >= 0 && !get_playback_location(raop->airplay_video[id])) {
+        raop_destroy_airplay_video(raop, id);
+        id = -1;
+    }
+
     /* check if playlist is already downloaded and stored (may have been interrupted by advertisements ) */
     if (id >= 0) {
       //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
@@ -837,7 +765,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     assert(id >= 0);
 
     raop->current_video = id;
-    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang);
+    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang, raop->lang_subtitles, raop->lang_system);
     airplay_video = hls_get_current_video(raop);
     assert(airplay_video);
     set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
@@ -870,19 +798,9 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     } else {
         plist_get_string_val(req_content_location_node, &playback_location);
     }
-
-    plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
-    if (!req_client_proc_name_node) {
-        goto play_error;
-    } else {
-        plist_get_string_val(req_client_proc_name_node, &client_proc_name);
-        if (!strstr(supported_hls_proc_names, client_proc_name)){
-            logger_log(raop->logger, LOGGER_WARNING, "Unsupported HLS streaming format: clientProcName %s not found in supported list: %s",
-                       client_proc_name, supported_hls_proc_names);
-        }
-        plist_mem_free(client_proc_name);
-    }
-
+    /* we support HLS playlists if the playback location is terminated by "/master.m3u8", otherwise pass location to player */
+    const char *uri_suffix = strstr(playback_location, "/master.m3u8");    
+    
     plist_t req_start_position_seconds_node = plist_dict_get_item(req_root_node, "Start-Position-Seconds");
     if (!req_start_position_seconds_node) {
         logger_log(raop->logger, LOGGER_INFO, "No Start-Position-Seconds in Play request");	    
@@ -893,12 +811,23 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     set_start_position_seconds(airplay_video, (float) start_position_seconds);
 
-    /* we only support HLS if the playback location is terminated by "/master.m3u8" */
-    const char *uri_suffix = strstr(playback_location, "/master.m3u8");
-    if (!uri_suffix) { 
-        logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);	    
-        goto play_error;
-    } else {
+    /* we now also support playing video from direct Content-Location sources  (such as Safari on iOS/macOS via airplay button)) */ 
+    if (!strncmp(playback_location, "http://", strlen("http://")) ||
+        !strncmp(playback_location, "https://", strlen("https://"))) {
+        set_playback_location(airplay_video, playback_location, strlen(playback_location));
+        raop->callbacks.on_video_play(raop->callbacks.cls,
+                                      get_playback_location(airplay_video),
+                                      start_position_seconds);
+    } else if (uri_suffix) {
+        plist_t req_client_proc_name_node = plist_dict_get_item(req_root_node, "clientProcName");
+        if (req_client_proc_name_node) {
+            plist_get_string_val(req_client_proc_name_node, &client_proc_name);
+            if (!strstr(supported_hls_proc_names, client_proc_name)){
+                logger_log(raop->logger, LOGGER_WARNING, "Unsupported m3u8 HLS streaming format: clientProcName %s not found in supported list: %s",
+                           client_proc_name, supported_hls_proc_names);
+            }
+            plist_mem_free(client_proc_name);
+        }
         size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
         char *location = (char *) calloc(len + 1, sizeof(char));
         if (!location) {
@@ -916,12 +845,15 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
         }
         strcat(uri_prefix, playback_location);
         char *end = strstr(uri_prefix, "/master.m3u8");
-        *end = '\0';						  
+        *end = '\0';
         set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
         free (uri_prefix);
+        set_next_media_uri_id(airplay_video, 0);
+        fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);
+        goto play_error;
     }
-    set_next_media_uri_id(airplay_video, 0);
-    fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
 
     plist_mem_free(playback_location);
 
@@ -958,8 +890,6 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         http_response_init(response, "HTTP/1.1", 404, "Not Found");
         return;
     }
-    const char *method = http_request_get_method(request);
-    assert (!strcmp(method, "GET"));
     const char *url = http_request_get_url(request);    
     const char* upgrade = http_request_get_header(request, "Upgrade");
     if (upgrade) {
