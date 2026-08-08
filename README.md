@@ -1266,6 +1266,16 @@ for an alternative method of key generation). *(Add a line "pin" in the
 UxPlay startup file if you wish the UxPlay server to use the pin
 authentication protocol).*
 
+**-p2p**: (macOS with the Apple Bonjour DNS-SD backend only) also advertise
+UxPlay on Apple peer-to-peer interfaces, including AWDL, and accept
+connections arriving on those interfaces. This can make UxPlay available
+when the client and server do not share a usable local network. The option
+must be used with **-pin \[nnnn\]**, which enables the legacy-pairing path
+used for this feature. Because **-p2p** makes the receiver discoverable to
+nearby Apple devices, using a fixed or random pin is also an important access
+control. This opt-in feature uses the private macOS socket option
+`SO_RECV_ANYIF`; it is unavailable when UxPlay is built with `-DUSE_MDNS=1`.
+
 **-reg \[*filename*\]**: (since v1.68). If "-pin" is used, this option
 maintains a register of pin-authenticated "trusted clients" in
 \$HOME/.uxplay.register (or optionally, in *filename*). Without this

@@ -23,6 +23,7 @@
 #include <ctype.h>
 
 #include "dnssd.h"
+#include "netutils.h"
 
 #include "dnssdint.h"
 #include "utils.h"
@@ -168,4 +169,12 @@ void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
     } else {
         *features = *features & ~mask;
     }
+}
+
+void dnssd_set_peer_to_peer(dnssd_t *dnssd, int enabled) {
+    assert(dnssd);
+    dnssd->peer_to_peer = enabled ? 1 : 0;
+    /* Advertising without accepting traffic from P2P interfaces produces a
+     * receiver that clients can see but cannot connect to. */
+    netutils_set_peer_to_peer(dnssd->peer_to_peer);
 }
