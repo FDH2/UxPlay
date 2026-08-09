@@ -18,8 +18,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
 #include "compat.h"
+
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+#ifndef SO_RECV_ANYIF
+/* XNU's private socket option for unrestricted inbound processing. */
+#define SO_RECV_ANYIF 0x1104
+#endif
+#endif
+
+static int peer_to_peer = 0;
 
 int
 netutils_init()
@@ -50,6 +60,12 @@ netutils_cleanup()
 #ifdef WIN32
     WSACleanup();
 #endif
+}
+
+void
+netutils_set_peer_to_peer(int enabled)
+{
+    peer_to_peer = enabled ? 1 : 0;
 }
 
 unsigned char *
@@ -118,6 +134,17 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
     if (ret == -1) {
         goto cleanup;
     }
+
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+    if (peer_to_peer) {
+        int recv_any_if = 1;
+        ret = setsockopt(server_fd, SOL_SOCKET, SO_RECV_ANYIF, &recv_any_if, sizeof(recv_any_if));
+        if (ret == -1) {
+            fprintf(stderr, "setsockopt(SO_RECV_ANYIF) failed: %s\n", strerror(errno));
+            goto cleanup;
+        }
+    }
+#endif
 
     memset(&saddr, 0, sizeof(saddr));
     if (use_ipv6) {
