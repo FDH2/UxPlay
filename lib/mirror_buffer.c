@@ -63,6 +63,16 @@ mirror_buffer_init_aes(mirror_buffer_t *mirror_buffer, const uint64_t *streamCon
     sha_final(ctx, aesiv_video, NULL);
     sha_destroy(ctx);
 
+    /* A re-key means a new stream, so the keystream restarts: any bytes held
+     * back from the previous stream's last partial block must be dropped, or
+     * this stream is decrypted at the wrong offset from its first packet. */
+    mirror_buffer->nextDecryptCount = 0;
+    memset(mirror_buffer->og, 0, sizeof(mirror_buffer->og));
+    if (mirror_buffer->aes_ctx) {
+        aes_ctr_destroy(mirror_buffer->aes_ctx);
+        mirror_buffer->aes_ctx = NULL;
+    }
+
     // Need to be initialized externally
     mirror_buffer->aes_ctx = aes_ctr_init(aeskey_video, aesiv_video);
 }
