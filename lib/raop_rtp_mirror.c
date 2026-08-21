@@ -456,7 +456,10 @@ raop_rtp_mirror_thread(void *arg)
                 int nalus_count = 0;
                 while (nalu_size < payload_size) {
                     int nc_len = byteutils_get_int_be(payload_decrypted, nalu_size);
-                    if (nc_len < 0 || nalu_size + 4 > payload_size) {
+                    /* nc_len is read from the payload, so it is only a
+                     * length if the unit it claims fits in what is left. */
+                    if (nc_len < 0 || nalu_size + 4 > payload_size ||
+                        nc_len > payload_size - nalu_size - 4) {
                         valid_data = false;
                         break;
                     }
