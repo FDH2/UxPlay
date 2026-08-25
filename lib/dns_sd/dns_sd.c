@@ -128,6 +128,23 @@ typedef struct dnssd_private_s {
 
 } dnssd_private_t;
 
+static void
+dnssd_registration_scope(dnssd_t *dnssd_public, DNSServiceFlags *flags, uint32_t *interface_index)
+{
+    *flags = 0;
+    *interface_index = 0;
+#ifdef __APPLE__
+    if (dnssd_public->peer_to_peer) {
+        /* Keep the normal registrations and opt into both Apple P2P families.
+         * Using awdl0 directly can miss other active peer interfaces. */
+        *flags = kDNSServiceFlagsIncludeP2P | kDNSServiceFlagsIncludeAWDL;
+        *interface_index = kDNSServiceInterfaceIndexAny;
+    }
+#else
+    (void) dnssd_public;
+#endif
+}
+
 void *
 dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
@@ -221,7 +238,19 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
 
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
-    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;    
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+    DNSServiceFlags flags = 0;
+    uint32_t interface_index = 0;
+
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+    /* p2p support (macOS only) 
+     * Keep the normal registrations and opt into both Apple P2P families.
+     * Using awdl0 directly can miss other active peer interfaces. */
+    if (dnssd_public->peer_to_peer) {
+        flags = kDNSServiceFlagsIncludeP2P | kDNSServiceFlagsIncludeAWDL;
+        interface_index = kDNSServiceInterfaceIndexAny;
+    }
+#endif
 
     snprintf(features, sizeof(features), "0x%X,0x%X", dnssd_public->features1, dnssd_public->features2);
 
@@ -277,7 +306,7 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
     strncat(servname, dnssd_public->name, sizeof(servname)-strlen(servname)-1);
 
     /* Register the service */
-    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->raop_service, 0, 0,
+    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->raop_service, flags, interface_index,
                                                           servname, "_raop._tcp",
                                                           NULL, NULL,
                                                           htons(port),
@@ -297,6 +326,18 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
     assert(dnssd_public);
     assert(dnssd_public->dnssd_private);
     dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;    
+    DNSServiceFlags flags = 0;
+    uint32_t interface_index = 0;
+
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+    /* p2p support (macOS only) 
+     * Keep the normal registrations and opt into both Apple P2P families.
+     * Using awdl0 directly can miss other active peer interfaces. */
+    if (dnssd_public->peer_to_peer) {
+        flags = kDNSServiceFlagsIncludeP2P | kDNSServiceFlagsIncludeAWDL;
+        interface_index = kDNSServiceInterfaceIndexAny;
+    }
+#endif
     
     snprintf(features, sizeof(features), "0x%X,0x%X", dnssd_public->features1, dnssd_public->features2);
 
@@ -332,7 +373,7 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->airplay_record, "vv", strlen(AIRPLAY_VV), AIRPLAY_VV);
 
     /* Register the service */
-    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->airplay_service, 0, 0,
+    DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->airplay_service, flags, interface_index,
                                                            dnssd_public->name, "_airplay._tcp",
                                                            NULL, NULL,
                                                            htons(port),

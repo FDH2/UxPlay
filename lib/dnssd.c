@@ -27,6 +27,17 @@
 #include "dnssdint.h"
 #include "utils.h"
 
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+/* p2p support (macOS only) */
+#include "netutils.h"
+void dnssd_set_peer_to_peer(dnssd_t *dnssd, int enabled) {
+    assert(dnssd);
+    dnssd->peer_to_peer = enabled ? 1 : 0;
+    /* Warning: Advertising without the macOS host set to accept traffic from P2P interfaces produces a
+     * receiver that clients can see but cannot connect to. */
+    netutils_set_peer_to_peer(dnssd->peer_to_peer);
+}
+#endif
 
 dnssd_t *
 dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, unsigned char pin_pw, int *error)

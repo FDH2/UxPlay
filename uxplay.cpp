@@ -27,8 +27,11 @@
 #include <string>
 #include <algorithm>
 #include <vector>
+#include <array>
 #include <fstream>
 #include <sstream>
+#include <iostream>
+#include <memory>
 #include <iterator>
 #include <sys/stat.h>
 #include <cstdio>
@@ -159,6 +162,7 @@ static std::vector<std::string> allowed_clients;
 static std::vector<std::string> blocked_clients;
 static bool restrict_clients;
 static bool setup_legacy_pairing = false;
+static bool peer_to_peer = false;
 static unsigned char pin_pw = 0;  /* 0: no client access control; 1: onscreen pin ; 2: require password (same password for all clients)  3: random pw*/
 static std::string password = "";
 static guint min_password_length = MIN_PASSWORD_LENGTH;
@@ -224,6 +228,26 @@ static const char *reason_always = "mirroring client: inhibit always";
 static const char *reason_active = "actively receiving video";
 static float previous_hls_position = 0.0f;
 #endif
+
+/* Helper function to execute a system command and capture output */
+struct PcloseDeleter {
+    void operator()(FILE* fp) const {
+        if (fp) pclose(fp);
+    }
+};
+
+static std::string execCommand(const std::string& cmd) {
+  std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, PcloseDeleter> pipe(popen(cmd.c_str(), "r"));
+    if (!pipe) {
+        return "";
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
 
 /* logging */
 
@@ -923,6 +947,8 @@ static void print_info (char *name) {
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
+    printf("-p2p      Advertise and accept AirPlay over Apple peer-to-peer (macOS only)\n");
+    printf("          requires -pin; makes UxPlay visible to nearby Apple devices\n");
     printf("-reg [fn] Keep a register in $HOME/.uxplay.register to verify returning\n");
     printf("          client pin-registration; (option: use file \"fn\" for this)\n");
     printf("-pw [pwd] Require use of password to control client access;\n");
@@ -1617,6 +1643,43 @@ static void parse_arguments (int argc, char *argv[]) {
                 }
                 pin = n + 10000;
             }
+        } else if (arg == "-p2p") {
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+            LOGI("macOS  point-to-point Airplay settings are in System Settings->General->AirDrop & Continuity->AirPlay->AirPlayReceiver"); 
+	    std::string prepend = "defaults -currentHost read com.apple.controlcenter "; 
+	    std::string command1 = "AirplayReceiverEnabled";
+	    std::string command2 = "AirplayReceiverAdvertising";
+	    std::string postpend = " 2>/dev/null";
+	    std::string command = prepend + command1 + postpend;
+            std::string output = execCommand(command.c_str());
+            output.erase(output.find_last_not_of(" \n\r\t") + 1);
+            if (output == "1" || output == "true") {
+                peer_to_peer = true;
+		output.erase();
+		command.erase();
+		command = prepend + command2 + postpend;
+                output = execCommand(command.c_str());
+                output.erase(output.find_last_not_of(" \n\r\t") + 1);
+                if (output == "1") {
+                    LOGI("=== POINT-TO-POINT macOS AirPlay connections allowed for CURRENT USER (1)");
+                } else if (output == "2") {
+                    LOGI("=== POINT-TO-POINT macOS AirPlay connections allowed for ANYONE ON THE SAME NETWORK (2)");
+                } else  if (output == "3") {
+                    LOGI("=== POINT-TO-POINT macOS AirPlay connections allowed for EVERYONE (3)");		    
+                }
+	    } else {
+		if (output == "0" || output == "false") {
+                    LOGE(" macOS host reported AirplayReceiverEnabled was not true");
+		} else {
+                    LOGE(" macOS host did not report a value for AirplayReceiverEnabled; try switching AirPlay Receiver off then on");
+		}
+		exit(1);
+	    }
+#else
+	    fprintf(stderr, "invalid: the \"-p2p\" option is only available on macOS hosts with UxPlay compiled to use Bonjour services\n");      
+            exit(1);
+#endif
+	    
 	} else if (arg == "-reg") {
             registration_list = true;
             pairing_register.erase();
@@ -1626,7 +1689,7 @@ static void parse_arguments (int argc, char *argv[]) {
                 if (!file_has_write_access(fn)) {
                     fprintf(stderr, "%s cannot be written to:\noption \"-reg <fn>\" must be to a file with write access\n", fn);
                     exit(1);
-                }   
+      }   
             }
         } else if (arg == "-key") {
             keyfile.erase();
@@ -1988,6 +2051,11 @@ static int start_dnssd(std::vector<char> hw_addr, std::string name) {
         return 1;
     }
 
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+    /* support for p2p (macOS only) */
+    dnssd_set_peer_to_peer(dnssd, (int) peer_to_peer);
+#endif
+    
     /* after dnssd starts, reset the default feature set here 
      * (overwrites features set in dnssdint.h)
      * default: FEATURES_1 = 0x5A7FFEE6, FEATURES_2 = 0 */
@@ -2937,6 +3005,17 @@ int main (int argc, char *argv[]) {
         read_config_file(config_file.c_str(), argv[0]);
     }
     parse_arguments (argc, argv);
+
+    if (peer_to_peer) {
+#ifndef UXPLAY_HAVE_APPLE_P2P
+        fprintf(stderr, "option -p2p requires macOS and the Apple Bonjour DNS-SD backend\n");
+        exit(1);
+#endif
+        if (!setup_legacy_pairing) {
+            fprintf(stderr, "option -p2p requires -pin [nnnn] for the tested legacy-pairing path\n");
+            exit(1);
+        }
+    }
 
     log_level = (debug_log ? LOGGER_DEBUG_DATA : LOGGER_INFO);
     if (debug_log && suppress_packet_debug_data) {

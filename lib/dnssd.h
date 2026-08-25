@@ -46,8 +46,12 @@ typedef struct dnssd_s {
     uint32_t features2;
 
     unsigned char pin_pw;
-
     void *dnssd_private;
+  
+/* p2p support (macOS only) */
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+    int peer_to_peer;
+#endif
 } dnssd_t;
 
 void *dnssd_private_init(dnssd_t *dnssd_public, int *error);
@@ -71,6 +75,11 @@ DNSSD_API uint64_t dnssd_get_airplay_features(dnssd_t *dnssd);
 DNSSD_API void dnssd_set_pk(dnssd_t *dnssd, char * pk_str);
 
 DNSSD_API void dnssd_destroy(dnssd_t *dnssd);
+
+/* p2p support (macOS only) */
+#if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
+DNSSD_API void dnssd_set_peer_to_peer(dnssd_t *dnssd, int enabled);
+#endif
 
 #ifdef __cplusplus
 }
