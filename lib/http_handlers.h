@@ -25,7 +25,11 @@ static void
         logger_log(raop->logger, LOGGER_ERR, "hls_get_current_video: failed to identify current_playlist");
         return NULL;
     }
-    assert(raop->airplay_video[raop->current_video]);
+    if (!raop->airplay_video[raop->current_video]) {
+        logger_log(raop->logger, LOGGER_ERR, "hls_get_current_video: current_playlist %d is empty",
+                   raop->current_video);
+        return NULL;
+    }
     return (void *) raop->airplay_video[raop->current_video];
 }
 
@@ -396,8 +400,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                     char **response_data, int *response_datalen) {
 
     raop_t *raop = conn->raop;
-    airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
-    assert(airplay_video);
+    airplay_video_t *airplay_video = NULL;
     bool data_is_plist = false;
     plist_t req_root_node = NULL;
     uint64_t uint_val = 0;
@@ -405,6 +408,12 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     int fcup_response_statuscode = 0;
     char *type = NULL;
     bool logger_debug = (logger_get_level(raop->logger) >= LOGGER_DEBUG);
+
+    /* fetched only after the locals above are initialized: post_action_error releases them */
+    airplay_video = (airplay_video_t *) hls_get_current_video(raop);
+    if (!airplay_video) {
+        goto post_action_error;
+    }
 
     const char* session_id = http_request_get_header(request, "X-Apple-Session-ID");
     if (!session_id) {
@@ -721,10 +730,14 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     if (id >= 0) {
       //printf("====use EXISTING  airplay_video[%d] %p %s %s\n", id, raop->airplay_video[id], playback_uuid, get_playback_uuid(raop->airplay_video[id]));
         plist_mem_free(playback_uuid);
+        playback_uuid = NULL;
         plist_free(req_root_node);
+        req_root_node = NULL;
         raop->current_video = id;
         airplay_video = hls_get_current_video(raop);
-        assert(airplay_video);
+        if (!airplay_video) {
+            goto play_error;
+        }
         set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
         float resume_pos = get_resume_position_seconds(airplay_video);
         float start_pos = get_start_position_seconds(airplay_video);
@@ -767,7 +780,10 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop->current_video = id;
     raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang, raop->lang_subtitles, raop->lang_system);
     airplay_video = hls_get_current_video(raop);
-    assert(airplay_video);
+    if (!airplay_video) {
+        plist_mem_free(playback_uuid);
+        goto play_error;
+    }
     set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
     set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
     plist_mem_free (playback_uuid);
@@ -902,7 +918,10 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         return;
     }
     airplay_video_t *airplay_video = (airplay_video_t *) hls_get_current_video(raop);
-    assert(airplay_video);
+    if (!airplay_video) {
+        http_response_init(response, "HTTP/1.1", 404, "Not Found");
+        return;
+    }
     if (!strcmp(url, "/master.m3u8")){
         char * master_playlist  = get_master_playlist(airplay_video);
         if (master_playlist) {
