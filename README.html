@@ -995,13 +995,17 @@ can be used on networks that don’t allow DNS_SD. See <a
 href="#bluetooth-le-beacon-setup">instructions below</a>.</p>
 <p><strong>NEW</strong>: (Only on macOS) AWDL (Apple Wireless Direct
 Link) point-to-point AirPlay connections from clients are now supported
-by UxPlay on macOS hosts when compiled to use Bonjour. Make sure the
-macOS host has enabled this (in System Settings-&gt;General-&gt;AirDrop
-&amp; Continuity -&gt; AirPlay; you may need to switch AirPlay Receiver
-off and then on again to get it working). Use option <code>-p2p</code>;
-you currently also need to set a pin with the option <code>-pin</code>,
-though AWDL does not request it if the AirPlay setting “Require
-Password” is not set.</p>
+on macOS hosts by UxPlay when it is compiled to use Bonjour. Make sure
+the macOS host has enabled the AirPlay receiver (in System
+Settings-&gt;General-&gt;AirDrop &amp; Continuity -&gt; AirPlay; you may
+need to switch AirPlay Receiver off and then on again to get it
+working). Use option <code>-p2p</code>, which acts as if the option
+<code>-pin</code> has been used, requiring a random one-time pin
+(displayed on the UxPlay terminal) to be entered, if the client has not
+previously authenticated with UxPlay by pin. After the first time a pin
+authentication has been done, a client will not need to authenticate
+again, unless the UxPlay deviceID is changed. (To set a fixed non-random
+pin as e.g. 3939, use the combination <code>-p2p -pin 3939</code>.)</p>
 <h2
 id="building-uxplay-on-microsoft-windows-using-msys2-with-the-mingw-64-compiler.">Building
 UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64

@@ -986,10 +986,12 @@ but this can be achieved if you acquire a BleuIO  USB dongle which provides its 
 stack, as a USB serial modem.   Bluetooth Service Discovery is an alternative to Rendezvous/Bonjour DNS_SD,
 and can be used on networks that don't allow DNS_SD.  See [instructions below](#bluetooth-le-beacon-setup).
 
-**NEW**: (Only on macOS)  AWDL (Apple Wireless Direct Link) point-to-point AirPlay connections from clients are now supported by UxPlay on macOS hosts when
-compiled to use Bonjour.  Make sure the macOS host has enabled this (in System Settings->General->AirDrop & Continuity -> AirPlay; you may need to switch
-AirPlay Receiver off and then on again to get it working).  Use option `-p2p`; you currently also need to set a pin with the option ``-pin``, though AWDL
-does not request it if the AirPlay setting "Require Password" is not set.
+**NEW**: (Only on macOS)  AWDL (Apple Wireless Direct Link) point-to-point AirPlay connections from clients are now supported on macOS hosts by UxPlay when
+it is compiled to use Bonjour.  Make sure the macOS host has enabled the AirPlay receiver (in System Settings->General->AirDrop & Continuity -> AirPlay; you may need to switch
+AirPlay Receiver off and then on again to get it working).  Use option `-p2p`, which acts as if the  option ``-pin``
+has been used, requiring a random  one-time pin (displayed on the UxPlay terminal) to be entered, if the client has not previously authenticated with UxPlay by pin.
+After the first time a pin authentication has been done, a client will not need to authenticate again, unless the UxPlay deviceID is changed.
+(To set a fixed non-random  pin as e.g. 3939, use the combination `-p2p -pin 3939`.)
 
 ## Building UxPlay on Microsoft Windows, using MSYS2 with the MinGW-64 compiler.
 

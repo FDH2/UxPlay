@@ -128,23 +128,6 @@ typedef struct dnssd_private_s {
 
 } dnssd_private_t;
 
-static void
-dnssd_registration_scope(dnssd_t *dnssd_public, DNSServiceFlags *flags, uint32_t *interface_index)
-{
-    *flags = 0;
-    *interface_index = 0;
-#ifdef __APPLE__
-    if (dnssd_public->peer_to_peer) {
-        /* Keep the normal registrations and opt into both Apple P2P families.
-         * Using awdl0 directly can miss other active peer interfaces. */
-        *flags = kDNSServiceFlagsIncludeP2P | kDNSServiceFlagsIncludeAWDL;
-        *interface_index = kDNSServiceInterfaceIndexAny;
-    }
-#else
-    (void) dnssd_public;
-#endif
-}
-
 void *
 dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
