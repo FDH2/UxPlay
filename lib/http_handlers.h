@@ -406,6 +406,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     uint64_t uint_val = 0;
     int request_id = 0;
     int fcup_response_statuscode = 0;
+    char *fcup_response_url = NULL;
     char *type = NULL;
     bool logger_debug = (logger_get_level(raop->logger) >= LOGGER_DEBUG);
 
@@ -547,7 +548,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         if (!PLIST_IS_STRING(req_params_fcup_response_url_node)) {
             goto post_action_error;
         }
-        char *fcup_response_url = NULL;
         plist_get_string_val(req_params_fcup_response_url_node, &fcup_response_url);
         if (!fcup_response_url) {
             goto post_action_error;
@@ -556,7 +556,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
 	
         plist_t req_params_fcup_response_data_node = plist_dict_get_item(req_params_node, "FCUP_Response_Data");
         if (!PLIST_IS_DATA(req_params_fcup_response_data_node)){
-            plist_mem_free(fcup_response_url);
             goto post_action_error;
         }
 
@@ -571,7 +570,6 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         fcup_response_datalen = (int) uint_val;
         char *playlist = NULL;
         if (!fcup_response_data) {
-            plist_mem_free(fcup_response_url);
             goto post_action_error;
         } else {
             playlist = (char *) malloc(fcup_response_datalen + 1);
@@ -586,6 +584,11 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
 #endif
         }
         assert(playlist);
+        if (strncmp(playlist,"#EXTM3U\n", strlen("#EXTM3U\n"))) {
+            logger_log(raop->logger, LOGGER_ERR,"playlist is not a valid M3U8 playlist");
+            free(playlist);
+            goto  post_action_error;
+        }
         int playlist_len = strlen(playlist);
     
         if (logger_debug) {
@@ -650,6 +653,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     return;
 
  post_action_error:;
+    plist_mem_free(fcup_response_url);
     http_response_init(response, "HTTP/1.1", 400, "Bad Request");
     plist_mem_free(type);
     if (req_root_node)  {
@@ -944,11 +948,15 @@ http_handler_hls(raop_conn_t *conn,  http_request_t *request, http_response_t *r
         float duration = 0.0f;
         char *media_playlist = get_media_playlist(airplay_video, &chunks, &duration, url);
         if (media_playlist) {
-            char *data  = adjust_yt_condensed_playlist(media_playlist);
-            *response_data = data;
-            *response_datalen = strlen(data);
-            logger_log(raop->logger, LOGGER_INFO,
-                       "Requested media_playlist %s has %5d chunks, total duration %9.3f secs", url, chunks, duration); 
+            char *data  = adjust_yt_condensed_playlist(media_playlist, chunks);
+            if (data) {
+                *response_data = data;
+                *response_datalen = strlen(data);
+                logger_log(raop->logger, LOGGER_INFO,
+                           "Requested media_playlist %s has %5d chunks, total duration %9.3f secs", url, chunks, duration);
+            } else {
+                logger_log(raop->logger, LOGGER_ERR,"requested media playlist %s rejected (invalid YT-EXT-CONDENSED-URL)", url); 
+            }	    
         } else {
             logger_log(raop->logger, LOGGER_ERR,"requested media playlist %s not found", url); 
         }
