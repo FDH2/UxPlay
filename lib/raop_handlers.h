@@ -1301,6 +1301,8 @@ raop_handler_teardown(raop_conn_t *conn,
         if (conn->raop_rtp_mirror) {
             raop_rtp_mirror_destroy(conn->raop_rtp_mirror);
             conn->raop_rtp_mirror = NULL;
+            /*fix for iOS >= 27 (does not send teardown_110 when mirrroring is stopped) */
+            raop->callbacks.video_reset(raop->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
         }
         /* shut down any HLS connections */
         int hls_count = httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_HLS);
