@@ -26,7 +26,7 @@
 
 typedef struct raop_ntp_s raop_ntp_t;
 
-typedef struct raop_ntp_session_s {
+typedef struct kernel_timestamp_session_s {
     int sock_fd;
     uint64_t base_system_time_us;
 #ifdef _WIN32
@@ -34,12 +34,13 @@ typedef struct raop_ntp_session_s {
     int64_t base_qpc_ticks;
     int64_t qpc_frequency;
 #endif
-} raop_ntp_session_t;
+} kernel_timestamp_session_t;
 
 void raop_ntp_global_init(void);
-raop_ntp_session_t * raop_ntp_session_create(int sock_fd);
-ssize_t raop_ntp_session_recv(raop_ntp_session_t *session, char *buf, size_t buf_len, uint64_t *out_local_us);
-void raop_ntp_session_destroy(raop_ntp_session_t *session);
+kernel_timestamp_session_t * kernel_timestamp_session_create(int sock_fd);
+ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char *buf, size_t buf_len,
+                                      uint64_t *out_local_us, void *src_addr, int *addr_len);
+void kernel_timestamp_session_destroy(kernel_timestamp_session_t *session);
 void *raop_ntp_thread_worker(void *param);
 
 typedef enum timing_protocol_e { NTP, TP_NONE, TP_OTHER, TP_UNSPECIFIED } timing_protocol_t;
