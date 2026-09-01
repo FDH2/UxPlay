@@ -358,14 +358,38 @@ static uint32_t mdns_get_default_ipv4(void)
         return 0;
     }
 
+    /* Prefer routing against a normal (non-multicast) destination: on
+       Windows, connecting to the multicast address itself can resolve to
+       an unrelated virtual adapter (e.g. a WSL/Hyper-V vEthernet
+       interface) instead of the real network adapter, because Windows can
+       make a different routing decision for multicast destinations. No
+       packet is actually sent by connect()/getsockname() on a UDP socket,
+       so this destination does not need to be reachable, only routable. */
     memset(&remote, 0, sizeof(remote));
     remote.sin_family = AF_INET;
-    remote.sin_port = htons(MDNS_PORT);
-    inet_pton(AF_INET, MDNS_ADDR4, &remote.sin_addr);
+    remote.sin_port = htons(53);
+    inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
 
     if (connect(fd, (struct sockaddr *) &remote, sizeof(remote)) == 0 &&
         getsockname(fd, (struct sockaddr *) &local, &local_len) == 0) {
         addr = local.sin_addr.s_addr;
+    }
+
+    if (addr == 0) {
+        /* Fall back to the original multicast-address-based lookup, in
+           case the host has no normal internet route (e.g. an isolated
+           LAN with no default gateway) but can still reach the mDNS
+           multicast group. */
+        memset(&remote, 0, sizeof(remote));
+        remote.sin_family = AF_INET;
+        remote.sin_port = htons(MDNS_PORT);
+        inet_pton(AF_INET, MDNS_ADDR4, &remote.sin_addr);
+
+        local_len = sizeof(local);
+        if (connect(fd, (struct sockaddr *) &remote, sizeof(remote)) == 0 &&
+            getsockname(fd, (struct sockaddr *) &local, &local_len) == 0) {
+            addr = local.sin_addr.s_addr;
+        }
     }
 
     CLOSESOCKET(fd);
