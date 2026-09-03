@@ -347,8 +347,50 @@ static int mdns_query_type_matches(uint16_t query_type, uint16_t record_type)
 
 static uint32_t mdns_get_default_ipv4(void)
 {
-    int fd;
     uint32_t addr = 0;
+#ifdef _WIN32
+    ULONG buflen = 15000;
+    PIP_ADAPTER_ADDRESSES pAddresses = NULL;
+    DWORD dwRetVal = 0;
+
+    pAddresses = (IP_ADAPTER_ADDRESSES *) malloc(buflen);
+    if (!pAddresses) {
+        return 0;
+    }
+    dwRetVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, pAddresses, &buflen);
+    if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
+        free(pAddresses);
+        pAddresses = (IP_ADAPTER_ADDRESSES *) malloc(buflen); 
+        if (!pAddresses) {
+            return 0;
+        }
+        dwRetVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, NULL, pAddresses, &buflen);
+    }
+    
+    if (dwRetVal == NO_ERROR) {
+        PIP_ADAPTER_ADDRESSES pCurr = pAddresses;
+        while (pCurr) {
+            // Precise target filters to bypass the Hyper-V virtual adapter loopback capture
+            if (pCurr->OperStatus == IfOperStatusUp && 
+                pCurr->IfType != IF_TYPE_SOFTWARE_LOOPBACK &&
+                pCurr->FirstGatewayAddress != NULL && 
+                wcsstr(pCurr->Description, L"Hyper-V") == NULL &&
+                wcsstr(pCurr->Description, L"Virtual") == NULL &&
+                wcsstr(pCurr->Description, L"WSL") == NULL &&
+                wcsstr(pCurr->Description, L"vEthernet") == NULL) {
+                
+                if (pCurr->FirstUnicastAddress != NULL) {
+                    struct sockaddr_in *sockaddr_ipv4 = (struct sockaddr_in *)pCurr->FirstUnicastAddress->Address.lpSockaddr;
+                    addr = sockaddr_ipv4->sin_addr.s_addr;
+                    break; 
+                }
+            }
+            pCurr = pCurr->Next;
+        }
+    }
+    free(pAddresses);
+#else    
+    int fd;
     struct sockaddr_in remote;
     struct sockaddr_in local;
     socklen_t local_len = sizeof(local);
@@ -369,6 +411,10 @@ static uint32_t mdns_get_default_ipv4(void)
     }
 
     CLOSESOCKET(fd);
+#endif
+    //printf("local ipv4 address %d.%d.%d.%d\n",  (addr & 0xff), ((addr >> 8) & 0xff),
+    //       ((addr >> 16) & 0xff),((addr >> 24) & 0xff));
+    
     return addr;
 }
 
