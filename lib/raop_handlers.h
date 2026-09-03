@@ -358,12 +358,16 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         uint64_t client_proof_len = 0;
         plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
+        if (client_proof_len != sizeof(proof)) {
+            logger_log(raop->logger, LOGGER_ERR, "Client Authentication Failure (client_proof_len %d invalid)", (int) client_proof_len);
+            goto authentication_failed;
+        }
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
             free (str);
         }
-        memcpy(proof, client_proof, (int) client_proof_len);
+        memcpy(proof, client_proof, sizeof(proof));
         free (client_proof);
         int ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
                                      (int) client_pk_len, proof, (int) client_proof_len, (int) sizeof(proof));
@@ -805,14 +809,15 @@ raop_handler_setup(raop_conn_t *conn,
             free(str);
         }
 
-        const char *user_agent = http_request_get_header(request, "User-Agent");
-        logger_log(raop->logger, LOGGER_INFO, "Client identified as User-Agent: %s", user_agent);	
-
         bool old_protocol = false;
+        const char *user_agent = http_request_get_header(request, "User-Agent");
+        if (user_agent) {
+            logger_log(raop->logger, LOGGER_INFO, "Client identified as User-Agent: %s", user_agent);	
 #ifdef OLD_PROTOCOL_CLIENT_USER_AGENT_LIST    /* set in global.h */
-        if (strstr(OLD_PROTOCOL_CLIENT_USER_AGENT_LIST, user_agent)) old_protocol = true;
-        if (strstr(user_agent, "AirMyPC")) old_protocol = true;   //AirMyPC/7200 still uses old protocol: unlikely to change (?)
+            if (strstr(OLD_PROTOCOL_CLIENT_USER_AGENT_LIST, user_agent)) old_protocol = true;
+            if (strstr(user_agent, "AirMyPC")) old_protocol = true;   //AirMyPC/7200 still uses old protocol: unlikely to change (?)
 #endif
+        }	
         if  (old_protocol) {    /* some windows AirPlay-client emulators use old AirPlay 1 protocol with unhashed AES key */
             logger_log(raop->logger, LOGGER_INFO, "Client identifed as using old protocol (unhashed) AES audio key)");
         } else {
@@ -1184,10 +1189,12 @@ raop_handler_audiomode(raop_conn_t *conn,
     plist_from_bin(data, data_len, &req_root_node);
     plist_t req_audiomode_node = plist_dict_get_item(req_root_node, "audioMode");
     plist_get_string_val(req_audiomode_node, &audiomode);
-    /* not sure what should be done with this request: usually audioMode requested is "default" */
-    int log_level = (strstr(audiomode, "default") ? LOGGER_DEBUG : LOGGER_INFO);
-    logger_log(raop->logger, log_level, "Unhandled RTSP request \"audioMode: %s\"", audiomode);
-    plist_mem_free(audiomode);
+    if (audiomode) {
+        /* not sure what should be done with this request: usually audioMode requested is "default" */
+        int log_level = (strstr(audiomode, "default") ? LOGGER_DEBUG : LOGGER_INFO);
+        logger_log(raop->logger, log_level, "Unhandled RTSP request \"audioMode: %s\"", audiomode);
+        plist_mem_free(audiomode);
+    }
     plist_free(req_root_node);
 }
 
