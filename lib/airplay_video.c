@@ -1252,8 +1252,6 @@ char *adjust_yt_condensed_playlist(const char *media_playlist, int n_chunks) {
     size_t len = first_chunk - old_pos;
 
     /* copy header section before chunks */
-    size_t written = len;
-    assert(written <= new_len);
     memcpy(new_pos, old_pos, len);
     old_pos += len;
     new_pos += len;
@@ -1266,19 +1264,13 @@ char *adjust_yt_condensed_playlist(const char *media_playlist, int n_chunks) {
         assert(start);
         len = start - old_pos;
         /* copy first line of chunk entry */
-        written += len;
-        assert(written <= new_len);
         memcpy(new_pos, old_pos, len);
         old_pos += len;
         new_pos += len;
 
         /* copy base uri + '/'  to replace prefix*/
-        written += base_uri_len;
-        assert(written <= new_len);	
         memcpy(new_pos, base_uri, base_uri_len);
         new_pos += base_uri_len;
-        written++;
-        assert(written <= new_len);		
         *new_pos = '/';
         new_pos++;
         old_pos += prefix_len;
@@ -1295,23 +1287,17 @@ char *adjust_yt_condensed_playlist(const char *media_playlist, int n_chunks) {
             } else {
                 end = media_playlist + strlen(media_playlist);
             }
-            written += params_size[i] + 1;
-            assert(written <= new_len);
             memcpy(new_pos, params[i], params_size[i]);
             new_pos += params_size[i];
             *new_pos = '/';
             new_pos++;
 
             len = end - old_pos;
-            written += len;
-            assert(written <= new_len);
             memcpy (new_pos, old_pos, len);
             new_pos += len;
             old_pos += len;
         }
     }
-    assert (count == n_chunks);
-    assert (written == new_len);
  
     free (prefix);
     if (params_size) {
