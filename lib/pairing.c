@@ -554,7 +554,7 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
 
 int
 srp_validate_proof(pairing_session_t *session, pairing_t *pairing, const unsigned char *A,
-                    int len_A, unsigned char *proof, int client_proof_len, int proof_len) {
+                   int len_A, unsigned char *proof, int proof_len) {
     int authenticated  = 0;
     const unsigned char *B =  NULL;
     const unsigned char *b = session->srp->private_key;

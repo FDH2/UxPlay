@@ -358,10 +358,6 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         uint64_t client_proof_len = 0;
         plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
-        if (client_proof_len != sizeof(proof)) {
-            logger_log(raop->logger, LOGGER_ERR, "Client Authentication Failure (client_proof_len %d invalid)", (int) client_proof_len);
-            goto authentication_failed;
-        }
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
@@ -370,7 +366,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         memcpy(proof, client_proof, sizeof(proof));
         free (client_proof);
         int ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
-                                     (int) client_pk_len, proof, (int) client_proof_len, (int) sizeof(proof));
+                                     (int) client_pk_len, proof, (int) sizeof(proof));
         free (client_pk);
         plist_free(req_root_node);
         if (ret < 0) {
