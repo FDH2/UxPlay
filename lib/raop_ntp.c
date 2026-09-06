@@ -142,11 +142,6 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(int sock_fd) {
     session->pWSARecvMsg_ptr = NULL;
     #endif
 #else
-    // POSIX path: Grab immediate time baseline (only used if kernel parsing falls back)
-    struct timeval tv_start;
-    gettimeofday(&tv_start, NULL);
-    session->base_system_time_us = ((uint64_t)tv_start.tv_sec * 1000000ULL) + (uint64_t)tv_start.tv_usec;
-
     // Enable POSIX kernel tracking explicitly on this isolated file descriptor
     int enable_ts = 1;
     setsockopt(sock_fd, SOL_SOCKET, SO_TIMESTAMP, (const char*)&enable_ts, sizeof(enable_ts));
@@ -163,8 +158,13 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
     LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG)session->pWSARecvMsg_ptr;
     if (pWSARecvMsg != NULL) {
         WSABUF wsa_buf = { .len = (ULONG)buf_len, .buf = buf };
-        char control_buf[WSA_CMSG_SPACE(sizeof(UINT64))];
-        
+
+        // Union forces strict compiler alignment bounds for Windows control frames
+        union {
+            char buf[WSA_CMSG_SPACE(sizeof(UINT64)) + 32];
+            struct cmsghdr align;
+        } control_un;
+	
         struct sockaddr_storage win_remote_addr = {0};
         INT win_addr_len = sizeof(win_remote_addr);
 
@@ -173,8 +173,8 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
             .namelen = win_addr_len,
             .lpBuffers = &wsa_buf,
             .dwBufferCount = 1,
-            .Control.len = sizeof(control_buf),
-            .Control.buf = control_buf
+            .Control.len = sizeof(control_un.buf),
+            .Control.buf = control_un.buf
         };
 
         DWORD bytes_received = 0;
@@ -207,7 +207,7 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
         }
     }
 #endif
-    //fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
+    //Windows fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
     int from_len = (src_addr && addrlen) ? *addrlen : sizeof(struct sockaddr_storage);
     struct sockaddr_storage fallback_addr = {0};
     
@@ -224,32 +224,43 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
     *out_local_us = session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency);
     return n;
 
-#else // Linux / POSIX path
-    struct sockaddr_storage linux_remote_addr = {0};
+#else // non-Windows POSIX path
+    struct sockaddr_storage remote_addr = {0};
     struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
-    char control_buf[CMSG_SPACE(sizeof(struct timeval))];
+
+ // Allocate a union to guarantee strict alignment requirements for the buffer
+    union {
+        char buf[CMSG_SPACE(sizeof(struct timeval)) + 64]; // Padded safely
+        struct cmsghdr align;
+    } control_un;
     
     struct msghdr msg = {
-        .msg_name = &linux_remote_addr,
-        .msg_namelen = sizeof(linux_remote_addr),
+        .msg_name = &remote_addr,
+        .msg_namelen = sizeof(remote_addr),
         .msg_iov = &iov,
         .msg_iovlen = 1,
-        .msg_control = control_buf,
-        .msg_controllen = sizeof(control_buf)
+        .msg_control = control_un.buf,
+        .msg_controllen = sizeof(control_un.buf)
     };
 
     ssize_t n = recvmsg(session->sock_fd, &msg, 0);
     if (n < 0) return n;
 
+    // immediate fallback time 
     struct timeval tv_now;
     gettimeofday(&tv_now, NULL);
     *out_local_us = ((uint64_t)tv_now.tv_sec * 1000000ULL) + (uint64_t)tv_now.tv_usec;
-    struct cmsghdr *cmsg;
-    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-        if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
-            struct timeval *tv_kernel = (struct timeval *)CMSG_DATA(cmsg);
-            *out_local_us = ((uint64_t)tv_kernel->tv_sec * 1000000ULL) + (uint64_t)tv_kernel->tv_usec;
-            break;
+
+    // Safety constraint to prevent parsing broken packets truncated by kernel boundaries
+    if (!(msg.msg_flags & MSG_CTRUNC)) {
+        struct cmsghdr *cmsg;
+        for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+            // Unified parsing identifier macro (SCM_TIMESTAMP handles cross-platform (Linux and macOS/*BSD definitions)
+            if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_TIMESTAMP) {
+                struct timeval *tv_kernel = (struct timeval *)CMSG_DATA(cmsg);
+                *out_local_us = ((uint64_t)tv_kernel->tv_sec * 1000000ULL) + (uint64_t)tv_kernel->tv_usec;
+                break;
+            }
         }
     }
 

@@ -28,11 +28,11 @@ typedef struct raop_ntp_s raop_ntp_t;
 
 typedef struct kernel_timestamp_session_s {
     int sock_fd;
-    uint64_t base_system_time_us;
 #ifdef _WIN32
     void *pWSARecvMsg_ptr;
     int64_t base_qpc_ticks;
     int64_t qpc_frequency;
+    uint64_t base_system_time_us;
 #endif
 } kernel_timestamp_session_t;
 
