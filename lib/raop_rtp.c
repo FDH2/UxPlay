@@ -247,18 +247,18 @@ raop_rtp_init_sockets(raop_rtp_t *raop_rtp, int use_ipv6)
         goto sockets_cleanup;
     }
 
-    raop_rtp->rtp_session_csock = kernel_timestamp_session_create(csock);
+    raop_rtp->rtp_session_csock = kernel_timestamp_session_create(raop_rtp->ntp, csock);
     if (raop_rtp->rtp_session_csock == NULL) {
         logger_log(raop_rtp->logger, LOGGER_ERR, "raop_rtp: Failed to allocate high-precision session context (csock)");
         goto sockets_cleanup;
     }
 
-    raop_rtp->rtp_session_dsock = kernel_timestamp_session_create(dsock);
+    raop_rtp->rtp_session_dsock = kernel_timestamp_session_create(raop_rtp->ntp, dsock);
     if (raop_rtp->rtp_session_dsock == NULL) {
         logger_log(raop_rtp->logger, LOGGER_ERR, "raop_rtp: Failed to allocate high-precision session context (dsock)");
         goto sockets_cleanup;
     }
-    
+
     /* Set socket descriptors */
     raop_rtp->csock = csock;
     raop_rtp->dsock = dsock;
@@ -415,6 +415,8 @@ raop_rtp_thread_udp(void *arg)
     socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
+    uint64_t recv_time_kernel = 0;
+    uint64_t recv_time_clock = 0;
 
     /* initial audio stream has no data */    
     unsigned char no_data_marker[] = {0x00, 0x68, 0x34, 0x00 };
@@ -476,11 +478,11 @@ raop_rtp_thread_udp(void *arg)
         }
 
         if (FD_ISSET(raop_rtp->csock, &rfds)) {
-            uint64_t kernel_recv_time_microsecs = 0;
             if (got_remote_control_saddr== false) {
                 saddrlen = sizeof(saddr);
                 packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
-                                                          &kernel_recv_time_microsecs, (void *) &saddr, (int *) &saddrlen);
+                                                          (void *) &saddr, (int *) &saddrlen,
+                                                          &recv_time_kernel, &recv_time_clock);
                 if (packetlen > 0) {
                     memcpy(&raop_rtp->control_saddr, &saddr, saddrlen);
                     raop_rtp->control_saddr_len = saddrlen;
@@ -488,8 +490,9 @@ raop_rtp_thread_udp(void *arg)
                 }
             } else {
                 packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
-                                                          &kernel_recv_time_microsecs, NULL, NULL);
+                                                          NULL, NULL, &recv_time_kernel, &recv_time_clock);
             }
+
             int type_c = packet[1] & ~0x80;
             logger_log(raop_rtp->logger, LOGGER_DEBUG, "\nraop_rtp type_c 0x%02x, packetlen = %d", type_c, packetlen);
 
@@ -529,8 +532,9 @@ raop_rtp_thread_udp(void *arg)
                    rtp_sync_prev = raop_rtp->rtp_sync;
                 }
                 raop_rtp->rtp_sync = byteutils_get_int_be(packet, 4);
-                uint64_t sync_ntp_raw = byteutils_get_long_be(packet, 8);
-                raop_rtp->client_ntp_sync = raop_remote_timestamp_to_nano_seconds(raop_rtp->ntp, sync_ntp_raw);
+		/* don't include SECONDS_1900_TO_1970 in audio NTP timestamp adjustment */
+                uint64_t sync_ntp_raw = raop_ntp_adjust_remote_timestamp_offset(raop_rtp->ntp, byteutils_get_long_be(packet, 8), false);
+                raop_rtp->client_ntp_sync = raop_ntp_timestamp_to_nano_seconds(raop_rtp->ntp, sync_ntp_raw);
  
                 if (logger_debug) {
                     double offset_change = ((double) raop_rtp->client_ntp_sync) - raop_rtp->rtp_clock_rate * raop_rtp->rtp_sync;
@@ -598,9 +602,9 @@ raop_rtp_thread_udp(void *arg)
             //logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp_thread_udp type_d 0x%02x, packetlen = %d", type_d, packetlen);
 
             saddrlen = sizeof(saddr);
-            uint64_t kernel_recv_time_microsecs = 0;
             packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_dsock, (char *) packet, sizeof(packet),
-                                                      &kernel_recv_time_microsecs, NULL, NULL);
+                                                      NULL, NULL, &recv_time_kernel, &recv_time_clock);
+
             if (packetlen < 12)  {
                 if (logger_debug) {
                     char *str = utils_data_to_string(packet, packetlen, 16);
