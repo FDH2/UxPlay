@@ -55,6 +55,7 @@ void raop_ntp_destroy(raop_ntp_t *raop_rtp);
 
 uint64_t raop_ntp_timestamp_to_nano_seconds(uint64_t ntp_timestamp, bool account_for_epoch_diff);
 uint64_t raop_remote_timestamp_to_nano_seconds(raop_ntp_t *raop_ntp, uint64_t timestamp);
+uint64_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, uint64_t ntp_timestamp_raw);
 
 uint64_t raop_ntp_get_local_time();
 uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp);
