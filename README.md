@@ -494,7 +494,7 @@ package](#building-an-installable-rpm-package).
 First-time RPM builders should first install the rpm-build and
 rpmdevtools packages, then create the rpmbuild tree with
 "`rpmdev-setuptree`". Then download and copy uxplay.spec into `~/rpmbuild/SPECS`. In
-that directory, run "`pmdev-spectool -g -R  uxplay.spec`" to download the corresponding
+that directory, run "`rpmdev-spectool -g -R  uxplay.spec`" to download the corresponding
 source file `uxplay-*.tar.gz` into `~/rpmbuild/SOURCES`
 ("rpmdev-spectool" may also be just called "spectool"); then run
 "`rpmbuild -ba uxplay.spec`" (you will need to install any required
