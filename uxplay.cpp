@@ -1365,9 +1365,16 @@ static void parse_arguments (int argc, char *argv[]) {
             std::string value(argv[++i]);
             if (value == "tcp") {
                 arg.append(" tcp");
+                /* "-p tcp" as the last two tokens: the first argv[++i] consumed
+                   "tcp", so the second one is argv[argc]. get_ports() builds a
+                   std::string from it, which is strlen(NULL). A port value never
+                   begins with '-', so option_has_value's rejection of a leading
+                   '-' is right here. */
+                if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
                 if(!get_ports(3, arg, argv[++i], tcp)) exit(1);
             } else if (value == "udp") {
                 arg.append( " udp");
+                if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
                 if(!get_ports(3, arg, argv[++i], udp)) exit(1);
             } else {
                 if(!get_ports(3, arg, argv[i], tcp)) exit(1);
@@ -1478,6 +1485,9 @@ static void parse_arguments (int argc, char *argv[]) {
             /* now using feedback  (every 1 sec ) instead of ntp timeouts (every 3 secs) to detect offline client and reset connections */
             fprintf(stderr,"*** NOTE CHANGE: -reset n now means reset n seconds (not 3n seconds) after client goes offline\n");	  
             missed_feedback_limit = 0;
+            /* -reset as the last token made this get_value(argv[argc]), i.e.
+               get_value(NULL) and strlen(NULL): a segfault, not a usage error. */
+            if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             if (!get_value(argv[++i], &missed_feedback_limit)) {
                 fprintf(stderr, "invalid \"-reset %s\"; -reset n must have n >= 0,  default n = %d seconds\n", argv[i], MISSED_FEEDBACK_LIMIT);
                 exit(1);
@@ -1740,7 +1750,8 @@ static void parse_arguments (int argc, char *argv[]) {
                 }
             }
             if (db_bad) {
-                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i+1]); 
+                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n",
+                        i < argc - 1 ? argv[i+1] : "");   /* NULL when -db is last */ 
                 exit(1);
             }
             i++;
@@ -1752,7 +1763,9 @@ static void parse_arguments (int argc, char *argv[]) {
             if (i < argc - 1) {
                 char *end;
                 double frac = strtod(argv[i+1], &end);
-                if (*end == '\0' && frac >= 0.0 && frac <= 1.0) {
+                /* end != argv[i+1]: strtod("") returns 0.0 and leaves *end == 0, so an
+                   EMPTY value passed the old test and was silently taken as mute. */
+                if (end != argv[i+1] && *end == '\0' && frac >= 0.0 && frac <= 1.0) {
                     if (frac == 0.0) {
                         initial_volume = -144.0;
                     } else if (frac == 1.0) {
@@ -1764,12 +1777,17 @@ static void parse_arguments (int argc, char *argv[]) {
                         //db = (db > db_flat) ? db : db_flat;
                         initial_volume = db_flat;
                     }
+                    /* Both of these were outside the validity test, so any value
+                       was accepted: "-vol -h265" left the volume at its default,
+                       reported no error, and the i++ below then swallowed
+                       "-h265". */
+                    printf("initial_volume attenuation %f db\n", initial_volume);
+                    vol_bad = false;
                 }
-                printf("initial_volume attenuation %f db\n", initial_volume);
-                vol_bad = false;
             }
             if (vol_bad) {
-                fprintf(stderr, "invalid \"-vol %s\", value must be between 0.0 (mute) and 1.0 (full volume)\n", argv[i+1]);
+                fprintf(stderr, "invalid \"-vol %s\", value must be between 0.0 (mute) and 1.0 (full volume)\n",
+                        i < argc - 1 ? argv[i+1] : "");   /* NULL when -vol is last */
                 exit(1);
             }
             i++;
@@ -1777,7 +1795,15 @@ static void parse_arguments (int argc, char *argv[]) {
             hls_support = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 3;
-                if (!get_value(argv[++i], &n) || playbin_version < 2) {
+                /* get_value() treats the initial *n as a maximum, so it already
+                   rejects 0 and anything above 3 -- but it accepts 1, and the
+                   second half of this test cannot catch that: playbin_version is
+                   still its default here, so `playbin_version < 2` is always
+                   false. "-hls 1" is therefore stored, and video_renderer_init's
+                   playbin switch has no case 1: it reaches g_assert(0) and
+                   aborts, not at startup but later, when a sender actually casts
+                   a video. Test the value that was just parsed. */
+                if (!get_value(argv[++i], &n) || n < 2) {
                     fprintf(stderr, "invalid \"-hls %s\"; -hls n only allows \"playbin\" video player versions 2 or 3\n", argv[i]);
                     exit(1);
                 }
@@ -2906,7 +2932,12 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
     if (options.size() > 1) {
 
         int argc = options.size();
-        char **argv = (char **) malloc(sizeof(char*) * argc);
+        /* argc + 1, NULL-terminated. parse_arguments' guards pass argv[i+1] to
+           option_has_value(), which is argv[argc] for a trailing option. On the
+           real command line the C standard guarantees that is NULL; an argv
+           synthesised here has to provide it too, or those guards read past the
+           end of the allocation. */
+        char **argv = (char **) malloc(sizeof(char*) * (argc + 1));
         if (argv == NULL) {
             printf("Memory allocation failure (argV)\n");
             exit(1);
@@ -2914,6 +2945,7 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
         for (int i = 0; i < argc; i++) {
             argv[i] = (char *) options[i].c_str();
         }
+        argv[argc] = NULL;
         parse_arguments (argc, argv);
         free (argv);
     }
