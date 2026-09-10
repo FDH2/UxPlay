@@ -1363,14 +1363,21 @@ static void parse_arguments (int argc, char *argv[]) {
                 continue;
             }
             std::string value(argv[++i]);
-            if (value == "tcp") {
-                arg.append(" tcp");
-                if(!get_ports(3, arg, argv[++i], tcp)) exit(1);
-            } else if (value == "udp") {
-                arg.append( " udp");
-                if(!get_ports(3, arg, argv[++i], udp)) exit(1);
+            if (value == "tcp" || value == "udp") {
+                if (i == argc - 1 || argv[i + 1][0] == '-') {
+                    fprintf(stderr,"invalid \"-p %s\": missing second argument (ports must be specified after \"%s\") \n",
+                            argv[i], argv[i]);
+                    exit (1);
+                }
+                arg.append(" " + value);
+                unsigned short *ports = (value == "udp") ? udp : tcp;
+                if (!get_ports(3, arg, argv[++i], ports)) {
+                    exit(1);
+                }
             } else {
-                if(!get_ports(3, arg, argv[i], tcp)) exit(1);
+                if (!get_ports(3, arg, argv[i], tcp)) {
+                    exit(1);
+                }
                 for (int j = 0; j < 3; j++) {
                     udp[j] = tcp[j];
                 }
@@ -1475,6 +1482,7 @@ static void parse_arguments (int argc, char *argv[]) {
         } else if (arg == "-FPSdata") {
             show_client_FPS_data = true;
         } else if (arg == "-reset") {
+            if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
             /* now using feedback  (every 1 sec ) instead of ntp timeouts (every 3 secs) to detect offline client and reset connections */
             fprintf(stderr,"*** NOTE CHANGE: -reset n now means reset n seconds (not 3n seconds) after client goes offline\n");	  
             missed_feedback_limit = 0;
@@ -1726,21 +1734,27 @@ static void parse_arguments (int argc, char *argv[]) {
         } else if (arg == "-db") {
             bool db_bad = true;
             double db1, db2;
-            if ( i < argc -1) {
-                char *end1, *end2;
-                db1 = strtod(argv[i+1], &end1);
-                if (*end1 == ':') {
-                    db2 = strtod(++end1, &end2);
-                    if ( *end2 == '\0' && end2 > end1  && db1 < 0 && db1 < db2) {
-                        db_bad = false;
-                    }
-                } else  if (*end1 =='\0' && db1 < 0 ) {
+            if (i == argc - 1) {
+                fprintf(stderr,"invalid \"%s\": this option requires a value\n", argv[i]) ;
+                exit(1);
+            }
+            char *end1, *end2;
+            db1 = strtod(argv[i+1], &end1);
+            if (db1 >= 0.0) {
+                fprintf(stderr,"invalid \"%s\": this option requires a value\n", argv[i]) ;
+	        exit(1);
+            }
+            if (*end1 == ':') {
+                db2 = strtod(++end1, &end2);
+                if ( *end2 == '\0' && end2 > end1 && db1 < db2) {
                     db_bad = false;
-                    db2 = 0.0;
                 }
+            } else  if (*end1 =='\0') {
+                db_bad = false;
+                db2 = 0.0;
             }
             if (db_bad) {
-                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i+1]); 
+                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i+1]);
                 exit(1);
             }
             i++;
@@ -1748,11 +1762,16 @@ static void parse_arguments (int argc, char *argv[]) {
             db_high = db2;
             printf("db range %f:%f\n", db_low, db_high);
         } else if (arg ==  "-vol") {
+            if (!option_has_value(i, argc, arg, argv[i+1])) {
+                exit(1);
+            }
             bool vol_bad = true;
             if (i < argc - 1) {
                 char *end;
                 double frac = strtod(argv[i+1], &end);
-                if (*end == '\0' && frac >= 0.0 && frac <= 1.0) {
+                /* end != argv[i+1]: strtod("") returns 0.0 and leaves *end == 0, so an
+                   EMPTY value passed the old test and was silently taken as mute. */
+                if (end != argv[i+1] && *end == '\0' && frac >= 0.0 && frac <= 1.0) {
                     if (frac == 0.0) {
                         initial_volume = -144.0;
                     } else if (frac == 1.0) {
@@ -1764,12 +1783,16 @@ static void parse_arguments (int argc, char *argv[]) {
                         //db = (db > db_flat) ? db : db_flat;
                         initial_volume = db_flat;
                     }
+                    /* Both of these were outside the validity test, so any value
+                       was accepted: "-vol -h265" left the volume at its default,
+                       reported no error, and the i++ below then swallowed
+                       "-h265". */
+                    printf("initial_volume attenuation %f db\n", initial_volume);
+                    vol_bad = false;
                 }
-                printf("initial_volume attenuation %f db\n", initial_volume);
-                vol_bad = false;
             }
             if (vol_bad) {
-                fprintf(stderr, "invalid \"-vol %s\", value must be between 0.0 (mute) and 1.0 (full volume)\n", argv[i+1]);
+                fprintf(stderr, "invalid \"-vol %s\", value must be between 0.0 (mute) and 1.0 (full volume)\n", argv[i+1]);  
                 exit(1);
             }
             i++;
@@ -1777,7 +1800,7 @@ static void parse_arguments (int argc, char *argv[]) {
             hls_support = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 3;
-                if (!get_value(argv[++i], &n) || playbin_version < 2) {
+                if (!get_value(argv[++i], &n) || n < 2) {
                     fprintf(stderr, "invalid \"-hls %s\"; -hls n only allows \"playbin\" video player versions 2 or 3\n", argv[i]);
                     exit(1);
                 }
@@ -2906,7 +2929,7 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
     if (options.size() > 1) {
 
         int argc = options.size();
-        char **argv = (char **) malloc(sizeof(char*) * argc);
+        char **argv = (char **) malloc(sizeof(char*) * (argc + 1));
         if (argv == NULL) {
             printf("Memory allocation failure (argV)\n");
             exit(1);
@@ -2914,6 +2937,9 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
         for (int i = 0; i < argc; i++) {
             argv[i] = (char *) options[i].c_str();
         }
+        /* add an extra NULL option to terminate the simulated argv list
+           (as protection if argv[++i] is referenced when i = argc -1) */
+        argv[argc] = NULL;
         parse_arguments (argc, argv);
         free (argv);
     }
