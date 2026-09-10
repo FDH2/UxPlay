@@ -234,8 +234,18 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         g_string_free(launch, TRUE);
         g_object_set(renderer_type[i]->appsrc, "caps", caps, "stream-type", 0, "is-live", TRUE, "format", GST_FORMAT_TIME, NULL);
         gst_caps_unref(caps);
-        g_object_unref(clock);
     }
+    /* One gst_system_clock_obtain() above, so one unref -- and here, not inside
+       the loop. Each iteration's gst_pipeline_use_clock() takes a reference of
+       its own that the pipeline owns and releases with itself; unreffing per
+       iteration therefore released our single reference on the first pass and a
+       pipeline's on the second.  Nothing goes wrong during initialisation -- the
+       static singleton reference keeps the clock alive -- but the deficit is
+       carried to TEARDOWN: with NFORMATS pipelines each dropping the reference
+       they own, disposing them all exhausts the clock's references, static one
+       included, while anything else still holding a pointer to it does not know.
+       Raising NFORMATS (the comment on it invites 4) makes the deficit larger. */
+    g_object_unref(clock);
 }
 
 void audio_renderer_stop() {
