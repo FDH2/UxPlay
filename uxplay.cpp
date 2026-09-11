@@ -1734,27 +1734,28 @@ static void parse_arguments (int argc, char *argv[]) {
         } else if (arg == "-db") {
             bool db_bad = true;
             double db1, db2;
+            const char *text = "db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains";
             if (i == argc - 1) {
-                fprintf(stderr,"invalid \"%s\": this option requires a value\n", argv[i]) ;
+                fprintf(stderr,"invalid \"-db\": this option requires a value: %s\n", text) ;
                 exit(1);
             }
             char *end1, *end2;
             db1 = strtod(argv[i+1], &end1);
-            if (db1 >= 0.0) {
-                fprintf(stderr,"invalid \"%s\": this option requires a value\n", argv[i]) ;
-	        exit(1);
+            if (end1 == argv[i+1] && argv[i+1][0] == '-') {
+                fprintf(stderr,"invalid \"-db\": this option requires a value: %s\n", text) ;
+            exit(1);
             }
-            if (*end1 == ':') {
+            if (db1 < 0.0 && *end1 == ':') {
                 db2 = strtod(++end1, &end2);
                 if ( *end2 == '\0' && end2 > end1 && db1 < db2) {
                     db_bad = false;
                 }
-            } else  if (*end1 =='\0') {
+            } else  if (db1 < 0.0 && *end1 =='\0') {
                 db_bad = false;
                 db2 = 0.0;
             }
             if (db_bad) {
-                fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n", argv[i+1]);
+                fprintf(stderr, "invalid \"-db %s\": %s\n", argv[i+1], text);
                 exit(1);
             }
             i++;
@@ -1769,8 +1770,7 @@ static void parse_arguments (int argc, char *argv[]) {
             if (i < argc - 1) {
                 char *end;
                 double frac = strtod(argv[i+1], &end);
-                /* end != argv[i+1]: strtod("") returns 0.0 and leaves *end == 0, so an
-                   EMPTY value passed the old test and was silently taken as mute. */
+                /* end != argv[i+1] guards against -vol ""  */
                 if (end != argv[i+1] && *end == '\0' && frac >= 0.0 && frac <= 1.0) {
                     if (frac == 0.0) {
                         initial_volume = -144.0;
@@ -1783,10 +1783,6 @@ static void parse_arguments (int argc, char *argv[]) {
                         //db = (db > db_flat) ? db : db_flat;
                         initial_volume = db_flat;
                     }
-                    /* Both of these were outside the validity test, so any value
-                       was accepted: "-vol -h265" left the volume at its default,
-                       reported no error, and the i++ below then swallowed
-                       "-h265". */
                     printf("initial_volume attenuation %f db\n", initial_volume);
                     vol_bad = false;
                 }
