@@ -24,22 +24,27 @@
 #include <sys/types.h>
 #include "logger.h"
 
+typedef uint64_t q32_32_t;
+
 typedef struct raop_ntp_s raop_ntp_t;
 
 typedef struct kernel_timestamp_session_s {
     int sock_fd;
+    uint64_t kernel_timestamp_timeout;
 #ifdef _WIN32
     void *pWSARecvMsg_ptr;
     int64_t base_qpc_ticks;
     int64_t qpc_frequency;
     uint64_t base_system_time_us;
 #endif
+
 } kernel_timestamp_session_t;
 
 void raop_ntp_global_init(void);
 kernel_timestamp_session_t * kernel_timestamp_session_create(int sock_fd);
 ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char *buf, size_t buf_len,
-                                      uint64_t *out_local_us, void *src_addr, int *addr_len);
+                                      void *src_addr, int *addrlen, uint64_t *recv_time_kernel_us, uint64_t *recv_time_clock_us);
+
 void kernel_timestamp_session_destroy(kernel_timestamp_session_t *session);
 void *raop_ntp_thread_worker(void *param);
 
@@ -55,7 +60,7 @@ void raop_ntp_destroy(raop_ntp_t *raop_rtp);
 
 uint64_t raop_ntp_timestamp_to_nano_seconds(uint64_t ntp_timestamp, bool account_for_epoch_diff);
 uint64_t raop_remote_timestamp_to_nano_seconds(raop_ntp_t *raop_ntp, uint64_t timestamp);
-uint64_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, uint64_t ntp_timestamp_raw);
+q32_32_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, q32_32_t ntp_timestamp_raw);
 
 uint64_t raop_ntp_get_local_time();
 uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp);

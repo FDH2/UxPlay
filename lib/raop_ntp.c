@@ -24,6 +24,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #include "raop.h"
 #include "threads.h"
@@ -32,21 +33,25 @@
 #include "byteutils.h"
 #include "utils.h"
 
-#define SECOND_IN_NSECS 1000000000UL
+#define USEC_IN_NSECS   1000ULL
+#define MSEC_IN_NSECS   1000000ULL
+#define SECOND_IN_NSECS 1000000000ULL
+#define SECOND_IN_USECS 1000000ULL
+
 #define RAOP_NTP_DATA_COUNT   8
-#define RAOP_NTP_PHI_PPM   15ull                   // PPM
-#define RAOP_NTP_R_RHO   ((1ull    << 32) / 1000u) // packet precision
-#define RAOP_NTP_S_RHO   ((1ull    << 32) / 1000u) // system clock precision
-#define RAOP_NTP_MAX_DIST ((1500ull << 32) / 1000u) // maximum allowed distance
-#define RAOP_NTP_MAX_DISP ((16ull   << 32))         // maximum dispersion
+#define RAOP_NTP_PHI_PPM   15e-6                   // 15 PPM
+#define RAOP_NTP_R_RHO     0.001                   // packet precision  1ms
+#define RAOP_NTP_S_RHO     0.001                   // system clock precision  1ms
+#define RAOP_NTP_MAX_DIST  1.5                     // maximum allowed distance  1.5 secs
+#define RAOP_NTP_MAX_DISP  16.0                    // maximum dispersion    16 secs.
 
 #define RAOP_NTP_CLOCK_BASE (2208988800ull << 32)
 
 typedef struct raop_ntp_data_s {
-    uint64_t time; // The local wall clock time at time of ntp packet arrival
-    uint64_t dispersion;
-    int64_t delay; // The round trip delay
-    int64_t offset; // The difference between remote and local wall clock time
+    q32_32_t time; // The T4 timestamp  at time of ntp packet arrival
+    double dispersion;
+    double delay; // The round trip delay
+    double offset; // The difference between (adjusted) remote and local wall clock time
 } raop_ntp_data_t;
 
 struct raop_ntp_s {
@@ -61,7 +66,7 @@ struct raop_ntp_s {
     int data_index;
 
     bool have_fixed_offset;
-    uint64_t fixed_offset;   // stored in Q32_32 fixed-point format
+    q32_32_t fixed_offset;   // stored in Q32_32 fixed-point format
   
     // The clock sync params are periodically updated to the AirPlay client's NTP clock
     mutex_handle_t sync_params_mutex;
@@ -103,16 +108,12 @@ struct raop_ntp_s {
 static LARGE_INTEGER g_system_qpc_frequency =  {0};
 #endif
 
-uint64_t get_local_time_q32_32(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-
-    uint64_t seconds = (uint64_t)  ts.tv_sec << 32;
-    /* rescale by (2^32) / 1,000,000,000 */
-    uint64_t fraction = ((uint64_t ) ts.tv_nsec * 0x100000000ULL) / 1000000000ULL;
-    
-    return seconds | fraction;
+// Helper to calculate signed difference between two Q32.32 time stamps
+double ntp_diff_to_seconds(q32_32_t ntp_end, q32_32_t ntp_start) {
+    int64_t signed_diff = (int64_t)(ntp_end - ntp_start);
+    return (double)signed_diff / 4294967296.0;
 }
+
 
 void raop_ntp_global_init(void) {
 #ifdef _WIN32
@@ -122,7 +123,10 @@ void raop_ntp_global_init(void) {
 
 kernel_timestamp_session_t* kernel_timestamp_session_create(int sock_fd) {
     kernel_timestamp_session_t *session = (kernel_timestamp_session_t*)calloc(1, sizeof(kernel_timestamp_session_t));
-    if (!session) return NULL;
+    if (!session) {
+        return NULL;
+    }
+
     session->sock_fd = sock_fd;
 
 #if defined(_WIN32)
@@ -138,157 +142,198 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(int sock_fd) {
     uint64_t windows_ticks = ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
     session->base_system_time_us = (windows_ticks - 116444736000000000ULL) / 10ULL;
 
-    #if defined(SIO_TIMESTAMPING)  //UCRT64 only, not available on MINGW64
-    SOCKET wsock = (SOCKET)sock_fd;
-    GUID guid = WSAID_WSARECVMSG;
-    DWORD bytes = 0;
-    LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
-    if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
-                 &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
-        session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
-    }
+#if defined(SIO_TIMESTAMPING)  //UCRT64 only, not available on MINGW64
+    {
+        SOCKET wsock = (SOCKET)sock_fd;
+        GUID guid = WSAID_WSARECVMSG;
+        DWORD bytes = 0;
+        LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
 
-    TIMESTAMPING_CONFIG config = { .Flags = TIMESTAMPING_FLAG_RX };
-    DWORD bytes_returned = 0;
-    WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config), NULL, 0, &bytes_returned, NULL, NULL);
-    #else
+        if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
+                     &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
+            session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
+
+            TIMESTAMPING_CONFIG config = { .Flags = TIMESTAMPING_FLAG_RX };
+            DWORD bytes_returned = 0;
+
+            if (WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config),
+                         NULL, 0, &bytes_returned, NULL, NULL) == SOCKET_ERROR) {
+                session ->pWSARecvMsg_ptr = NULL;
+            }	  
+        } else {
+            session ->pWSARecvMsg_ptr = NULL;
+        }
+    }
+#else
     // legacy MINGW64 fallback (no SIO_TIMEKEEPING kernel timestamping available)
     session->pWSARecvMsg_ptr = NULL;
-    #endif
-#else
-    // Enable POSIX kernel tracking explicitly on this isolated file descriptor
-    int enable_ts = 1;
-    setsockopt(sock_fd, SOL_SOCKET, SO_TIMESTAMP, (const char*)&enable_ts, sizeof(enable_ts));
 #endif
+
+#else
+    // Non-Wndows POSIX path   (note: could instead use SO_TIMESTAMP_MONOTONIC on macOS)
+    {
+        int enable_ts = 1;
+        setsockopt(sock_fd, SOL_SOCKET, SO_TIMESTAMP, (const char*)&enable_ts, sizeof(enable_ts));
+    }
+#endif
+    session->kernel_timestamp_timeout = raop_ntp_get_local_time();
     return session;
 }
 
 ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char *buf, size_t buf_len, 
-                                      uint64_t *out_local_us, void *src_addr, int *addrlen) {
-    if (!session || !buf || buf_len == 0 || !out_local_us) return -1;
-
+                                      void *src_addr, int *addrlen, uint64_t *recv_time_kernel, uint64_t *recv_time_clock) {
+    if (!session || !buf || buf_len == 0 || !recv_time_kernel || !recv_time_clock) return -1;
+    *recv_time_kernel = 0;
+    *recv_time_clock = 0;
 #ifdef _WIN32
-    bool attempt_fallback  = true;
+    {
+        bool attempt_fallback = true;
 #if defined(SIO_TIMESTAMPING) //not defined in legacy MSVCRT systems such as MSYS2 MINGW64
-    LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG)session->pWSARecvMsg_ptr;
-    if (pWSARecvMsg != NULL) {
-        attempt_fallback = false;
-        WSABUF wsa_buf = { .len = (ULONG)buf_len, .buf = buf };
+        LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG)session->pWSARecvMsg_ptr;
+        if (pWSARecvMsg != NULL) {
+            // Union forces strict compiler alignment bounds for Windows control frames
+            union {
+                char buf[WSA_CMSG_SPACE(sizeof(UINT64)) + 32];
+                struct cmsghdr align;
+            } control_un;
 
-        // Union forces strict compiler alignment bounds for Windows control frames
-        union {
-            char buf[WSA_CMSG_SPACE(sizeof(UINT64)) + 32];
-            struct cmsghdr align;
-        } control_un;
-	
-        struct sockaddr_storage win_remote_addr = {0};
-        INT win_addr_len = sizeof(win_remote_addr);
+            struct sockaddr_storage win_remote_addr = {0};
+            INT win_addr_len = sizeof(win_remote_addr);
 
-        WSAMSG wsa_msg = {
-            .name = (LPSOCKADDR)&win_remote_addr,
-            .namelen = win_addr_len,
-            .lpBuffers = &wsa_buf,
-            .dwBufferCount = 1,
-            .Control.len = sizeof(control_un.buf),
-            .Control.buf = control_un.buf
-        };
+            WSABUF wsa_buf = {
+                .len = (ULONG)buf_len,
+                .buf = buf
+            };
 
-        DWORD bytes_received = 0;
-        if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) != SOCKET_ERROR) {
-            LARGE_INTEGER qpc_now;
-            QueryPerformanceCounter(&qpc_now);
-            int64_t default_elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
-            *out_local_us = session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+            WSAMSG wsa_msg = {
+                .name = (LPSOCKADDR)&win_remote_addr,
+                .namelen = win_addr_len,
+                .lpBuffers = &wsa_buf,
+                .dwBufferCount = 1,
+                .Control.len = sizeof(control_un.buf),
+                .Control.buf = control_un.buf
+            };
 
-            PCMSGHDR cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
-            while (cmsg != NULL) {
-                if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
-                    UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
-                    if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
-                        int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
-                        *out_local_us = session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency);
+            DWORD bytes_received = 0;
+            int sock_err;
+
+            attempt_fallback = false;
+            if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) != SOCKET_ERROR) {
+                LARGE_INTEGER qpc_now;
+                int64_t default_elapsed_ticks;
+                PCMSGHDR cmsg;
+
+                QueryPerformanceCounter(&qpc_now);
+                default_elapsed_ticks  = qpc_now.QuadPart - session->base_qpc_ticks;
+                *recv_time_clock = (session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS ;
+
+                cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
+                while (cmsg != NULL) {
+                    if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
+                        UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
+                        if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
+                            int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
+                            *recv_time_kernel = (session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS;
+                        }
+                        break;
                     }
-                    break;
+                    cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
                 }
-                cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
+
+                if (src_addr && addrlen) {
+                    int copy_len = (wsa_msg.namelen < *addrlen) ? wsa_msg.namelen : *addrlen;
+                    memcpy(src_addr, wsa_msg.name, copy_len);
+                    *addrlen = wsa_msg.namelen;
+                }
+
+                return (ssize_t)bytes_received;
             }
 
-            if (src_addr && addrlen) {
-                int copy_len = (wsa_msg.namelen < *addrlen) ? wsa_msg.namelen : *addrlen;
-                memcpy(src_addr, wsa_msg.name, copy_len);
-                *addrlen = wsa_msg.namelen;
-            }
-
-            return (ssize_t)bytes_received;
-        }
-    }
-#endif
-    if (attempt_fallback) {
-        //Windows fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
-        int from_len = (src_addr && addrlen) ? *addrlen : sizeof(struct sockaddr_storage);
-        struct sockaddr_storage fallback_addr = {0};
- 
-        ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, 
-                             src_addr ? (struct sockaddr*)src_addr : (struct sockaddr*)&fallback_addr, &from_len);
-
-        if (n >= 0 && addrlen) {
-            *addrlen = from_len;
-        }
-
-        LARGE_INTEGER qpc_now;
-        QueryPerformanceCounter(&qpc_now);
-        int64_t elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
-        *out_local_us = session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency);
-        return n;
-    }
-
-#else // non-Windows POSIX path
-    struct sockaddr_storage remote_addr = {0};
-    struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
-
- // Allocate a union to guarantee strict alignment requirements for the buffer
-    union {
-        char buf[CMSG_SPACE(sizeof(struct timeval)) + 64]; // Padded safely
-        struct cmsghdr align;
-    } control_un;
-    
-    struct msghdr msg = {
-        .msg_name = &remote_addr,
-        .msg_namelen = sizeof(remote_addr),
-        .msg_iov = &iov,
-        .msg_iovlen = 1,
-        .msg_control = control_un.buf,
-        .msg_controllen = sizeof(control_un.buf)
-    };
-
-    ssize_t n = recvmsg(session->sock_fd, &msg, 0);
-    if (n < 0) return n;
-
-    // immediate fallback time 
-    struct timeval tv_now;
-    gettimeofday(&tv_now, NULL);
-    *out_local_us = ((uint64_t)tv_now.tv_sec * 1000000ULL) + (uint64_t)tv_now.tv_usec;
-
-    // Safety constraint to prevent parsing broken packets truncated by kernel boundaries
-    if (!(msg.msg_flags & MSG_CTRUNC)) {
-        struct cmsghdr *cmsg;
-        for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-            // Unified parsing identifier macro (SCM_TIMESTAMP handles cross-platform (Linux and macOS/*BSD definitions)
-            if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_TIMESTAMP) {
-                struct timeval *tv_kernel = (struct timeval *)CMSG_DATA(cmsg);
-                *out_local_us = ((uint64_t)tv_kernel->tv_sec * 1000000ULL) + (uint64_t)tv_kernel->tv_usec;
+            int sock_err = SOCKET_GET_ERROR();	
+            switch (sock_err) {
+            case WSATIMEDOUT:
+            case WSAECONNRESET:
+            case WSAENETRESET:
+            case WSACONNABORTED:
+                return -1; //Routine network exceptions, exit directly
+            default:
+                //Unexpected for correctly opened-socket, treat as permanent failure and use fallback
+                logger_log(raop_ntp->logger, LOGGER_ERR, "Disabling kernel timestamps due to socket error %d:%s",
+                           sock_err, SOCKET_ERROR_STRING(sock_err));
+                session->pWSARecvMsg_ptr = NULL;
+                attempt_fallback = true;
                 break;
             }
         }
-    }
+#endif
+        //Windows fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
+        if (attempt_fallback) {
+            int from_len = (src_addr && addrlen) ? *addrlen : sizeof(struct sockaddr_storage);
+            struct sockaddr_storage fallback_addr = {0};
 
-    if (src_addr && addrlen) {
-        int copy_len = ((int)msg.msg_namelen < *addrlen) ? (int)msg.msg_namelen : *addrlen;
-        memcpy(src_addr, msg.msg_name, copy_len);
-        *addrlen = (int)msg.msg_namelen; 
+            ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, 
+                                 src_addr ? (struct sockaddr*)src_addr : (struct sockaddr*)&fallback_addr, &from_len);
+            if (n >= 0) {
+                LARGE_INTEGER qpc_now;
+                int64_t elapsed_ticks;
+                if (addrlen) {
+                    *addrlen = from_len;
+                }
+                QueryPerformanceCounter(&qpc_now);
+                elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
+                *recv_time_clock = (session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS;
+            }
+            return n;
+        }
+        return -1;
     }
+#else // non-Windows POSIX path
+    {
+        struct sockaddr_storage remote_addr = {0};
+        struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
+    
+        // Allocate a union to guarantee strict alignment requirements for the buffer
+        union {
+            char buf[CMSG_SPACE(sizeof(struct timeval)) + 64]; 
+            struct cmsghdr align;
+        } control_un;
+    
+        struct msghdr msg = {
+            .msg_name = &remote_addr,
+            .msg_namelen = sizeof(remote_addr),
+            .msg_iov = &iov,
+            .msg_iovlen = 1,
+            .msg_control = control_un.buf,
+            .msg_controllen = sizeof(control_un.buf)
+        };
 
-    return n;
+        ssize_t n = recvmsg(session->sock_fd, &msg, 0);
+        if (n < 0) {
+            return n;
+        }
+
+        // immediate fallback time 
+        *recv_time_clock = raop_ntp_get_local_time();
+
+        if (!(msg.msg_flags & MSG_CTRUNC)) {
+            struct cmsghdr *cmsg;
+            for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+                if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_TIMESTAMP) {
+                    struct timeval *tv_kernel = (struct timeval *)CMSG_DATA(cmsg);
+                    *recv_time_kernel = ((uint64_t)tv_kernel->tv_sec * SECOND_IN_NSECS) + (uint64_t)tv_kernel->tv_usec * USEC_IN_NSECS;
+                    break;
+                }
+            }
+        }
+
+        if (src_addr && addrlen) {
+            int copy_len = ((int)msg.msg_namelen < *addrlen) ? (int)msg.msg_namelen : *addrlen;
+            memcpy(src_addr, msg.msg_name, copy_len);
+            *addrlen = (int)msg.msg_namelen; 
+        }
+
+        return n;
+    }
 #endif
 }
 
@@ -499,10 +544,18 @@ raop_ntp_thread(void *arg)
                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
     raop_ntp_data_t data_sorted[RAOP_NTP_DATA_COUNT];
-    const unsigned  two_pow_n[RAOP_NTP_DATA_COUNT] = {2, 4, 8, 16, 32, 64, 128, 256};
+    const double two_pow_minus_n[RAOP_NTP_DATA_COUNT] = {1.0 / 2.0,  1.0 / 4.0, 1.0 / 8.0, 1.0 / 16.0, 1.0 / 32.0,
+                                                         1.0 / 64.0, 1.0 / 128.0, 1.0 / 256.0};
     bool logger_debug = (logger_get_level(raop_ntp->logger) >= LOGGER_DEBUG);
-    uint64_t recv_time = 0, client_ref_time = 0;
+    uint64_t recv_time = 0;
 
+    bool duplicate_ntp_packet = false;
+    bool bogus_ntp_packet = false;
+    
+    /* these are NTP timestamps in Q32.32 form */
+    q32_32_t t1_sent = 0, t3_prev = 0, t2_raw = 0, t3_raw = 0;
+    q32_32_t t1 = 0, t2 = 0, t3 = 0, t4 = 0;
+        
     while (1) {
         MUTEX_LOCK(raop_ntp->run_mutex);
         if (!raop_ntp->running) {
@@ -517,10 +570,7 @@ raop_ntp_thread(void *arg)
         // Send request
         uint64_t send_time = raop_ntp_get_local_time();
         byteutils_put_ntp_timestamp(request, 24, send_time);
-        if (recv_time) {
-            byteutils_put_long_be(request, 8, client_ref_time);
-            byteutils_put_ntp_timestamp(request, 16, recv_time);
-        }
+	t1_sent = (q32_32_t) byteutils_get_long_be(request, 24);
         int send_len = sendto(raop_ntp->tsock, (char *)request, sizeof(request), 0,
                               (struct sockaddr *) &raop_ntp->remote_saddr, raop_ntp->remote_saddr_len);
         if (logger_debug) {
@@ -535,10 +585,36 @@ raop_ntp_thread(void *arg)
                      sock_err, SOCKET_ERROR_STRING(sock_err));
         } else {
             // Read response
-            uint64_t kernel_recv_time_microsecs;   // kernel recv timestamp in microsecs
+            uint64_t recv_time_kernel;   // kernel recv timestamp in microsecs * USEC_IN_NSECS
+	    uint64_t recv_time_clock;    // userspace recv timestamp in microsecs * USEC_IN_NSECS
             response_len = kernel_timestamp_session_recv(raop_ntp->ntp_session, (char *) response, sizeof(response),
-                                                         &kernel_recv_time_microsecs, NULL, NULL);
-            if (response_len < 32) {
+                                                         NULL, NULL, &recv_time_kernel, &recv_time_clock);
+	    uint64_t localtime = raop_ntp_get_local_time();
+
+	    if (recv_time_kernel && recv_time_clock) {
+                printf("===timestamp timeout  ===%llu\n\n", (unsigned long long) raop_ntp->ntp_session->kernel_timestamp_timeout);
+                /* sanity check on kernel timestamp */
+                bool sanity = ((int64_t) (recv_time_kernel - send_time) > 0  && (int64_t) (recv_time_clock - recv_time_kernel) > 0); 
+                if (!sanity) {
+                    raop_ntp->ntp_session->kernel_timestamp_timeout = localtime + ((uint64_t) 16) * SECOND_IN_NSECS;
+                }
+                if (recv_time_kernel && (int64_t) (recv_time_clock - raop_ntp->ntp_session->kernel_timestamp_timeout) > 0) {
+                    recv_time = recv_time_kernel;
+                } else {
+                    printf("ignoring recv_time_kernel\n");
+                    recv_time = recv_time_clock;
+                }
+   	        printf("===send time (clock)  ===%llu\n", (unsigned long long) send_time);
+                printf("===recv time (kernel) ===%llu\n", (unsigned long long) recv_time_kernel);
+                printf("===recv time (clock)  ===%llu\n", (unsigned long long) recv_time_clock);
+                printf("===recv time          ===%llu\n\n", (unsigned long long) recv_time);	    
+            } else if (recv_time_clock) {
+                recv_time = recv_time_clock;
+            } else {
+                recv_time = localtime;
+            }
+
+	    if (response_len < 32) {
                 char time[30];
                 ntp_timestamp_to_time(send_time, time, sizeof(time));
                 if (response_len < 0) {
@@ -547,84 +623,95 @@ raop_ntp_thread(void *arg)
                     logger_log(raop_ntp->logger, LOGGER_ERR , "raop_ntp received truncated response (request sent %s, response_len %d < 32)", time, response_len);
                 }
             } else {
-                if (!raop_ntp->have_fixed_offset) {
-                    raop_ntp->fixed_offset = get_local_time_q32_32() - byteutils_get_long_be(response, 24);
-                    raop_ntp->have_fixed_offset = true;
-                }
-		
-                recv_time = kernel_recv_time_microsecs * 1000ULL;
-                //uint64_t recv_time_clock = raop_ntp_get_local_time();
-                //printf("===recv time (kernel) ===%llu\n", (unsigned long long) recv_time);
-                //printf("===recv time (clock)  ===%llu\n", (unsigned long long) recv_time_clock);
-                client_ref_time = byteutils_get_long_be(response, 24);
-                if (!raop_ntp->client_time_received) {
-                    raop_ntp->client_time_received = true;
-                }
-                //local time of the server when the NTP response packet returns
-                int64_t t3 = (int64_t) recv_time;
-
-                // Local time of the server when the NTP request packet leaves the server
-                int64_t t0 = (int64_t) byteutils_get_ntp_timestamp(response, 8);
-
-                // Local time of the client when the NTP request packet arrives at the client
-                int64_t t1 = (int64_t) raop_remote_timestamp_to_nano_seconds(raop_ntp, byteutils_get_long_be(response, 16) + raop_ntp->fixed_offset);
-
-                // Local time of the client when the response message leaves the client
-                int64_t t2 = (int64_t) raop_remote_timestamp_to_nano_seconds(raop_ntp, byteutils_get_long_be(response, 24) + raop_ntp->fixed_offset);
-
-                if (logger_debug) {
-                    char *str = utils_data_to_string(response, response_len, 16);                   
-                    logger_log(raop_ntp->logger, LOGGER_DEBUG,
-                               "raop_ntp receive time type_t=%d packetlen = %d, now = %8.6f t1 = %8.6f, t2 = %8.6f\n%s",
-                               response[1] &~0x80, response_len, (double) t3 / SECOND_IN_NSECS, (double) t1 / SECOND_IN_NSECS,
-                               (double) t2 / SECOND_IN_NSECS, str); 
-                    free(str);
-                }
-                // The iOS client device sends its time in  seconds relative to an arbitrary Epoch (the last boot).
+		// The iOS client device sends its time in  seconds relative to an arbitrary Epoch (the last boot).
                 // For a little bonus confusion, they add SECONDS_FROM_1900_TO_1970.
                 // To avoid huge offsets, we adjust all remote timestamps (in raw Q32.32 fixed point format) by a fixed offset
                 // raop_ntp->fixed offset, determined when the NTP thread receives its first client time signal.
+	      
+                // Local time of the server when the NTP request packet left the server  (should equal t1_sent) */
+                t1 = (q32_32_t) byteutils_get_long_be(response, 8);
 
-                raop_ntp->data_index = (raop_ntp->data_index + 1) % RAOP_NTP_DATA_COUNT;
-                raop_ntp->data[raop_ntp->data_index].time = t3;
-                raop_ntp->data[raop_ntp->data_index].offset     = ((t1 - t0) + (t2 - t3)) / 2;
-                raop_ntp->data[raop_ntp->data_index].delay      = ((t3 - t0) - (t2 - t1));
-                //use the reduced ratio 2^32/10^15 =  131072 / 30517578125  to convert nsecs * PPM to the <<32 fixed-point scale 
-                raop_ntp->data[raop_ntp->data_index].dispersion = RAOP_NTP_R_RHO + RAOP_NTP_S_RHO +
-                  ((uint64_t) (t3 - t0) * RAOP_NTP_PHI_PPM * 1310372ULL) / 30517578125ULL; 
+	        // Local timestamp of the client when the NTP request packet arrived at the client
+                t2_raw = (q32_32_t) byteutils_get_long_be(response, 16);
+		/* now adjust t2 to reset client epoch */
+                t2 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t2_raw);
 
-                // Sort by delay
-                memcpy(data_sorted, raop_ntp->data, sizeof(data_sorted));
-                qsort(data_sorted, RAOP_NTP_DATA_COUNT, sizeof(data_sorted[0]), raop_ntp_compare);
+	        // Local timestamp of the client when the response message left the client  (should not equal t3_prev)
+                t3_raw = (q32_32_t) byteutils_get_long_be(response, 24);
+		byteutils_put_long_be(request, 8, (uint32_t) t3_raw);   //this is returned to client as client_ref
+		/* now adjust t3 to reset client epoch */
+		t3 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t3_raw);
 
-                uint64_t dispersion = 0ull;
-                int64_t offset = data_sorted[0].offset;   // take offset from the BEST packet (least delay) in the window
-                int64_t delay = data_sorted[0].delay;     // also take delay from that packet 
-
-                for(int i = 0; i < RAOP_NTP_DATA_COUNT; ++i) {
-                    //skip placeholder slots that have not received real data
-                    if (raop_ntp->data[i].delay == RAOP_NTP_MAX_DISP) {
-                        continue;
-                    }
-                    uint64_t elapsed_ns = (uint64_t) (t3 - raop_ntp->data[i].time);   // t3 (current packet) - t3(previous packet i).
-                    uint64_t drift_fixed_point = (elapsed_ns * RAOP_NTP_PHI_PPM * 131072ULL) / 30517578125ULL; 
-                    unsigned long long disp = raop_ntp->data[i].dispersion + drift_fixed_point;
-                    int age = (raop_ntp->data_index - i + RAOP_NTP_DATA_COUNT) % RAOP_NTP_DATA_COUNT;
-                    dispersion += disp / two_pow_n[age];
+	        // local timestamp of the server when the response message arrived at the server  
+                byteutils_put_ntp_timestamp(request, 16, recv_time);
+		t4 = (q32_32_t) byteutils_get_long_be(request, 16);		
+		     
+                if (logger_debug) {
+                    char *str = utils_data_to_string(response, response_len, 16);                   
+                    logger_log(raop_ntp->logger, LOGGER_DEBUG,
+                               "raop_ntp type_t=%d packetlen = %d\nsent request:      %8.6f\nreceived response: %8.6f"
+                               "\nt1 = %" PRIu32 "\nt2 = %" PRIu32 " (%" PRIu32 ")\nt3 = %" PRIu32 " (%" PRIu32 ")\nt4 = %" PRIu32 "\n%s",
+                               response[1] &~0x80, response_len,  (double) send_time / SECOND_IN_NSECS, (double) recv_time / SECOND_IN_NSECS,
+                               t1, t2, t2_raw, t3, t3_raw, t4, str); 
+                    free(str);
                 }
 
-                MUTEX_LOCK(raop_ntp->sync_params_mutex);
+		bogus_ntp_packet = (t1 != t1_sent); 
+		if (bogus_ntp_packet) {
+                logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with invalid server ref: %ull %ull",
+                          (unsigned long long) t1_sent, (unsigned long long) t1);
+                }
 
-                int64_t correction = offset - raop_ntp->sync_offset;
-                raop_ntp->sync_offset = offset;
-                raop_ntp->sync_dispersion = dispersion;
-                raop_ntp->sync_delay = delay;
-                MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
+		duplicate_ntp_packet = (t3_raw == t3_prev);
+		if (duplicate_ntp_packet) {
+                     logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with duplicate t3: %ull %ull",
+				(unsigned long long) t3_prev, (unsigned long long) t3_raw);
+                }
+		t3_prev = t3_raw;
 
-                logger_log(raop_ntp->logger, LOGGER_DEBUG, "raop_ntp sync correction = %lld", correction);
+                if (!bogus_ntp_packet && !duplicate_ntp_packet) {
+                    /* ntp metrics as seconds (as doubles) */
+                    double total_time = ntp_diff_to_seconds(t4,t1);
+                    double client_process_time = ntp_diff_to_seconds(t3,t2);
+                    double client_to_server = ntp_diff_to_seconds(t2,t1);
+                    double server_to_client = ntp_diff_to_seconds(t3,t4);
+
+                    raop_ntp->data_index = (raop_ntp->data_index + 1) % RAOP_NTP_DATA_COUNT;
+                    raop_ntp->data[raop_ntp->data_index].time = t4; 
+                    raop_ntp->data[raop_ntp->data_index].offset = (client_to_server + server_to_client) /2.0;
+                    raop_ntp->data[raop_ntp->data_index].delay  = total_time - client_process_time;
+                    raop_ntp->data[raop_ntp->data_index].dispersion = RAOP_NTP_R_RHO + RAOP_NTP_S_RHO + (RAOP_NTP_PHI_PPM  * ntp_diff_to_seconds(t4, t1)); 
+
+                    // Sort by delay
+                    memcpy(data_sorted, raop_ntp->data, sizeof(data_sorted));
+                    qsort(data_sorted, RAOP_NTP_DATA_COUNT, sizeof(data_sorted[0]), raop_ntp_compare);
+
+                    double dispersion = 0.0;
+                    double offset = data_sorted[0].offset;   // take offset from the BEST packet (least delay) in the window
+                    double delay = data_sorted[0].delay;     // also take delay from that packet 
+
+                    for(int i = 0; i < RAOP_NTP_DATA_COUNT; ++i) {
+                        //skip placeholder slots that have not received real data
+                        if (raop_ntp->data[i].delay == RAOP_NTP_MAX_DISP) {
+                            continue;
+                        }
+                        double disp = raop_ntp->data[i].dispersion + ntp_diff_to_seconds(t4, raop_ntp->data[i].time) * RAOP_NTP_PHI_PPM ; 
+                        int age = (raop_ntp->data_index - i + RAOP_NTP_DATA_COUNT) % RAOP_NTP_DATA_COUNT;
+                        dispersion += disp * two_pow_minus_n[age];
+                    }
+
+                    MUTEX_LOCK(raop_ntp->sync_params_mutex);
+                    int64_t correction = offset - raop_ntp->sync_offset;
+                    raop_ntp->sync_offset = offset;
+                    raop_ntp->sync_dispersion = dispersion;
+                    raop_ntp->sync_delay = delay;
+                    MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
+
+                    logger_log(raop_ntp->logger, LOGGER_DEBUG, "raop_ntp sync correction = %lld", correction);
+                }
             }
         }
-
+		
         // Sleep for 3 seconds
         struct timespec wait_time;
         MUTEX_LOCK(raop_ntp->wait_mutex);
@@ -789,6 +876,16 @@ uint64_t raop_ntp_convert_local_time(raop_ntp_t *raop_ntp, uint64_t local_time) 
 }
 
 // adjust a client raw timestamp by the fixed Q32.32 offset
-uint64_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, uint64_t ntp_timestamp_raw) {
+q32_32_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, q32_32_t ntp_timestamp_raw) {
+    MUTEX_LOCK(raop_ntp->sync_params_mutex);
+    if (!raop_ntp->have_fixed_offset) {
+        unsigned char request[8] = {0};
+        uint64_t local_time = raop_ntp_get_local_time();
+        byteutils_put_ntp_timestamp(request, 0, local_time);
+	q32_32_t local_ref_time = byteutils_get_long_be(request,0);      
+        raop_ntp->fixed_offset = local_ref_time - ntp_timestamp_raw;
+        raop_ntp->have_fixed_offset = true;
+    }
+    MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
     return ntp_timestamp_raw + raop_ntp->fixed_offset;
 }

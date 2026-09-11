@@ -415,6 +415,9 @@ raop_rtp_thread_udp(void *arg)
     socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
+    uint64_t recv_time_kernel = 0;
+    uint64_t recv_time_clock = 0;
+    uint64_t recv_time = 0;
 
     /* initial audio stream has no data */    
     unsigned char no_data_marker[] = {0x00, 0x68, 0x34, 0x00 };
@@ -476,11 +479,11 @@ raop_rtp_thread_udp(void *arg)
         }
 
         if (FD_ISSET(raop_rtp->csock, &rfds)) {
-            uint64_t kernel_recv_time_microsecs = 0;
             if (got_remote_control_saddr== false) {
                 saddrlen = sizeof(saddr);
                 packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
-                                                          &kernel_recv_time_microsecs, (void *) &saddr, (int *) &saddrlen);
+                                                          (void *) &saddr, (int *) &saddrlen,
+                                                          &recv_time_kernel, &recv_time_clock);
                 if (packetlen > 0) {
                     memcpy(&raop_rtp->control_saddr, &saddr, saddrlen);
                     raop_rtp->control_saddr_len = saddrlen;
@@ -488,8 +491,15 @@ raop_rtp_thread_udp(void *arg)
                 }
             } else {
                 packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
-                                                          &kernel_recv_time_microsecs, NULL, NULL);
+                                                          NULL, NULL, &recv_time_kernel, &recv_time_clock);
             }
+
+            if (recv_time_kernel && (int64_t) (recv_time_clock - raop_rtp->rtp_session_dsock->kernel_timestamp_timeout) > 0) {
+                recv_time = recv_time_kernel;
+            } else {
+                recv_time = recv_time_clock;
+            }
+
             int type_c = packet[1] & ~0x80;
             logger_log(raop_rtp->logger, LOGGER_DEBUG, "\nraop_rtp type_c 0x%02x, packetlen = %d", type_c, packetlen);
 
@@ -598,9 +608,15 @@ raop_rtp_thread_udp(void *arg)
             //logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp_thread_udp type_d 0x%02x, packetlen = %d", type_d, packetlen);
 
             saddrlen = sizeof(saddr);
-            uint64_t kernel_recv_time_microsecs = 0;
             packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_dsock, (char *) packet, sizeof(packet),
-                                                      &kernel_recv_time_microsecs, NULL, NULL);
+                                                      NULL, NULL, &recv_time_kernel, &recv_time_clock);
+
+            if (recv_time_kernel && (int64_t) (recv_time_clock - raop_rtp->rtp_session_dsock->kernel_timestamp_timeout) > 0) {
+                recv_time = recv_time_kernel;
+            } else {
+                recv_time = recv_time_clock;
+            }
+	    
             if (packetlen < 12)  {
                 if (logger_debug) {
                     char *str = utils_data_to_string(packet, packetlen, 16);
