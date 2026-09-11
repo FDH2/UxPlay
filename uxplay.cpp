@@ -1363,21 +1363,21 @@ static void parse_arguments (int argc, char *argv[]) {
                 continue;
             }
             std::string value(argv[++i]);
-            if (value == "tcp") {
-                arg.append(" tcp");
-                /* "-p tcp" as the last two tokens: the first argv[++i] consumed
-                   "tcp", so the second one is argv[argc]. get_ports() builds a
-                   std::string from it, which is strlen(NULL). A port value never
-                   begins with '-', so option_has_value's rejection of a leading
-                   '-' is right here. */
-                if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
-                if(!get_ports(3, arg, argv[++i], tcp)) exit(1);
-            } else if (value == "udp") {
-                arg.append( " udp");
-                if (!option_has_value(i, argc, arg, argv[i+1])) exit(1);
-                if(!get_ports(3, arg, argv[++i], udp)) exit(1);
+            if (value == "tcp" || value == "udp") {
+                if (i == argc - 1 || argv[i + 1][0] == '-') {
+                    fprintf(stderr,"invalid \"-p %s\": missing second argument (ports must be specified after \"%s\") \n",
+                            argv[i], argv[i]);
+                    exit (1);
+                }
+                arg.append(" " + value);
+                unsigned short *ports = (value == "udp") ? udp : tcp;
+                if (!get_ports(3, arg, argv[++i], ports)) {
+                    exit(1);
+                }
             } else {
-                if(!get_ports(3, arg, argv[i], tcp)) exit(1);
+                if (!get_ports(3, arg, argv[i], tcp)) {
+                    exit(1);
+                }
                 for (int j = 0; j < 3; j++) {
                     udp[j] = tcp[j];
                 }
@@ -1482,6 +1482,10 @@ static void parse_arguments (int argc, char *argv[]) {
         } else if (arg == "-FPSdata") {
             show_client_FPS_data = true;
         } else if (arg == "-reset") {
+            if (i == argc - 1 || argv[i + 1][0] == '-') {
+	        fprintf(stderr,"option %s requires an argument\n", argv[i]);
+                exit(1);
+            } 
             /* now using feedback  (every 1 sec ) instead of ntp timeouts (every 3 secs) to detect offline client and reset connections */
             fprintf(stderr,"*** NOTE CHANGE: -reset n now means reset n seconds (not 3n seconds) after client goes offline\n");	  
             missed_feedback_limit = 0;
@@ -1751,7 +1755,7 @@ static void parse_arguments (int argc, char *argv[]) {
             }
             if (db_bad) {
                 fprintf(stderr, "invalid \"-db  %s\": db value must be \"low\" or \"low:high\", low < 0 and high > low are decibel gains\n",
-                        i < argc - 1 ? argv[i+1] : "");   /* NULL when -db is last */ 
+                        i < argc - 1 ? argv[i+1] : "");   /* NULL when -db is final option */ 
                 exit(1);
             }
             i++;
@@ -1795,14 +1799,6 @@ static void parse_arguments (int argc, char *argv[]) {
             hls_support = true;
             if (i < argc - 1 && *argv[i+1] != '-') {
                 unsigned int n = 3;
-                /* get_value() treats the initial *n as a maximum, so it already
-                   rejects 0 and anything above 3 -- but it accepts 1, and the
-                   second half of this test cannot catch that: playbin_version is
-                   still its default here, so `playbin_version < 2` is always
-                   false. "-hls 1" is therefore stored, and video_renderer_init's
-                   playbin switch has no case 1: it reaches g_assert(0) and
-                   aborts, not at startup but later, when a sender actually casts
-                   a video. Test the value that was just parsed. */
                 if (!get_value(argv[++i], &n) || n < 2) {
                     fprintf(stderr, "invalid \"-hls %s\"; -hls n only allows \"playbin\" video player versions 2 or 3\n", argv[i]);
                     exit(1);
@@ -2932,11 +2928,6 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
     if (options.size() > 1) {
 
         int argc = options.size();
-        /* argc + 1, NULL-terminated. parse_arguments' guards pass argv[i+1] to
-           option_has_value(), which is argv[argc] for a trailing option. On the
-           real command line the C standard guarantees that is NULL; an argv
-           synthesised here has to provide it too, or those guards read past the
-           end of the allocation. */
         char **argv = (char **) malloc(sizeof(char*) * (argc + 1));
         if (argv == NULL) {
             printf("Memory allocation failure (argV)\n");
@@ -2945,6 +2936,8 @@ static void read_config_file(const char * filename, const char * uxplay_name) {
         for (int i = 0; i < argc; i++) {
             argv[i] = (char *) options[i].c_str();
         }
+	/* add an extra NULL option to terminate the simulated argv list
+	   (as protection if argv[++i] is referenced when i = argc -1) */
         argv[argc] = NULL;
         parse_arguments (argc, argv);
         free (argv);
