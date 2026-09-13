@@ -327,8 +327,9 @@ raop_rtp_mirror_thread(void *arg)
                 n -= 3;
                 p += 3;
             }
-            ntp_timestamp_raw = raop_ntp_adjust_remote_timestamp_offset(raop_rtp_mirror->ntp, byteutils_get_long(packet, 8));
-            ntp_timestamp_remote = raop_ntp_timestamp_to_nano_seconds(ntp_timestamp_raw, false);
+	    /* include SECONDS_1900_TO_1970 in the offset adjustment */
+            ntp_timestamp_raw = raop_ntp_adjust_remote_timestamp_offset(raop_rtp_mirror->ntp, byteutils_get_long(packet, 8), true);
+            ntp_timestamp_remote = raop_ntp_timestamp_to_nano_seconds(raop_rtp_mirror->ntp, ntp_timestamp_raw);
             if (first_packet) {
 	        uint64_t offset  = raop_ntp_get_local_time() - ntp_timestamp_remote;
                 raop_ntp_set_video_arrival_offset(raop_rtp_mirror->ntp, &offset);

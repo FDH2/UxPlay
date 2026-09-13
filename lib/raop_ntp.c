@@ -44,6 +44,7 @@
 #define RAOP_NTP_S_RHO     0.001                   // system clock precision  1ms
 #define RAOP_NTP_MAX_DIST  1.5                     // maximum allowed distance  1.5 secs
 #define RAOP_NTP_MAX_DISP  16.0                    // maximum dispersion    16 secs.
+#define RAOP_NTP_ALPHA     0.05                    // smoothing parameter  0.05
 
 #define RAOP_NTP_CLOCK_BASE (2208988800ull << 32)
 
@@ -52,6 +53,8 @@ typedef struct raop_ntp_data_s {
     double dispersion;
     double delay; // The round trip delay
     double offset; // The difference between (adjusted) remote and local wall clock time
+    q32_32_t t1_sent;
+    q32_32_t t3_recv;
 } raop_ntp_data_t;
 
 struct raop_ntp_s {
@@ -71,10 +74,11 @@ struct raop_ntp_s {
     // The clock sync params are periodically updated to the AirPlay client's NTP clock
     mutex_handle_t sync_params_mutex;
     int64_t sync_offset;
-    int64_t sync_dispersion;
-    int64_t sync_delay;
+    bool is_synced;
+    
     kernel_timestamp_session_t *ntp_session;
 
+  
     // Socket address of the AirPlay client
     struct sockaddr_storage remote_saddr;
     socklen_t remote_saddr_len;
@@ -424,17 +428,18 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
     raop_ntp->running = 0;
     raop_ntp->joined = 1;
 
-    uint64_t time = raop_ntp_get_local_time();
-
+    raop_ntp->data_index = 0;
     for (int i = 0; i < RAOP_NTP_DATA_COUNT; ++i) {
         raop_ntp->data[i].offset     = 0ll;
         raop_ntp->data[i].delay      = RAOP_NTP_MAX_DISP;
         raop_ntp->data[i].dispersion = RAOP_NTP_MAX_DISP;
-        raop_ntp->data[i].time      = time;
+        raop_ntp->data[i].time      = 0ull;
+        raop_ntp->data[i].t1_sent   = 0ull;
+        raop_ntp->data[i].t3_recv   = 0ull;
     }
 
-    raop_ntp->sync_delay = 0;
-    raop_ntp->sync_dispersion = 0;
+
+    raop_ntp->is_synced = false;
     raop_ntp->sync_offset = 0;
 
     MUTEX_CREATE(raop_ntp->run_mutex);
@@ -533,6 +538,7 @@ raop_ntp_flush_socket(int fd)
     }
 }
 
+#define NTP_BURST_LIMIT RAOP_NTP_DATA_COUNT
 static THREAD_RETVAL
 raop_ntp_thread(void *arg)
 {
@@ -543,19 +549,24 @@ raop_ntp_thread(void *arg)
     unsigned char request[32] = {0x80, 0xd2, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
-    raop_ntp_data_t data_sorted[RAOP_NTP_DATA_COUNT];
-    const double two_pow_minus_n[RAOP_NTP_DATA_COUNT] = {1.0 / 2.0,  1.0 / 4.0, 1.0 / 8.0, 1.0 / 16.0, 1.0 / 32.0,
-                                                         1.0 / 64.0, 1.0 / 128.0, 1.0 / 256.0};
+    const double inverse_two_pow_n[RAOP_NTP_DATA_COUNT] = {1.0 / 2.0,  1.0 / 4.0, 1.0 / 8.0, 1.0 / 16.0, 1.0 / 32.0,
+                                                           1.0 / 64.0, 1.0 / 128.0, 1.0 / 256.0};
     bool logger_debug = (logger_get_level(raop_ntp->logger) >= LOGGER_DEBUG);
     uint64_t recv_time = 0;
 
     bool duplicate_ntp_packet = false;
     bool bogus_ntp_packet = false;
+
+    raop_ntp->data_index = 0;
+
+    int ntpcount = 0;
+    bool have_offset = false;
+    int pos = RAOP_NTP_DATA_COUNT;
     
     /* these are NTP timestamps in Q32.32 form */
-    q32_32_t t1_sent = 0, t3_prev = 0, t2_raw = 0, t3_raw = 0;
+    q32_32_t t2_raw = 0, t3_raw = 0;
     q32_32_t t1 = 0, t2 = 0, t3 = 0, t4 = 0;
-        
+    
     while (1) {
         MUTEX_LOCK(raop_ntp->run_mutex);
         if (!raop_ntp->running) {
@@ -570,23 +581,27 @@ raop_ntp_thread(void *arg)
         // Send request
         uint64_t send_time = raop_ntp_get_local_time();
         byteutils_put_ntp_timestamp(request, 24, send_time);
-	t1_sent = (q32_32_t) byteutils_get_long_be(request, 24);
         int send_len = sendto(raop_ntp->tsock, (char *)request, sizeof(request), 0,
                               (struct sockaddr *) &raop_ntp->remote_saddr, raop_ntp->remote_saddr_len);
-        if (logger_debug) {
-            char *str = utils_data_to_string(request, sizeof(request), 16);
-            logger_log(raop_ntp->logger, LOGGER_DEBUG, "\nraop_ntp send time type_t=%d packetlen = %d, now = %8.6f\n%s",
-                       request[1] &~0x80, (int) sizeof(request), (double) send_time / SECOND_IN_NSECS, str);
-            free(str);
-        }
         if (send_len < 0) {
             int sock_err = SOCKET_GET_ERROR();
             logger_log(raop_ntp->logger, LOGGER_ERR, "raop_ntp error sending request. Error %d:%s",
                      sock_err, SOCKET_ERROR_STRING(sock_err));
         } else {
+            ntpcount++;
+            pos++;
+            pos = pos % RAOP_NTP_DATA_COUNT;
+            raop_ntp->data[pos].t1_sent = (q32_32_t) byteutils_get_long_be(request, 24);
+            if (logger_debug) {
+                char *str = utils_data_to_string(request, sizeof(request), 16);
+                logger_log(raop_ntp->logger, LOGGER_DEBUG, "\nraop_ntp send time type_t=%d packetlen = %d, now = %8.6f\n%s",
+                           request[1] &~0x80, (int) sizeof(request), (double) send_time / SECOND_IN_NSECS, str);
+                free(str);
+            }
+	  
             // Read response
             uint64_t recv_time_kernel;   // kernel recv timestamp in microsecs * USEC_IN_NSECS
-	    uint64_t recv_time_clock;    // userspace recv timestamp in microsecs * USEC_IN_NSECS
+            uint64_t recv_time_clock;    // userspace recv timestamp in microsecs * USEC_IN_NSECS
             response_len = kernel_timestamp_session_recv(raop_ntp->ntp_session, (char *) response, sizeof(response),
                                                          NULL, NULL, &recv_time_kernel, &recv_time_clock);
 	    uint64_t localtime = raop_ntp_get_local_time();
@@ -631,43 +646,60 @@ raop_ntp_thread(void *arg)
                 // Local time of the server when the NTP request packet left the server  (should equal t1_sent) */
                 t1 = (q32_32_t) byteutils_get_long_be(response, 8);
 
+
+
 	        // Local timestamp of the client when the NTP request packet arrived at the client
                 t2_raw = (q32_32_t) byteutils_get_long_be(response, 16);
-		/* now adjust t2 to reset client epoch */
-                t2 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t2_raw);
+                /* now adjust t2 to reset client epoch: don't include SECONDS_1900_TO_1970 */
+                t2 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t2_raw, false);
 
-	        // Local timestamp of the client when the response message left the client  (should not equal t3_prev)
+                // Local timestamp of the client when the response message left the client  (should not equal t3_prev)
                 t3_raw = (q32_32_t) byteutils_get_long_be(response, 24);
-		byteutils_put_long_be(request, 8, (uint32_t) t3_raw);   //this is returned to client as client_ref
-		/* now adjust t3 to reset client epoch */
-		t3 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t3_raw);
+                byteutils_put_long_be(request, 8, (uint32_t) t3_raw);   //this is returned to client as client_ref
+                /* now adjust t3 to reset client epoch : don't include SECONDS_1900_TO_1970 */
+		t3 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t3_raw, false);
 
-	        // local timestamp of the server when the response message arrived at the server  
+                // local timestamp of the server when the response message arrived at the server  
                 byteutils_put_ntp_timestamp(request, 16, recv_time);
-		t4 = (q32_32_t) byteutils_get_long_be(request, 16);		
-		     
+                t4 = (q32_32_t) byteutils_get_long_be(request, 16);		
+
                 if (logger_debug) {
                     char *str = utils_data_to_string(response, response_len, 16);                   
                     logger_log(raop_ntp->logger, LOGGER_DEBUG,
                                "raop_ntp type_t=%d packetlen = %d\nsent request:      %8.6f\nreceived response: %8.6f"
-                               "\nt1 = %" PRIu32 "\nt2 = %" PRIu32 " (%" PRIu32 ")\nt3 = %" PRIu32 " (%" PRIu32 ")\nt4 = %" PRIu32 "\n%s",
+                               "\nt1 = %" PRIu64 "\nt2 = %" PRIu64 " (%" PRIu64 ")\nt3 = %" PRIu64 " (%" PRIu64 ")\nt4 = %" PRIu64 "\n%s",
                                response[1] &~0x80, response_len,  (double) send_time / SECOND_IN_NSECS, (double) recv_time / SECOND_IN_NSECS,
                                t1, t2, t2_raw, t3, t3_raw, t4, str); 
                     free(str);
                 }
 
-		bogus_ntp_packet = (t1 != t1_sent); 
-		if (bogus_ntp_packet) {
-                logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with invalid server ref: %ull %ull",
-                          (unsigned long long) t1_sent, (unsigned long long) t1);
+                /* check for a valid t1 (last RAOP_NTP_DATA_COUNT values are available, if corresponding response is not yet received */
+                bogus_ntp_packet = true;
+                int pos0 = pos;
+                for (int i = 0; i < RAOP_NTP_DATA_COUNT; i++) {
+                    if (raop_ntp->data[pos0].t1_sent == t1) {
+                        raop_ntp->data[pos0].t1_sent = 0;  //per RFC 5905
+                        bogus_ntp_packet = false;
+                        break;
+                    }
+                    pos0++;
+                    pos0 = pos0 % RAOP_NTP_DATA_COUNT;
+                }
+                if (bogus_ntp_packet) {
+                    logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with invalid server ref: %"PRIu64, t1);
                 }
 
-		duplicate_ntp_packet = (t3_raw == t3_prev);
-		if (duplicate_ntp_packet) {
-                     logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with duplicate t3: %ull %ull",
-				(unsigned long long) t3_prev, (unsigned long long) t3_raw);
+		duplicate_ntp_packet = false;
+		for (int i = 0; i < RAOP_NTP_DATA_COUNT; i++) {
+                    if (raop_ntp->data[i].t3_recv == t3_raw) {
+                        duplicate_ntp_packet = true;
+                        break;
+                    }
                 }
-		t3_prev = t3_raw;
+		if (duplicate_ntp_packet) {
+                    logger_log(raop_ntp->logger, LOGGER_INFO , "raop_ntp received NTP packet with duplicate t3: %"PRIu64, t3_raw);
+                }
+                raop_ntp->data[pos].t3_recv = t3_raw;
 
                 if (!bogus_ntp_packet && !duplicate_ntp_packet) {
                     /* ntp metrics as seconds (as doubles) */
@@ -675,50 +707,96 @@ raop_ntp_thread(void *arg)
                     double client_process_time = ntp_diff_to_seconds(t3,t2);
                     double client_to_server = ntp_diff_to_seconds(t2,t1);
                     double server_to_client = ntp_diff_to_seconds(t3,t4);
-
-                    raop_ntp->data_index = (raop_ntp->data_index + 1) % RAOP_NTP_DATA_COUNT;
+                    double raw_delay = total_time - client_process_time;
+                    if (raw_delay < RAOP_NTP_S_RHO) {
+                        raw_delay = RAOP_NTP_S_RHO; //per RFC 5905
+                    }
+                    printf("latest data index: %d\n", raop_ntp->data_index);
                     raop_ntp->data[raop_ntp->data_index].time = t4; 
                     raop_ntp->data[raop_ntp->data_index].offset = (client_to_server + server_to_client) /2.0;
-                    raop_ntp->data[raop_ntp->data_index].delay  = total_time - client_process_time;
+                    raop_ntp->data[raop_ntp->data_index].delay  = raw_delay; 
                     raop_ntp->data[raop_ntp->data_index].dispersion = RAOP_NTP_R_RHO + RAOP_NTP_S_RHO + (RAOP_NTP_PHI_PPM  * ntp_diff_to_seconds(t4, t1)); 
-
-                    // Sort by delay
-                    memcpy(data_sorted, raop_ntp->data, sizeof(data_sorted));
-                    qsort(data_sorted, RAOP_NTP_DATA_COUNT, sizeof(data_sorted[0]), raop_ntp_compare);
-
-                    double dispersion = 0.0;
-                    double offset = data_sorted[0].offset;   // take offset from the BEST packet (least delay) in the window
-                    double delay = data_sorted[0].delay;     // also take delay from that packet 
-
+                    raop_ntp->data_index = (raop_ntp->data_index + 1) % RAOP_NTP_DATA_COUNT;
+                    int valid_count = 0;
+                    raop_ntp_data_t data_sorted[RAOP_NTP_DATA_COUNT];
+ 
                     for(int i = 0; i < RAOP_NTP_DATA_COUNT; ++i) {
-                        //skip placeholder slots that have not received real data
-                        if (raop_ntp->data[i].delay == RAOP_NTP_MAX_DISP) {
+                        if (raop_ntp->data[i].delay == RAOP_NTP_MAX_DISP || raop_ntp->data[i].time == 0) {
                             continue;
                         }
-                        double disp = raop_ntp->data[i].dispersion + ntp_diff_to_seconds(t4, raop_ntp->data[i].time) * RAOP_NTP_PHI_PPM ; 
-                        int age = (raop_ntp->data_index - i + RAOP_NTP_DATA_COUNT) % RAOP_NTP_DATA_COUNT;
-                        dispersion += disp * two_pow_minus_n[age];
+			double elapsed_seconds = ntp_diff_to_seconds(t4, raop_ntp->data[i].time);
+			double aged_dispersion = raop_ntp->data[i].dispersion + elapsed_seconds * RAOP_NTP_PHI_PPM;
+			if (aged_dispersion >= RAOP_NTP_MAX_DISP) {
+                            raop_ntp->data[i].dispersion = RAOP_NTP_MAX_DISP;
+                            continue;
+                        }
+                        raop_ntp->data[i].dispersion = aged_dispersion;
+                        data_sorted[valid_count] = raop_ntp->data[i];
+                        valid_count++;
+		    }
+
+
+		    for (int i = 0; i < RAOP_NTP_DATA_COUNT; i++) {
+                        printf("%d %20"PRIu64 " %9.6f %9.6f %12.9f \n", i, raop_ntp->data[i].time, raop_ntp->data[i].offset,
+                               raop_ntp->data[i].delay, raop_ntp->data[i].dispersion);
+		    }
+		    printf("\n");
+		    
+                    if (valid_count > 1) {
+                        qsort(data_sorted, valid_count, sizeof(data_sorted[0]), raop_ntp_compare);
                     }
 
-                    MUTEX_LOCK(raop_ntp->sync_params_mutex);
-                    int64_t correction = offset - raop_ntp->sync_offset;
-                    raop_ntp->sync_offset = offset;
-                    raop_ntp->sync_dispersion = dispersion;
-                    raop_ntp->sync_delay = delay;
-                    MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
+                    if (valid_count > 0) {
+                        double total_filter_dispersion = 0.0;
+                        for (int i = 0; i < valid_count; ++i) {
+                            total_filter_dispersion += data_sorted[i].dispersion * inverse_two_pow_n[i];
+                        }
 
-                    logger_log(raop_ntp->logger, LOGGER_DEBUG, "raop_ntp sync correction = %lld", correction);
-                }
+                        printf(" offset %10.6f, delay %10.6f, dispersion %10.6f\n", data_sorted[0].offset, data_sorted[0].delay, total_filter_dispersion);
+                        double root_distance = total_filter_dispersion + (data_sorted[0].delay * 0.5);
+
+                        int64_t sync_offset = 0;
+                        bool is_synced;
+                        if (root_distance > RAOP_NTP_MAX_DIST) {
+                            is_synced = false;
+                            sync_offset = (int64_t) (data_sorted[0].offset * 1e9);
+                       } else {
+                            double offset;
+                            if (have_offset) {
+                                offset = (double) (raop_ntp->sync_offset * 1e-9);
+                                offset = ((1.0 - RAOP_NTP_ALPHA) * offset) +  (RAOP_NTP_ALPHA * data_sorted[0].offset);
+                            } else {
+                                offset = data_sorted[0].offset;
+                            }
+                            sync_offset = (int64_t) (offset * 1e9);
+                            is_synced = true;
+		        }
+			MUTEX_LOCK(raop_ntp->sync_params_mutex);
+			raop_ntp->is_synced = is_synced;
+			raop_ntp->sync_offset = sync_offset;
+			MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
+			have_offset = true;
+		    }
+		}
             }
         }
-		
-        // Sleep for 3 seconds
+
         struct timespec wait_time;
         MUTEX_LOCK(raop_ntp->wait_mutex);
         clock_gettime(CLOCK_REALTIME, &wait_time);
-        wait_time.tv_sec += 3;
+        if (ntpcount > (int) NTP_BURST_LIMIT) {
+            wait_time.tv_sec += 3;               // Sleep for 3 seconds
+       } else {
+            wait_time.tv_nsec += 250000000;   // Sleep for 0.25 seconds during initial NTP burst
+            if (wait_time.tv_nsec >= 1000000000LL) {
+                wait_time.tv_sec +=1;
+                wait_time.tv_nsec -= 1000000000LL;
+            }
+	}
         pthread_cond_timedwait(&raop_ntp->wait_cond, &raop_ntp->wait_mutex, &wait_time);
         MUTEX_UNLOCK(raop_ntp->wait_mutex);
+	ntpcount = ntpcount > NTP_BURST_LIMIT ? NTP_BURST_LIMIT : ntpcount;
+	printf("===================== ntpcount %d (%d)  \n", ntpcount, (int) NTP_BURST_LIMIT); 
     }
 
     // Ensure running reflects the actual state
@@ -814,13 +892,8 @@ raop_ntp_stop(raop_ntp_t *raop_ntp)
  * Please note this just converts to a different representation, the clock remains the
  * same.
  */
-uint64_t raop_ntp_timestamp_to_nano_seconds(uint64_t ntp_timestamp, bool account_for_epoch_diff) {
-    uint64_t seconds = (ntp_timestamp >> 32) - (account_for_epoch_diff ? SECONDS_FROM_1900_TO_1970 : 0);
-    uint64_t fraction = (ntp_timestamp & 0xffffffff);
-    return (seconds * SECOND_IN_NSECS) + ((fraction * SECOND_IN_NSECS) >> 32);
-}
 
-uint64_t raop_remote_timestamp_to_nano_seconds(raop_ntp_t *raop_ntp, uint64_t timestamp) {
+uint64_t raop_ntp_timestamp_to_nano_seconds(raop_ntp_t *raop_ntp, uint64_t timestamp) {
     uint64_t seconds = (timestamp >> 32);
     if (raop_ntp->time_protocol == NTP) seconds -= SECONDS_FROM_1900_TO_1970;
     uint64_t fraction = (timestamp & 0xffffffff);
@@ -846,7 +919,7 @@ uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp) {
     MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
-    return (uint64_t) ((int64_t) raop_ntp_get_local_time() + offset);
+    return (uint64_t) (((int64_t) raop_ntp_get_local_time()) + offset);
 }
 
 /**
@@ -859,7 +932,7 @@ uint64_t raop_ntp_convert_remote_time(raop_ntp_t *raop_ntp, uint64_t remote_time
     MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
-    return (uint64_t) ((int64_t) remote_time - offset);
+    return (uint64_t) (((int64_t) remote_time) - offset);
 }
 
 /**
@@ -872,20 +945,33 @@ uint64_t raop_ntp_convert_local_time(raop_ntp_t *raop_ntp, uint64_t local_time) 
     MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
-    return (uint64_t) ((int64_t) local_time + offset);
+    return (uint64_t) (((int64_t) local_time) + offset);
 }
 
 // adjust a client raw timestamp by the fixed Q32.32 offset
-q32_32_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, q32_32_t ntp_timestamp_raw) {
-    MUTEX_LOCK(raop_ntp->sync_params_mutex);
+q32_32_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, q32_32_t ntp_timestamp_raw, bool add_secs_1900_to_1970) {
+    int64_t timestamp = (int64_t) ntp_timestamp_raw;
+    if (add_secs_1900_to_1970) {
+        timestamp += ((int64_t) 2208988800ULL) << 32;
+    }
+    bool set_fixed_offset = false;
     if (!raop_ntp->have_fixed_offset) {
         unsigned char request[8] = {0};
         uint64_t local_time = raop_ntp_get_local_time();
         byteutils_put_ntp_timestamp(request, 0, local_time);
 	q32_32_t local_ref_time = byteutils_get_long_be(request,0);      
-        raop_ntp->fixed_offset = local_ref_time - ntp_timestamp_raw;
-        raop_ntp->have_fixed_offset = true;
+        int64_t fixed_offset = ((int64_t) local_ref_time) - timestamp;
+	MUTEX_LOCK(raop_ntp->sync_params_mutex);
+	if (!raop_ntp->have_fixed_offset) {
+            raop_ntp->fixed_offset = fixed_offset;
+            raop_ntp->have_fixed_offset = true;
+            set_fixed_offset = true;
+	}
+	MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
+	if (set_fixed_offset) { 
+	    logger_log(raop_ntp->logger, LOGGER_DEBUG, "set fixed client NTP offset: %21"PRId64, raop_ntp->fixed_offset);
+	}
     }
-    MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
-    return ntp_timestamp_raw + raop_ntp->fixed_offset;
+    assert(raop_ntp->have_fixed_offset);
+    return (q32_32_t) (timestamp + raop_ntp->fixed_offset );
 }
