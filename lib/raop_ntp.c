@@ -24,7 +24,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <errno.h>
-
+#include <inttypes.h>
 #include "raop.h"
 #include "threads.h"
 #include "compat.h"
@@ -129,6 +129,7 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(int sock_fd) {
     GUID guid = WSAID_WSARECVMSG;
     DWORD bytes = 0;
     LPFN_WSARECVMSG local_pWSARecvMsg = NULL;
+    
     if (WSAIoctl(wsock, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(guid),
                  &local_pWSARecvMsg, sizeof(local_pWSARecvMsg), &bytes, NULL, NULL) != SOCKET_ERROR) {
         session->pWSARecvMsg_ptr = (void*)local_pWSARecvMsg;
@@ -136,7 +137,12 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(int sock_fd) {
 
     TIMESTAMPING_CONFIG config = { .Flags = TIMESTAMPING_FLAG_RX };
     DWORD bytes_returned = 0;
-    WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config), NULL, 0, &bytes_returned, NULL, NULL);
+    if (WSAIoctl(wsock, SIO_TIMESTAMPING, &config, sizeof(config), NULL, 0, &bytes_returned, NULL, NULL) == SOCKET_ERROR) {
+       int sock_err = SOCKET_GET_ERROR();
+       printf("socket error %d %s\n", sock_err, SOCKET_ERROR_STRING(sock_err));
+       exit(0);
+    }
+      
     #else
     // legacy MINGW64 fallback (no SIO_TIMEKEEPING kernel timestamping available)
     session->pWSARecvMsg_ptr = NULL;
@@ -190,6 +196,7 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                     UINT64 packet_qpc_ticks = *(UINT64*)WSA_CMSG_DATA(cmsg);
                     if (packet_qpc_ticks > (UINT64)session->base_qpc_ticks) {
                         int64_t packet_elapsed_ticks = (int64_t)packet_qpc_ticks - session->base_qpc_ticks;
+			printf"(=============using kernel timestamp\n");
                         *out_local_us = session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency);
                     }
                     break;
@@ -512,9 +519,9 @@ raop_ntp_thread(void *arg)
                 logger_log(raop_ntp->logger, LOGGER_DEBUG , "raop_ntp receive timeout (request sent %s)", time);
 	    } else {
                 recv_time = kernel_recv_time_microsecs * 1000ULL;
-                //uint64_t recv_time_clock = raop_ntp_get_local_time();
-                //printf("===recv time (kernel) ===%llu\n", (unsigned long long) recv_time);
-                //printf("===recv time (clock)  ===%llu\n", (unsigned long long) recv_time_clock);
+                uint64_t recv_time_clock = raop_ntp_get_local_time();
+                printf("===recv time (kernel) ===%"PRIu64 "\n", recv_time);
+                printf("===recv time (clock)  ===%"PRIu64 "\n",  recv_time_clock);
                 client_ref_time = byteutils_get_long_be(response, 24);
                 if (!raop_ntp->client_time_received) {
                     raop_ntp->client_time_received = true;
