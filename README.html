@@ -1216,6 +1216,22 @@ code for the character (using the keypad for numbers), then release the
 in the Windows Registry: using regedit, find the Registry section
 ’HKEY_Current_User/Control Panel/Input Method”, and add a new Key
 “EnableHexNumpad” with value “1”, then reboot the computer.</em></p>
+<p><strong>New (in v1.74)</strong>: A reworked NTP subsystem that can
+use kernel (as opposed to user-space) packet arrival timestamps, for
+higher NTP accuracy. Supported on most modern Windows systems. A console
+message when UxPlay connects with a client, and starts NTP, may tell you
+that Windows on your server suppports kernel timestamps, but they are
+not yet enabled. To enable: use Windows PowerShell as an Administrator,
+and issue the command</p>
+<pre><code>Set-NetAdapterAdvancedProperty -Name &quot;&lt;name&gt;&quot; -DisplayName &quot;Software Timestamp&quot; -DisplayValue &quot;RxAll&quot;</code></pre>
+<p>Here “<code>&lt;name&gt;</code>” is the adapter name on Windows:
+<em>e.g.</em> “Ethernet”, “Wi-Fi”, “Ethernet 2”, <em>etc</em>. If your
+Windows system does <strong>not</strong> support kernel timestamps, you
+will see a message confirming this when the “<code>uxplay -d</code>”
+debug option is used. With this option you will also see the arrival
+times of NTP packets, flagged as either <code>(kernel)</code> or
+<code>(clock)</code> showing whether or not kernel timestamps are being
+used.</p>
 <h1 id="usage">Usage</h1>
 <p>Options:</p>
 <ul>
@@ -2219,9 +2235,10 @@ an AppleTV6,2 with sourceVersion 380.20.1 (an AppleTV 4K 1st gen,
 introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.</p>
 <h1 id="changelog">Changelog</h1>
-<p>1.74 2026-06-21 Optional minimal internal mDNSResponder to replace
+<p>1.74 2026-09-14 Optional minimal internal mDNSResponder to replace
 Bonjour/Avahi. Reworked language selection for HLS video. Added AWDL
-direct connection option (only for macOS hosts).</p>
+direct connection option (only for macOS hosts). Added use of kernel
+timestamps for NTP, and a rebuilt NTP subsystem.</p>
 <p>1.73.6 2026-03-22 Fix “not a socket” message uxplay bug. Futher
 uxplay-beacon.py improvements (Only use GLib in BlueZ module)</p>
 <p>1.73.4 2026-03-15 Modularize Bluetooth support for uxplay-beacon. Add

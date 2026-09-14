@@ -1186,6 +1186,17 @@ _This method must be activated in the Windows Registry:  using
 regedit, find the Registry section 'HKEY_Current_User/Control Panel/Input Method",
 and add a new Key "EnableHexNumpad" with value "1", then reboot the computer._
 
+**New (in v1.74)**: A reworked NTP subsystem that can use kernel (as opposed to user-space) packet arrival timestamps,
+for higher NTP accuracy.   Supported on most  modern Windows systems.  A console
+message when UxPlay connects with a client, and starts NTP, may tell you that Windows on your server suppports kernel timestamps,
+but they are not yet enabled.   To enable: use Windows PowerShell as an Administrator, and issue the command
+
+```
+Set-NetAdapterAdvancedProperty -Name "<name>" -DisplayName "Software Timestamp" -DisplayValue "RxAll"
+```
+Here "`<name>`" is the adapter name on Windows: _e.g._ "Ethernet", "Wi-Fi", "Ethernet 2", _etc_.	If your Windows system does **not** support kernel
+timestamps, you will see a message confirming this when  the "`uxplay -d`" debug option is used.  With this option you will also see the arrival
+times of NTP packets, flagged  as either  `(kernel)` or ``(clock)`` showing whether or not  kernel timestamps are being used.
 
 # Usage
 
@@ -2203,9 +2214,10 @@ introduced 2017, running tvOS 12.2.1), so it does not seem to matter
 what version UxPlay claims to be.
 
 # Changelog
-1.74  2026-06-21  Optional minimal internal mDNSResponder to replace
+1.74  2026-09-14  Optional minimal internal mDNSResponder to replace
 Bonjour/Avahi.  Reworked language selection for HLS video.  Added AWDL direct
-connection option (only for macOS hosts).
+connection option (only for macOS hosts).  Added use of kernel timestamps
+for NTP, and a rebuilt NTP subsystem.
 
 1.73.6 2026-03-22  Fix "not a socket" message uxplay bug.
 Futher uxplay-beacon.py improvements (Only use GLib in BlueZ module)
