@@ -558,6 +558,10 @@ raop_handler_fpsetup(raop_conn_t *conn,
             if (!fairplay_setup(conn->fairplay, data, (unsigned char *) *response_data)) {
                 *response_datalen = 142;
             } else {
+                if (data[4] != 0x03) {
+                    logger_log(raop->logger, LOGGER_ERR, " Client sent an unsupported type 0x%02x FairPlay challenge:\n"
+	                                                   "Only type 0x03 can be handled using publically-available information", data[4]);
+            }  
                 // Handle error?
                 free(*response_data);
                 *response_data = NULL;
