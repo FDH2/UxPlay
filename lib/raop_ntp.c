@@ -252,8 +252,9 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                             }
                             break;
                         }
+                        cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
                     }
-                    cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
+
                     if (*recv_time_kernel == 0) {
                         session->pWSARecvMsg_ptr = NULL;
                         logger_log(session->raop_ntp->logger, LOGGER_INFO, "*** Windows support for kernel timestamps on this socket's NetAdapter is \"Disabled\":\n"
