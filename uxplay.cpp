@@ -64,6 +64,7 @@
 #endif
 
 #include "lib/raop.h"
+#include "lib/hls_filter.h"
 #include "lib/stream.h"
 #include "lib/logger.h"
 #include "lib/crypto.h"
@@ -181,6 +182,7 @@ static bool h265_support = false;
 static int n_video_renderers = 0;
 static int n_audio_renderers = 0;
 static bool hls_support = false;
+static unsigned int hls_max_width = 0, hls_max_height = 0, hls_codecs = 0;
 static std::string lang_requested = "";
 static std::string lang_subtitles = "";
 static std::string lang_system = "";
@@ -944,6 +946,9 @@ static void print_info (char *name) {
     printf("          n=1,2,.. format = H264/5, ALAC/AAC. Default fn=\"recording\"\n");
     printf("-hls [v]  Support HTTP Live Streaming (HLS), Youtube app video only: \n");
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
+    printf("-hls-max-resolution wxh  Limit HLS video dimensions (default: 0, unlimited)\n");
+    printf("-hls-codecs list        Allowed HLS video codecs, colon-separated:\n");
+    printf("                       h264:h265:vp9:av1 (default: all, unrestricted)\n");
     printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
     printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
@@ -1801,6 +1806,16 @@ static void parse_arguments (int argc, char *argv[]) {
                     exit(1);
                 }
                 playbin_version = (guint) n;
+            }
+        } else if (arg == "-hls-max-resolution") {
+            if (i == argc - 1 || !hls_parse_resolution(argv[++i], &hls_max_width, &hls_max_height)) {
+                fprintf(stderr, "-hls-max-resolution requires positive WIDTHxHEIGHT or 0 (unlimited)\n");
+                exit(1);
+            }
+        } else if (arg == "-hls-codecs") {
+            if (i == argc - 1 || !hls_parse_codecs(argv[++i], &hls_codecs)) {
+                fprintf(stderr, "-hls-codecs requires a colon-separated list of h264, h265, vp9, av1, or all\n");
+                exit(1);
             }
         } else if (arg == "-lang") {
             lang_requested.erase();
@@ -2825,6 +2840,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     if (audiodelay >= 0) raop_set_plist(raop, "audio_delay_micros", audiodelay);
     if (pin_pw == 1) raop_set_plist(raop, "pin", (int) pin);
     if (hls_support) raop_set_plist(raop, "hls", 1);
+    raop_set_hls_limits(raop, hls_max_width, hls_max_height, hls_codecs);
 
     /* network port selection (ports listed as "0" will be dynamically assigned) */
     raop_set_tcp_ports(raop, tcp);

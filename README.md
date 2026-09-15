@@ -1249,6 +1249,26 @@ allows selection of the version of GStreamer's
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
+**-hls-max-resolution wxh** Limit HLS video variants to the given maximum
+width and height, for example `1920x1080`. Default `0` leaves resolution
+unrestricted. This filters the master playlist before either HLS player sees
+it; it does not change screen mirroring (`-s`) or resize decoded frames.
+
+**-hls-codecs list** Allow only the listed HLS video codecs, separated by
+colons: `h264`, `h265`, `vp9`, `av1`. Default `all` leaves codecs unrestricted.
+For example, `-hls -hls-codecs h264:h265` excludes VP9/AV1 without imposing
+a resolution limit on HEVC. Codec names correspond to `avc1`/`avc3`,
+`hvc1`/`hev1`, `vp09`, and `av01` in the playlist. The receiver can only
+select formats the source offers; these options do not transcode video or
+guarantee hardware decoding.
+
+The two limits are independent and disabled by default. When enabled,
+video variants without the required resolution/codec metadata are excluded.
+Audio-only variants and audio/subtitle rendition declarations are preserved.
+If no main video variant matches, the request fails with a diagnostic rather
+than falling back to an excluded stream or playing only its audio. To limit
+both, use e.g. `-hls -hls-codecs h264 -hls-max-resolution 1920x1080`.
+
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 
 used, preferences will be taken from environment variables ($LANGUAGE, $LC_ALL, $LC_MESSAGES, $LANG, searched

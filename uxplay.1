@@ -23,6 +23,20 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
 .TP
+\fB\-hls-max-resolution\fR wxh
+Limit HLS video variants to this maximum width and height. Default 0 disables
+the limit. This filters the master playlist, independently of mirror-mode -s.
+.TP
+\fB\-hls-codecs\fR list
+Allow only these HLS video codecs, separated by colons: h264, h265, vp9, av1.
+Default all disables codec filtering. h264:h265 permits HEVC at any resolution
+unless -hls-max-resolution is also set. No transcoding is performed.
+.IP
+With a limit enabled, video variants missing the required metadata are excluded.
+Audio-only variants and audio/subtitle rendition declarations are preserved.
+If no main video variant matches, playback is rejected with a diagnostic;
+the receiver does not fall back to an excluded stream.
+.TP
 \fB\-lang\fR ... Ranked HLS language preferences ("fr:pt-BR:.."); " " = none
 .TP
 \fB\-slang\fR ...Ranked HLS subtitle language preferences (overrides -lang) 
