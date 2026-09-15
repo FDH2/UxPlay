@@ -2,6 +2,11 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
+include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
+
 message( STATUS "Project name: " ${PROJECT_NAME} )
 
 include(GNUInstallDirs)
