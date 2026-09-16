@@ -75,6 +75,9 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265);
 unsigned int video_renderer_listen(void *loop, int id);
 bool video_renderer_eos_watch();
 void video_renderer_hls_set_volume(double volume);
+/* Android only: give the video sink (glimagesink) a native window to render
+ * into, via GstVideoOverlay. No-op on other platforms. */
+void video_renderer_set_window_handle(uintptr_t handle);
 #ifdef __cplusplus
 }
 #endif

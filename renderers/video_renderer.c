@@ -24,6 +24,38 @@
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
 
+#ifdef __ANDROID__
+#include <gst/video/videooverlay.h>
+
+/* glimagesink has no window of its own on Android: it must be handed a real
+ * ANativeWindow via GstVideoOverlay, in response to a "prepare-window-handle"
+ * bus message. The handle is supplied by JNI code (see uxplay_jni.cpp) once
+ * the app's SurfaceView is ready, and applied here synchronously (async bus
+ * watches are too late for this message). */
+static uintptr_t android_window_handle = 0;
+
+static GstBusSyncReply
+android_bus_sync_handler(GstBus *bus, GstMessage *message, gpointer user_data) {
+    if (gst_is_video_overlay_prepare_window_handle_message(message)) {
+        if (android_window_handle) {
+            GstElement *sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
+            gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), (guintptr) android_window_handle);
+        }
+        gst_message_unref(message);
+        return GST_BUS_DROP;
+    }
+    return GST_BUS_PASS;
+}
+
+void video_renderer_set_window_handle(uintptr_t handle) {
+    android_window_handle = handle;
+}
+#else
+void video_renderer_set_window_handle(uintptr_t handle) {
+    (void) handle;
+}
+#endif
+
 #define SECOND_IN_NSECS 1000000000UL
 #define SECOND_IN_MICROSECS 1000000
 #ifdef X_DISPLAY_FIX
@@ -464,7 +496,10 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             }
         }
 #endif
-        renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);	
+        renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
+#ifdef __ANDROID__
+        gst_bus_set_sync_handler(renderer_type[i]->bus, android_bus_sync_handler, NULL, NULL);
+#endif
         gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_READY);
         GstState state;
         GstStateChangeReturn ret = gst_element_get_state (renderer_type[i]->pipeline, &state, NULL, 100 * GST_MSECOND);
