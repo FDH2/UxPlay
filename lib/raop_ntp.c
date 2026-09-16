@@ -240,9 +240,9 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                     LARGE_INTEGER qpc_now;
                     int64_t default_elapsed_ticks;
                     PCMSGHDR cmsg;
-                    ULONG interface_index = 0;;
-                    BOOL found_interface = FALSE;
-		    
+                    ULONG interface_index = 0;
+                    char adapter_name[IF_MAX_STRING_SIZE + 1] = {0};
+
                     QueryPerformanceCounter(&qpc_now);
                     default_elapsed_ticks  = qpc_now.QuadPart - session->base_qpc_ticks;
                     *recv_time_clock = (session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS ;
@@ -256,10 +256,8 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                             }
                         } else if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type== IP_PKTINFO) {
                             interface_index = ((IN_PKTINFO *) WSA_CMSG_DATA(cmsg))->ipi_ifindex;
-                            found_interface = TRUE;
                         } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type== IPV6_PKTINFO) {
                             interface_index = ((IN6_PKTINFO *) WSA_CMSG_DATA(cmsg))->ipi6_ifindex;
-                            found_interface = TRUE;
                         }
                     }
 
@@ -267,21 +265,19 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                         session->pWSARecvMsg_ptr = NULL;
                     }
 
-                    if (found_interface && interface_index > 0) {
-                        char adapter_name[IF_MAX_STRING_SIZE + 1];
-                        adapter_name[0] = '\0';
+                    if (interface_index > 0) {
                         MIB_IF_ROW2 ifRow;
                         memset(&ifRow, 0, sizeof(ifRow));
                         ifRow.InterfaceIndex = interface_index;
                         if (GetIfEntry2(&ifRow) == NO_ERROR) {
                             WideCharToMultiByte(CP_UTF8, 0, ifRow.Alias, -1, adapter_name, sizeof(adapter_name), NULL, NULL);
                         }
-                        logger_log(session->raop_ntp->logger, LOGGER_INFO, "*** Windows support for kernel timestamps on NetAdapter \"%s\" is \"Disabled\":\n"
-                                   "To enable it, use the Windows PowerShell (Administrator) command:\n"
-                                    "   Set-NetAdapterAdvancedProperty -Name \"%s\" -DisplayName \"Software Timestamp\" -DisplayValue  \"RxAll\"",
-                                   strlen(adapter_name) ? adapter_name : "(adapter name not found)",
-                                   strlen(adapter_name) ? adapter_name : "(adapter friendly name)");
                     }
+                    logger_log(session->raop_ntp->logger, LOGGER_INFO, "*** Windows support for kernel timestamps on NetAdapter \"%s\" is \"Disabled\":\n"
+                               "To enable it, use the Windows PowerShell (Administrator) command:\n"
+                                "   Set-NetAdapterAdvancedProperty -Name \"%s\" -DisplayName \"Software Timestamp\" -DisplayValue  \"RxAll\"",
+                               strlen(adapter_name) ? adapter_name : "(adapter name not found)",
+                               strlen(adapter_name) ? adapter_name : "(adapter friendly name)");
 
                     if (src_addr && addrlen) {
                         int copy_len = (wsa_msg.namelen < *addrlen) ? wsa_msg.namelen : *addrlen;
