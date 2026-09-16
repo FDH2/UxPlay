@@ -23,6 +23,29 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
+#include <gst/video/videooverlay.h>
+
+static uintptr_t external_window_handle = 0;
+
+static GstBusSyncReply
+window_handle_bus_sync_handler(GstBus *bus, GstMessage *message, gpointer user_data) {
+    if (gst_is_video_overlay_prepare_window_handle_message(message)) {
+        if (external_window_handle) {
+            GstElement *sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
+            gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), (guintptr) external_window_handle);
+        }
+        gst_message_unref(message);
+        return GST_BUS_DROP;
+    }
+    return GST_BUS_PASS;
+}
+
+/* can be called to make a previously-prepared external video window available for GStreamer to use.
+ * If it has not already been called when the "prepare_window_handle" message is received, GStreamer
+ * will create its own window (which is currently the case on all supported platforms) */
+void video_renderer_set_window_handle(uintptr_t handle) {
+    external_window_handle = handle;
+}
 
 #define SECOND_IN_NSECS 1000000000UL
 #define SECOND_IN_MICROSECS 1000000
@@ -464,7 +487,8 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             }
         }
 #endif
-        renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);	
+        renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
+        gst_bus_set_sync_handler(renderer_type[i]->bus, window_handle_bus_sync_handler, NULL, NULL);
         gst_element_set_state (renderer_type[i]->pipeline, GST_STATE_READY);
         GstState state;
         GstStateChangeReturn ret = gst_element_get_state (renderer_type[i]->pipeline, &state, NULL, 100 * GST_MSECOND);
