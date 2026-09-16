@@ -182,7 +182,11 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(raop_ntp_t *raop_ntp
                         break;
                     }
                 }
-            }	  
+            } else {
+                int optval = 1;
+                setsockopt(wsock, IPPROTO_IP, IP_PKTINFO, (char*)&optval, sizeof(optval));
+                setsockopt(wsock, IPPROTO_IPV6, IPV6_PKTINFO, (char*)&optval, sizeof(optval));
+            }
         }
     }
 #endif
@@ -209,7 +213,7 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
             if (pWSARecvMsg != NULL) {
                 // Union forces strict compiler alignment bounds for Windows control frames
                 union {
-                    char buf[WSA_CMSG_SPACE(sizeof(UINT64)) + 32];
+                    char buf[WSA_CMSG_SPACE(sizeof(UINT64)) + WSA_CMSG_SPACE(sizeof(IN6_PKTINFO))];
                     struct cmsghdr align;
                 } control_un;
 
@@ -231,34 +235,49 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                 };
 
                 DWORD bytes_received = 0;
-                int sock_err;
 
                 if (pWSARecvMsg((SOCKET)session->sock_fd, &wsa_msg, &bytes_received, NULL, NULL) != SOCKET_ERROR) {
                     LARGE_INTEGER qpc_now;
                     int64_t default_elapsed_ticks;
                     PCMSGHDR cmsg;
+                    ULONG interface_index = 0;
+                    char adapter_name[IF_MAX_STRING_SIZE + 1] = {0};
 
                     QueryPerformanceCounter(&qpc_now);
                     default_elapsed_ticks  = qpc_now.QuadPart - session->base_qpc_ticks;
                     *recv_time_clock = (session->base_system_time_us + ((default_elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS ;
 
-                    cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg);
-                    while (cmsg != NULL) {
+                    for (cmsg = WSA_CMSG_FIRSTHDR(&wsa_msg); cmsg != NULL; cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg)) {
                         if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_TIMESTAMP) {
                             UINT64 packet_qpc_ticks = *(UINT64*) WSA_CMSG_DATA(cmsg);
                             if (packet_qpc_ticks > (UINT64) session->base_qpc_ticks) {
                                 int64_t packet_elapsed_ticks = (int64_t) packet_qpc_ticks - session->base_qpc_ticks;
                                 *recv_time_kernel = (session->base_system_time_us + ((packet_elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS;
                             }
-                            break;
+                        } else if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type== IP_PKTINFO) {
+                            interface_index = ((IN_PKTINFO *) WSA_CMSG_DATA(cmsg))->ipi_ifindex;
+                        } else if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type== IPV6_PKTINFO) {
+                            interface_index = ((IN6_PKTINFO *) WSA_CMSG_DATA(cmsg))->ipi6_ifindex;
                         }
                     }
-                    cmsg = WSA_CMSG_NXTHDR(&wsa_msg, cmsg);
+
                     if (*recv_time_kernel == 0) {
                         session->pWSARecvMsg_ptr = NULL;
-                        logger_log(session->raop_ntp->logger, LOGGER_INFO, "*** Windows support for kernel timestamps on this socket's NetAdapter is \"Disabled\":\n"
-                                   "(To enable, set the  NetAdapterAdvancedProperty \"Software Timestamp\" to \"RxAll\")");
                     }
+
+                    if (interface_index > 0) {
+                        MIB_IF_ROW2 ifRow;
+                        memset(&ifRow, 0, sizeof(ifRow));
+                        ifRow.InterfaceIndex = interface_index;
+                        if (GetIfEntry2(&ifRow) == NO_ERROR) {
+                            WideCharToMultiByte(CP_UTF8, 0, ifRow.Alias, -1, adapter_name, sizeof(adapter_name), NULL, NULL);
+                        }
+                    }
+                    logger_log(session->raop_ntp->logger, LOGGER_INFO, "*** Windows support for kernel timestamps on NetAdapter \"%s\" is \"Disabled\":\n"
+                               "To enable it, use the Windows PowerShell (Administrator) command:\n"
+                                "   Set-NetAdapterAdvancedProperty -Name \"%s\" -DisplayName \"Software Timestamp\" -DisplayValue  \"RxAll\"",
+                               strlen(adapter_name) ? adapter_name : "(adapter name not found)",
+                               strlen(adapter_name) ? adapter_name : "(adapter friendly name)");
 
                     if (src_addr && addrlen) {
                         int copy_len = (wsa_msg.namelen < *addrlen) ? wsa_msg.namelen : *addrlen;
@@ -269,7 +288,7 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
                     return (ssize_t) bytes_received;
                 }
 
-                sock_err = SOCKET_GET_ERROR();	
+                int sock_err = SOCKET_GET_ERROR();	
                 switch (sock_err) {
                 case WSAETIMEDOUT:
                 case WSAECONNRESET:

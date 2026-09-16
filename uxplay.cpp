@@ -88,7 +88,7 @@
 #define MIN_PASSWORD_LENGTH 4
 #define DEFAULT_PLAYBIN_VERSION 3
 #define BT709_FIX "capssetter caps=\"video/x-h264, colorimetry=bt709\""
-#define SRGB_FIX  " ! video/x-raw,colorimetry=sRGB,format=RGB  ! "
+#define SRGB_FIX  " ! video/x-raw,colorimetry=sRGB,format=RGBx ! "
 #ifdef FULL_RANGE_RGB_FIX
   #define DEFAULT_SRGB_FIX true
 #else
