@@ -2,11 +2,6 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
-include(CTest)
-if(BUILD_TESTING)
-  add_subdirectory(tests)
-endif()
-
 message( STATUS "Project name: " ${PROJECT_NAME} )
 
 include(GNUInstallDirs)
@@ -93,6 +88,19 @@ add_executable( uxplay uxplay.cpp )
 target_link_libraries( uxplay renderers airplay )
 if (DBUS_FOUND)
       target_link_libraries( uxplay ${DBUS_LIBRARY})
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_hls_select tests/test_hls_select.c lib/airplay_video.c)
+  target_include_directories(test_hls_select PRIVATE lib)
+  add_test(NAME hls_select COMMAND test_hls_select)
+  add_test(NAME hls_select_cli COMMAND uxplay -hls-select avc1@1920x1080:vp09@1920x1080 -v)
+  add_test(NAME hls_select_reset COMMAND uxplay -hls-select avc1 -hls-select -v)
+  foreach(value IN ITEMS vp9 avc1@0x1080 avc1:avc1 avc1@1920x1080junk avc1:)
+    add_test(NAME "hls_select_invalid_${value}" COMMAND uxplay -hls-select "${value}" -v)
+    set_tests_properties("hls_select_invalid_${value}" PROPERTIES WILL_FAIL TRUE)
+  endforeach()
 endif()
 
 install( TARGETS  uxplay RUNTIME DESTINATION bin )

@@ -20,7 +20,6 @@
 #include <assert.h>
 
 #include "raop.h"
-#include "hls_filter.h"
 #include "raop_rtp.h"
 #include "pairing.h"
 #include "httpd.h"
@@ -89,7 +88,8 @@ struct raop_s {
     /* activate support for HLS live streaming */
     bool hls_support;
     bool hls_pending;
-    unsigned int hls_max_width, hls_max_height, hls_codecs;
+    const hls_codec_t *hls_codecs;
+    size_t hls_codec_count;
   
     /* used in digest authentication */
     char *nonce;
@@ -781,11 +781,10 @@ raop_set_port(raop_t *raop, unsigned short port) {
 }
 
 void
-raop_set_hls_limits(raop_t *raop, unsigned int width, unsigned int height, unsigned int codecs) {
+raop_set_hls_select(raop_t *raop, const hls_codec_t *codecs, size_t count) {
     assert(raop);
-    raop->hls_max_width = width;
-    raop->hls_max_height = height;
     raop->hls_codecs = codecs;
+    raop->hls_codec_count = count;
 }
 
 void

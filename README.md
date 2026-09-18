@@ -1249,25 +1249,25 @@ allows selection of the version of GStreamer's
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
-**-hls-max-resolution wxh** Limit HLS video variants to the given maximum
-width and height, for example `1920x1080`. Default `0` leaves resolution
-unrestricted. This filters the master playlist before either HLS player sees
-it; it does not change screen mirroring (`-s`) or resize decoded frames.
+**-hls-select [list]** Select YouTube HLS video with an ordered list of
+four-character playlist codec IDs and optional size limits, for example
+`avc1@1920x1080:vp09@1920x1080`. A bare codec ID has no size limit. No list
+(or an empty string) clears the selection; by default nothing is filtered.
+Invalid or duplicate entries are rejected at startup.
 
-**-hls-codecs list** Allow only the listed HLS video codecs, separated by
-colons: `h264`, `h265`, `vp9`, `av1`. Default `all` leaves codecs unrestricted.
-For example, `-hls -hls-codecs h264:h265` excludes VP9/AV1 without imposing
-a resolution limit on HEVC. Codec names correspond to `avc1`/`avc3`,
-`hvc1`/`hev1`, `vp09`, and `av01` in the playlist. The receiver can only
-select formats the source offers; these options do not transcode video or
-guarantee hardware decoding.
+Among matching variants within their codec's width/height limits, the greatest
+pixel count wins; list order breaks ties. All eligible variants of that codec
+are retained so GStreamer can adapt bitrate. Thus H.264 wins a 1080p tie, but
+1080p VP9 wins over 720p H.264. Audio/subtitle rendition declarations and
+explicitly audio-only variants are retained. If no eligible video remains,
+playback fails with a diagnostic instead of ignoring the limits.
 
-The two limits are independent and disabled by default. When enabled,
-video variants without the required resolution/codec metadata are excluded.
-Audio-only variants and audio/subtitle rendition declarations are preserved.
-If no main video variant matches, the request fails with a diagnostic rather
-than falling back to an excluded stream or playing only its audio. To limit
-both, use e.g. `-hls -hls-codecs h264 -hls-max-resolution 1920x1080`.
+Unlisted codecs and missing codec metadata are excluded. Missing dimensions
+are allowed only for an unbounded codec and rank below any known resolution.
+Dimensions are compared as encoded, without rotating portrait frames. The
+option filters proxied YouTube master playlists, not direct HTTP(S) URLs or
+screen mirroring. It does not transcode, select hardware decoders, or compare
+frame rates, profiles or HDR formats.
 
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 

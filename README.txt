@@ -1314,24 +1314,6 @@ allows selection of the version of GStreamer's \"playbin\" video player
 to use for playing HLS video. *(Playbin v3 is the recommended player,
 but if some videos fail to play, you can try with version 2.)*
 
-**-hls-max-resolution wxh** Limit HLS video variants to this maximum width
-and height (e.g. 1920x1080). Default 0 leaves resolution unrestricted.
-Filters the master playlist before either HLS player sees it; does not
-change screen mirroring (-s) or resize decoded frames.
-
-**-hls-codecs list** Allow HLS video codecs from a colon-separated list:
-h264, h265, vp9, av1. Default all leaves codecs unrestricted. For example,
--hls -hls-codecs h264:h265 excludes VP9/AV1 without limiting HEVC resolution.
-These names match avc1/avc3, hvc1/hev1, vp09, and av01 respectively.
-Only formats offered by the source can be selected; no transcoding or
-automatic hardware-decoder selection is performed by these options.
-
-Both limits are independent and disabled by default. With a limit enabled,
-video variants missing the required resolution/codec metadata are excluded.
-Audio-only variants and audio/subtitle rendition declarations are kept.
-If no main video variant matches, the request fails with a diagnostic
-instead of falling back to an excluded stream or playing only audio.
-
 **-lang \[list\]** Specify language preferences for YouTube app HLS
 videos, some of which now which offer a choice of language renditions
 (using AI dubbing of the original). If this option is not used,
