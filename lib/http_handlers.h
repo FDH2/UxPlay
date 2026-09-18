@@ -603,6 +603,13 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             int num_uri = 0;
             char *uri_local_prefix = get_uri_local_prefix(airplay_video);
             playlist = select_master_playlist_language(airplay_video, playlist);
+            int removed = select_master_playlist_video(playlist, raop->hls_codecs, raop->hls_codec_count);
+            if (removed < 0) {
+                logger_log(raop->logger, LOGGER_ERR, "HLS selection found no eligible video variant or a malformed playlist");
+                free(playlist);
+                goto post_action_error;
+            }
+            if (removed) logger_log(raop->logger, LOGGER_INFO, "HLS selection removed %d variant(s)", removed);
             playlist_len = strlen(playlist);
             create_media_uri_table(uri_prefix, playlist, playlist_len, &uri_list, &num_uri);	
             char *new_master = adjust_master_playlist (playlist, playlist_len,  uri_prefix, uri_local_prefix);

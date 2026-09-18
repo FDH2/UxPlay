@@ -88,6 +88,8 @@ struct raop_s {
     /* activate support for HLS live streaming */
     bool hls_support;
     bool hls_pending;
+    const hls_codec_t *hls_codecs;
+    size_t hls_codec_count;
   
     /* used in digest authentication */
     char *nonce;
@@ -776,6 +778,13 @@ void
 raop_set_port(raop_t *raop, unsigned short port) {
     assert(raop);
     raop->port = port;
+}
+
+void
+raop_set_hls_select(raop_t *raop, const hls_codec_t *codecs, size_t count) {
+    assert(raop);
+    raop->hls_codecs = codecs;
+    raop->hls_codec_count = count;
 }
 
 void

@@ -22,6 +22,8 @@
 #include <string.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <errno.h>
+#include <limits.h>
 
 #include "raop.h"
 #include "airplay_video.h"
@@ -857,6 +859,163 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     }
     free(slice);
     return new_master_playlist;
+}
+
+static bool hls_dimensions(const char *text, const char *end, unsigned int *w, unsigned int *h) {
+    char *next;
+    if (text == end || *text < '0' || *text > '9') return false;
+    errno = 0;
+    unsigned long width = strtoul(text, &next, 10);
+    if (errno || !width || width > UINT_MAX || next >= end || *next++ != 'x') return false;
+    if (next == end || *next < '0' || *next > '9') return false;
+    unsigned long height = strtoul(next, &next, 10);
+    if (errno || !height || height > UINT_MAX || next != end) return false;
+    *w = (unsigned int) width;
+    *h = (unsigned int) height;
+    return true;
+}
+
+bool hls_select_parse(const char *text, hls_codec_t **codecs, size_t *count) {
+    *codecs = NULL;
+    *count = 0;
+    if (!text || !*text) return true;
+    size_t capacity = 1;
+    for (const char *p = text; *p; p++) if (*p == ':') capacity++;
+    hls_codec_t *list = calloc(capacity, sizeof(*list));
+    if (!list) return false;
+    size_t n = 0;
+    while (*text) {
+        const char *end = text + strcspn(text, ":");
+        if (end - text < 4 || strspn(text, "abcdefghijklmnopqrstuvwxyz0123456789") != 4) goto invalid;
+        memcpy(list[n].codec, text, 4);
+        for (size_t i = 0; i < n; i++) if (!strcmp(list[i].codec, list[n].codec)) goto invalid;
+        if (end - text > 4 && (text[4] != '@' ||
+            !hls_dimensions(text + 5, end, &list[n].width, &list[n].height))) goto invalid;
+        n++;
+        if (!*end) break;
+        text = end + 1;
+        if (!*text) goto invalid;
+    }
+    *codecs = list;
+    *count = n;
+    return true;
+invalid:
+    free(list);
+    return false;
+}
+
+/* Find an attribute without splitting commas inside quoted CODECS/URI values.
+ * Duplicate or unterminated attributes are ambiguous and are not selected. */
+static int hls_attribute(const char *p, const char *end, const char *name,
+                          const char **value, const char **last) {
+    bool found = false;
+    while (p < end) {
+        const char *first = p;
+        bool quoted = false;
+        while (p < end) {
+            if (*p == '"') quoted = !quoted;
+            if (*p == ',' && !quoted) break;
+            p++;
+        }
+        if (quoted) return -1;
+        size_t len = strlen(name);
+        if ((size_t)(p - first) > len && !memcmp(first, name, len) && first[len] == '=') {
+            if (found) return -1;
+            found = true;
+            *value = first + len + 1;
+            *last = p;
+        }
+        if (p < end) p++;
+    }
+    return found;
+}
+
+/* count means no matching codec; count+1 means an explicitly audio-only variant. */
+static size_t hls_variant(const char *line, const char *end, const hls_codec_t *codecs,
+                          size_t count, uint64_t *pixels) {
+    const char *value, *last, *attrs = strchr(line, ':') + 1;
+    size_t selected = count;
+    bool audio_only = true;
+    *pixels = 0;
+    if (end > line && end[-1] == '\r') end--;
+    if (hls_attribute(attrs, end, "CODECS", &value, &last) != 1 || last - value < 3 ||
+        *value != '"' || last[-1] != '"') return count;
+    value++;
+    last--;
+    while (value < last) {
+        const char *comma = memchr(value, ',', last - value);
+        const char *stop = comma ? comma : last;
+        if (stop == value) return count;
+        size_t len = 0;
+        while (value + len < stop && value[len] != '.') len++;
+        bool audio = len == 4 && (!memcmp(value, "mp4a", 4) || !memcmp(value, "ac-3", 4) ||
+            !memcmp(value, "ec-3", 4) || !memcmp(value, "opus", 4) || !memcmp(value, "flac", 4) || !memcmp(value, "alac", 4));
+        audio_only = audio_only && audio;
+        for (size_t i = 0; i < count; i++) {
+            if (len == 4 && !memcmp(value, codecs[i].codec, 4)) {
+                if (selected != count && selected != i) return count;
+                selected = i;
+            }
+        }
+        value = comma ? comma + 1 : last;
+        if (comma && value == last) return count;
+    }
+    int has_size = hls_attribute(attrs, end, "RESOLUTION", &value, &last);
+    if (has_size < 0) return count;
+    if (selected == count) return audio_only && !has_size ? count + 1 : count;
+    unsigned int width = 0, height = 0;
+    if (has_size && !hls_dimensions(value, last, &width, &height)) return count;
+    if (codecs[selected].width && (!has_size || width > codecs[selected].width || height > codecs[selected].height)) return count;
+    *pixels = (uint64_t) width * height;
+    return selected;
+}
+
+/* Select by pixel count, then codec order. Retain the chosen codec's lower
+ * variants for adaptive playback. Both passes validate STREAM-INF/URI pairs;
+ * no eligible video or a missing URI leaves the original playlist untouched. */
+int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size_t count) {
+    if (!count) return 0;
+    size_t best = count;
+    uint64_t best_pixels = 0;
+    int removed = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        char *read = playlist, *write = playlist;
+        while (*read) {
+            char *end = strchr(read, '\n');
+            if (!end) end = read + strlen(read);
+            char *next = *end ? end + 1 : end;
+            bool stream = !strncmp(read, "#EXT-X-STREAM-INF:", 18);
+            bool iframe = !strncmp(read, "#EXT-X-I-FRAME-STREAM-INF:", 26);
+            uint64_t pixels = 0;
+            size_t codec = stream || iframe ? hls_variant(read, end, codecs, count, &pixels) : count + 1;
+            if (stream) {
+                char *uri = next;
+                while (*uri == '\r' || *uri == '\n' || (*uri == '#' && strncmp(uri, "#EXT", 4))) {
+                    char *nl = strchr(uri, '\n');
+                    uri = nl ? nl + 1 : uri + strlen(uri);
+                }
+                if (!*uri || *uri == '#') return -1;
+                char *nl = strchr(uri, '\n');
+                next = nl ? nl + 1 : uri + strlen(uri);
+                if (!pass && codec < count && (best == count || pixels > best_pixels ||
+                    (pixels == best_pixels && codec < best))) {
+                    best = codec;
+                    best_pixels = pixels;
+                }
+            }
+            if (pass) {
+                if ((stream || iframe) && codec != best && !(stream && codec == count + 1)) removed++;
+                else {
+                    memmove(write, read, next - read);
+                    write += next - read;
+                }
+            }
+            read = next;
+        }
+        if (best == count) return -1;
+        if (pass) *write = '\0';
+    }
+    return removed;
 }
 
 char *get_master_playlist(airplay_video_t *airplay_video) {

@@ -1249,6 +1249,26 @@ allows selection of the version of GStreamer's
 is the recommended player, but if some videos fail to play, you can try
 with version 2.)_
 
+**-hls-select [list]** Select YouTube HLS video with an ordered list of
+four-character playlist codec IDs and optional size limits, for example
+`avc1@1920x1080:vp09@1920x1080`. A bare codec ID has no size limit. No list
+(or an empty string) clears the selection; by default nothing is filtered.
+Invalid or duplicate entries are rejected at startup.
+
+Among matching variants within their codec's width/height limits, the greatest
+pixel count wins; list order breaks ties. All eligible variants of that codec
+are retained so GStreamer can adapt bitrate. Thus H.264 wins a 1080p tie, but
+1080p VP9 wins over 720p H.264. Audio/subtitle rendition declarations and
+explicitly audio-only variants are retained. If no eligible video remains,
+playback fails with a diagnostic instead of ignoring the limits.
+
+Unlisted codecs and missing codec metadata are excluded. Missing dimensions
+are allowed only for an unbounded codec and rank below any known resolution.
+Dimensions are compared as encoded, without rotating portrait frames. The
+option filters proxied YouTube master playlists, not direct HTTP(S) URLs or
+screen mirroring. It does not transcode, select hardware decoders, or compare
+frame rates, profiles or HDR formats.
+
 **-lang \[list\]**  Specify language preferences for YouTube app HLS videos,
 some of which now which offer a choice of language renditions (using AI dubbing of the original). If this option is not 
 used, preferences will be taken from environment variables ($LANGUAGE, $LC_ALL, $LC_MESSAGES, $LANG, searched

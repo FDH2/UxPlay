@@ -129,6 +129,7 @@ RAOP_API void raop_set_log_callback(raop_t *raop, raop_log_callback_t callback, 
 RAOP_API int raop_set_plist(raop_t *raop, const char *plist_item, const int value);
 RAOP_API void raop_set_port(raop_t *raop, unsigned short port);
 RAOP_API void raop_set_lang(raop_t *raop, const char *lang, const char *lang_subtitles, const char *lang_system);
+RAOP_API void raop_set_hls_select(raop_t *raop, const hls_codec_t *codecs, size_t count);
 RAOP_API void raop_set_udp_ports(raop_t *raop, unsigned short port[3]);
 RAOP_API void raop_set_tcp_ports(raop_t *raop, unsigned short port[2]);
 RAOP_API unsigned short raop_get_port(raop_t *raop);

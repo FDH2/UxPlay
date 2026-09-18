@@ -23,6 +23,19 @@ UxPlay 1.74: An open\-source AirPlay mirroring (+ audio streaming) server:
 .IP
    v = 2 or 3 (default 3) optionally selects video player version
 .TP
+\fB\-hls-select\fR [list]
+Select YouTube HLS codecs and size limits, e.g. avc1@1920x1080:vp09@1920x1080.
+Use four-character playlist codec IDs; a bare ID has no size limit. No argument
+or an empty string clears the selection. Invalid/duplicate entries are rejected.
+.IP
+The greatest eligible pixel count wins; list order breaks ties. Keep all eligible
+variants of that codec for bitrate adaptation, plus audio/subtitle renditions and
+explicitly audio-only variants. No eligible video means an error, not fallback.
+Unlisted codecs and missing codec metadata are excluded. Missing dimensions are
+eligible only for unbounded codecs and rank below known resolutions. Width and
+height limits apply as encoded, without rotating portrait frames. This filters
+proxied YouTube master playlists only; no transcoding or hardware selection.
+.TP
 \fB\-lang\fR ... Ranked HLS language preferences ("fr:pt-BR:.."); " " = none
 .TP
 \fB\-slang\fR ...Ranked HLS subtitle language preferences (overrides -lang) 
