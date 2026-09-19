@@ -572,13 +572,18 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         if (!fcup_response_data) {
             goto post_action_error;
         } else {
-            playlist = (char *) malloc(fcup_response_datalen + 1);
+            playlist = (char *) malloc(fcup_response_datalen + 2);
             if (!playlist) {
                 printf("Memory allocation failed (playlist)\n");
                 exit(1);
             }
             playlist[fcup_response_datalen] = '\0';
             memcpy(playlist, fcup_response_data, fcup_response_datalen);
+            // ensure playlist ends in '\n' (required by RFC 8216, and needed in filtering)
+            if (playlist[fcup_response_datalen - 1] != '\n') {
+                playlist[fcup_response_datalen] = '\n';
+                playlist[fcup_response_datalen + 1] = '\0';                
+            }
 #ifndef PLIST_210
             plist_mem_free(fcup_response_data);
 #endif
@@ -598,6 +603,19 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         char *ptr = strstr(fcup_response_url, "/master.m3u8");
         if (ptr) {
             /* this is a master playlist */
+
+            /* filter to remove unplayable streams described in custom profile: needed on low-power devices (Raspberry PI models) */
+            const char *custom_profile = NULL;    
+            if (raop->callbacks.get_custom_profile) {
+                raop->callbacks.get_custom_profile(raop->callbacks.cls, &custom_profile);
+            }
+            if (custom_profile) {
+                // filter master playlist to remove streams not playable on low power devices like Raspberry Pi
+	      if (!filter_master_playlist(&playlist, custom_profile,  raop->logger)) {
+                    logger_log(raop->logger, LOGGER_ERR, "failed to filter master playlist");
+                }
+            }
+
             const char *uri_prefix = get_uri_prefix(airplay_video);
             char ** uri_list = NULL;
             int num_uri = 0;

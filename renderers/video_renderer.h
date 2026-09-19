@@ -76,6 +76,7 @@ unsigned int video_renderer_listen(void *loop, int id);
 bool video_renderer_eos_watch();
 void video_renderer_hls_set_volume(double volume);
 void video_renderer_set_window_handle(uintptr_t handle);
+bool gstreamer_decoder_check(const char *decoder);
 #ifdef __cplusplus
 }
 #endif

@@ -1222,3 +1222,12 @@ void video_renderer_hls_set_volume(double volume) {
     }
     g_object_set(renderer->pipeline, "volume", hls_volume_level, NULL);
 }
+
+bool gstreamer_decoder_check(const char *decoder) {
+    GstElementFactory *factory = gst_element_factory_find(decoder) ;
+    if (!factory) {
+        return false;
+    }
+    gst_object_unref(factory);
+    return true;
+}
