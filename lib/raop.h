@@ -33,6 +33,17 @@ extern "C" {
 
 typedef struct raop_s raop_t;
 
+#define CODEC_LIST "AVC:HEVC:VP9:AV1:"
+typedef enum hls_video_codec_e {
+    AVC,    //AVC should always be the first listed codec
+    HEVC,
+    VP9,
+    AV1,
+    UNKNOWN //UNKNOWN should always be the last listed codec.
+} hls_video_codec_t;
+
+const char *get_codec_string(hls_video_codec_t codec);
+  
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);
 
 typedef struct playback_info_s {
@@ -110,6 +121,7 @@ struct raop_callbacks_s {
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
     float  (*on_video_playlist_remove) (void *cls);
+    void  (*get_custom_profile) (void *cls, const char **custom_profile);
 };
 
 typedef struct raop_callbacks_s raop_callbacks_t;
@@ -117,7 +129,11 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang, const char *lang_subtitles, const char* lang_system);
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port,
+                                    const char *lang, const char *lang_subtitles, const char* lang_system);
+bool filter_master_playlist(char **master_playlist, const char *custom_profile, logger_t *logger);
+char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datalen,
+                              const char *uri_prefix, char *uri_local_prefix);
 uint64_t get_local_time();
 void raop_handle_eos(raop_t *raop);
 void ntp_global_init(void);
@@ -142,7 +158,6 @@ RAOP_API void raop_remove_known_connections(raop_t * raop);
 RAOP_API void raop_remove_hls_connections(raop_t * raop);
 RAOP_API void raop_destroy_airplay_video(raop_t *raop, int id);
 RAOP_API void raop_playlist_remove(raop_t *raop, void *airplay_video, float position);
-  
 #ifdef __cplusplus
 }
 #endif
