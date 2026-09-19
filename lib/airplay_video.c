@@ -72,7 +72,13 @@ typedef struct slice_s{
     bool delete;
     unsigned char is_default;
     unsigned char is_autoselect;
+    /* Two producers: master_playlist_slicer stores 'a', 's', 'v' or 'c' from an
+     * EXT-X-MEDIA TYPE=; parse_master_playlist stores 'V' for a STREAM-INF
+     * variant and 'I' for an I-frame one. Note 'v' and 'V' are not the same. */
     char type;
+    /* Variant metadata; codec_index is the eligible -hls-select entry. */
+    unsigned int width, height;
+    size_t codec_index;
 } slice_t;
 
 //  initialize airplay_video service.
@@ -725,21 +731,11 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
     return slice;
 }
 
-char * select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist) {
-    assert(master_playlist);
-    /* filter out unwanted language renderings (AUDIO, SUBTITLES)  from  master playlist
-
-    keep just one language per AUDIO rendition group, set DEFAULT=YES, AUTOSELECT= YES.
-
-    if subtitles are present, keep only one language per SUBTITLE rendition group,
-    if subtitles should be diplayed, set DEFAULT=YES, AUTOSELECT= YES.
-    if they should not be displayed, set DEFAULT=NO, AUTOSELECT= NO.
-    */
-    int n_slice;  
+/* Apply the deletion marks and LANGUAGE attributes without making selections.
+ * Video-only pruning can compact in place; LANGUAGE edits may grow the buffer. */
+static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
+                                   size_t n_slice, bool subtitles, bool in_place) {
     char *new_master_playlist = master_playlist;
-    bool subtitles;
-    slice_t *slice = master_playlist_slicer(master_playlist, airplay_video, &n_slice, &subtitles);
-
     size_t removed = 0;
     size_t added = 0;
     bool changed = false;
@@ -753,7 +749,7 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     char str_autoselect_no[] = "AUTOSELECT=NO";
     size_t len_autoselect_no = strlen(str_autoselect_no);
 
-    for (int i = 0; i < n_slice; i++) {
+    for (size_t i = 0; i < n_slice; i++) {
         if (slice[i].delete) {
             removed += slice[i].last + 1 - slice[i].first;
             changed = true;
@@ -793,10 +789,15 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     }
 
     if (changed) {
+        /* In-place compaction can only shrink: the video path marks no
+         * AUDIO/SUBTITLES slices, so no LANGUAGE attributes are added. */
+        assert(!in_place || added == 0);
         size_t newlen = strlen(master_playlist) + added  - removed;
-        new_master_playlist = (char *) calloc(newlen + 1, sizeof(char));
+        if (!in_place) {
+            new_master_playlist = (char *) calloc(newlen + 1, sizeof(char));
+        }
         char *new = new_master_playlist;
-        for (int i = 0; i < n_slice; i++) {
+        for (size_t i = 0; i < n_slice; i++) {
             if (slice[i].delete) {
                 continue;
             }
@@ -850,13 +851,32 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
                 }
             } else {
                 size_t len = slice[i].last + 1 - slice[i].first;
-                memcpy(new, slice[i].first, len);
+                memmove(new, slice[i].first, len);
                 new += len;
             }
         }
         assert(new == new_master_playlist + newlen);
-        free (master_playlist);
+        *new = '\0';
+        if (!in_place) free(master_playlist);
     }
+    return new_master_playlist;
+}
+
+char * select_master_playlist_language(airplay_video_t *airplay_video, char *master_playlist) {
+    assert(master_playlist);
+    /* filter out unwanted language renderings (AUDIO, SUBTITLES)  from  master playlist
+
+    keep just one language per AUDIO rendition group, set DEFAULT=YES, AUTOSELECT= YES.
+
+    if subtitles are present, keep only one language per SUBTITLE rendition group,
+    if subtitles should be diplayed, set DEFAULT=YES, AUTOSELECT= YES.
+    if they should not be displayed, set DEFAULT=NO, AUTOSELECT= NO.
+    */
+    int n_slice;
+    bool subtitles;
+    slice_t *slice = master_playlist_slicer(master_playlist, airplay_video, &n_slice, &subtitles);
+
+    char *new_master_playlist = prune_master_playlist(master_playlist, slice, n_slice, subtitles, /* in_place */ false);
     free(slice);
     return new_master_playlist;
 }
@@ -932,16 +952,19 @@ static int hls_attribute(const char *p, const char *end, const char *name,
 
 /* count means no matching codec; count+1 means an explicitly audio-only variant. */
 static size_t hls_variant(const char *line, const char *end, const hls_codec_t *codecs,
-                          size_t count, uint64_t *pixels) {
+                          size_t count, slice_t *variant) {
     const char *value, *last, *attrs = strchr(line, ':') + 1;
     size_t selected = count;
     bool audio_only = true;
-    *pixels = 0;
     if (end > line && end[-1] == '\r') end--;
     if (hls_attribute(attrs, end, "CODECS", &value, &last) != 1 || last - value < 3 ||
         *value != '"' || last[-1] != '"') return count;
-    value++;
-    last--;
+    const char *codec_list = value + 1, *codec_end = last - 1;
+    int has_size = hls_attribute(attrs, end, "RESOLUTION", &value, &last);
+    if (has_size < 0) return count;
+    if (has_size && !hls_dimensions(value, last, &variant->width, &variant->height)) return count;
+    value = codec_list;
+    last = codec_end;
     while (value < last) {
         const char *comma = memchr(value, ',', last - value);
         const char *stop = comma ? comma : last;
@@ -960,61 +983,88 @@ static size_t hls_variant(const char *line, const char *end, const hls_codec_t *
         value = comma ? comma + 1 : last;
         if (comma && value == last) return count;
     }
-    int has_size = hls_attribute(attrs, end, "RESOLUTION", &value, &last);
-    if (has_size < 0) return count;
     if (selected == count) return audio_only && !has_size ? count + 1 : count;
-    unsigned int width = 0, height = 0;
-    if (has_size && !hls_dimensions(value, last, &width, &height)) return count;
-    if (codecs[selected].width && (!has_size || width > codecs[selected].width || height > codecs[selected].height)) return count;
-    *pixels = (uint64_t) width * height;
+    if (codecs[selected].width && (!has_size || variant->width > codecs[selected].width ||
+        variant->height > codecs[selected].height)) return count;
     return selected;
 }
 
-/* Select by pixel count, then codec order. Retain the chosen codec's lower
- * variants for adaptive playback. Both passes validate STREAM-INF/URI pairs;
- * no eligible video or a missing URI leaves the original playlist untouched. */
-int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size_t count) {
-    if (!count) return 0;
+/* List variants and mark deletions without modifying the playlist. STREAM-INF
+ * slices include the following URI (and intervening comments/blank lines).
+ * CODECS and dimensions remain visible even for ineligible variants. */
+static slice_t *parse_master_playlist(const char *playlist, const hls_codec_t *codecs,
+                                      size_t count, size_t *n_slice, int *removed) {
+    size_t capacity = 1;
+    for (const char *p = playlist; *p; p++) if (*p == '\n') capacity++;
+    slice_t *slice = calloc(capacity, sizeof(*slice));
+    *n_slice = 0;
+    *removed = -1;
+    if (!slice) return NULL;
+
+    const char *read = playlist;
+    while (*read) {
+        const char *end = strchr(read, '\n');
+        if (!end) end = read + strlen(read);
+        const char *next = *end ? end + 1 : end;
+        bool stream = !strncmp(read, "#EXT-X-STREAM-INF:", 18);
+        bool iframe = !strncmp(read, "#EXT-X-I-FRAME-STREAM-INF:", 26);
+        slice_t *entry = &slice[(*n_slice)++];
+        entry->first = read;
+        entry->type = stream ? 'V' : iframe ? 'I' : '\0';
+        entry->codec_index = stream || iframe ? hls_variant(read, end, codecs, count, entry) : count + 1;
+        if (stream) {
+            const char *uri = next;
+            while (*uri == '\r' || *uri == '\n' || (*uri == '#' && strncmp(uri, "#EXT", 4))) {
+                const char *nl = strchr(uri, '\n');
+                uri = nl ? nl + 1 : uri + strlen(uri);
+            }
+            if (!*uri || *uri == '#') goto invalid;
+            const char *nl = strchr(uri, '\n');
+            next = nl ? nl + 1 : uri + strlen(uri);
+        }
+        entry->last = next - 1;
+        read = next;
+    }
+
+    /* Rank eligible STREAM-INF variants by pixel count, then codec list order.
+     * I-frame entries do not participate in choosing the winning codec. */
     size_t best = count;
     uint64_t best_pixels = 0;
-    int removed = 0;
-    for (int pass = 0; pass < 2; pass++) {
-        char *read = playlist, *write = playlist;
-        while (*read) {
-            char *end = strchr(read, '\n');
-            if (!end) end = read + strlen(read);
-            char *next = *end ? end + 1 : end;
-            bool stream = !strncmp(read, "#EXT-X-STREAM-INF:", 18);
-            bool iframe = !strncmp(read, "#EXT-X-I-FRAME-STREAM-INF:", 26);
-            uint64_t pixels = 0;
-            size_t codec = stream || iframe ? hls_variant(read, end, codecs, count, &pixels) : count + 1;
-            if (stream) {
-                char *uri = next;
-                while (*uri == '\r' || *uri == '\n' || (*uri == '#' && strncmp(uri, "#EXT", 4))) {
-                    char *nl = strchr(uri, '\n');
-                    uri = nl ? nl + 1 : uri + strlen(uri);
-                }
-                if (!*uri || *uri == '#') return -1;
-                char *nl = strchr(uri, '\n');
-                next = nl ? nl + 1 : uri + strlen(uri);
-                if (!pass && codec < count && (best == count || pixels > best_pixels ||
-                    (pixels == best_pixels && codec < best))) {
-                    best = codec;
-                    best_pixels = pixels;
-                }
-            }
-            if (pass) {
-                if ((stream || iframe) && codec != best && !(stream && codec == count + 1)) removed++;
-                else {
-                    memmove(write, read, next - read);
-                    write += next - read;
-                }
-            }
-            read = next;
+    for (size_t i = 0; i < *n_slice; i++) {
+        size_t codec = slice[i].codec_index;
+        uint64_t pixels = (uint64_t) slice[i].width * slice[i].height;
+        if (slice[i].type == 'V' && codec < count && (best == count || pixels > best_pixels ||
+            (pixels == best_pixels && codec < best))) {
+            best = codec;
+            best_pixels = pixels;
         }
-        if (best == count) return -1;
-        if (pass) *write = '\0';
     }
+    if (best == count) goto invalid;
+
+    /* Keep the winning codec's eligible variants, including lower resolutions,
+     * and explicitly audio-only streams. Mark other video/I-frame entries. */
+    *removed = 0;
+    for (size_t i = 0; i < *n_slice; i++) {
+        bool stream = slice[i].type == 'V';
+        bool iframe = slice[i].type == 'I';
+        size_t codec = slice[i].codec_index;
+        slice[i].delete = (stream || iframe) && codec != best && !(stream && codec == count + 1);
+        if (slice[i].delete) (*removed)++;
+    }
+    return slice;
+invalid:
+    free(slice);
+    return NULL;
+}
+
+int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size_t count) {
+    if (!count) return 0;
+    size_t n_slice;
+    int removed;
+    slice_t *slice = parse_master_playlist(playlist, codecs, count, &n_slice, &removed);
+    if (!slice) return -1;
+    prune_master_playlist(playlist, slice, n_slice, /* subtitles */ false, /* in_place */ true);
+    free(slice);
     return removed;
 }
 
