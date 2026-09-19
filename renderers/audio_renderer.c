@@ -41,6 +41,10 @@ static gboolean async = FALSE;
 static gboolean vsync = FALSE;
 static gboolean sync = FALSE;
 static gboolean audio_rtp = FALSE;
+/* The gain last asked for, kept outside the pipelines: each audio format has its own pipeline with its own
+ * volume element, and a pipeline that is built or picked later would otherwise play at GStreamer's default
+ * instead of the volume the client believes this receiver has. */
+static gdouble volume_level = 1.0;
 
 typedef struct audio_renderer_s {
     GstElement *appsrc; 
@@ -205,6 +209,9 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
+        if (renderer_type[i]->volume) {
+            g_object_set(renderer_type[i]->volume, "volume", volume_level, NULL);
+        }
         switch (i) {
         case 0:
             caps =  gst_caps_from_string(aac_eld_caps);
@@ -372,12 +379,16 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
 }
 
 void audio_renderer_set_volume(double volume) {
-    if (!renderer) {
-       return;
-    }
     volume = (volume > 10.0) ? 10.0 : volume;
     volume = (volume < 0.0) ? 0.0 : volume;
-    g_object_set(renderer->volume, "volume", volume, NULL);
+    volume_level = (gdouble) volume;
+    /* Every format's pipeline, not only the one playing: audio_renderer_start switches between them when the
+     * client changes format, and the volume must survive that. */
+    for (int i = 0; i < NFORMATS; i++) {
+        if (renderer_type[i] && renderer_type[i]->volume) {
+            g_object_set(renderer_type[i]->volume, "volume", volume_level, NULL);
+        }
+    }
 }
 
 void audio_renderer_flush() {
