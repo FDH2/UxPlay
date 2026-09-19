@@ -33,6 +33,27 @@ extern "C" {
 
 typedef struct raop_s raop_t;
 
+// if adding new device_profiles, update the list of profile names in raop.c 
+typedef enum device_profile_e {
+    DESKTOP,               //DESKTOP should always be the first entry
+    PI_3,
+    PI_3_ACTIVE_COOLING,
+    PI_4,
+    PI_4_ACTIVE_COOLING,
+    PI_5,
+    PI_5_ACTIVE_COOLING,
+    CUSTOM                 //CUSTOM should always be the last entry
+} device_profile_t;
+
+const char *get_device_profile_name(device_profile_t device);
+
+typedef enum hls_video_codec_e {
+    AVC,
+    HEVC,
+    VP9,
+    AV1
+} hls_video_codec_t;
+
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);
 
 typedef struct playback_info_s {
@@ -110,6 +131,8 @@ struct raop_callbacks_s {
     void  (*on_video_stop) (void *cls);
     void  (*on_video_acquire_playback_info) (void *cls, playback_info_t *playback_video);
     float  (*on_video_playlist_remove) (void *cls);
+    void  (*get_device_profile) (void *cls, device_profile_t *device, const char **custom_profile,
+                                 bool *have_hw_AVC_decoder, bool *have_hw_HEVC_decoder);
 };
 
 typedef struct raop_callbacks_s raop_callbacks_t;
@@ -117,7 +140,11 @@ raop_ntp_t *raop_ntp_init(logger_t *logger, raop_callbacks_t *callbacks, const c
                           int remote_addr_len, unsigned short timing_rport,
                           timing_protocol_t *time_protocol);
 
-airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port, const char *lang, const char *lang_subtitles, const char* lang_system);
+airplay_video_t *airplay_video_init(raop_t *raop, unsigned short port,
+                                    const char *lang, const char *lang_subtitles, const char* lang_system);
+  bool filter_master_playlist(char **master_playlist, device_profile_t device_profile, bool hw_264, bool hw_265, const char *custom_profile);
+char *adjust_master_playlist (char *fcup_response_data, int fcup_response_datalen,
+                              const char *uri_prefix, char *uri_local_prefix);
 uint64_t get_local_time();
 void raop_handle_eos(raop_t *raop);
 void ntp_global_init(void);
@@ -142,7 +169,6 @@ RAOP_API void raop_remove_known_connections(raop_t * raop);
 RAOP_API void raop_remove_hls_connections(raop_t * raop);
 RAOP_API void raop_destroy_airplay_video(raop_t *raop, int id);
 RAOP_API void raop_playlist_remove(raop_t *raop, void *airplay_video, float position);
-  
 #ifdef __cplusplus
 }
 #endif

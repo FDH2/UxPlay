@@ -94,7 +94,7 @@ struct raop_s {
     char *random_pw;
     unsigned char auth_fail_count;
 
-  /* used for setting HLS video language choices */
+    /* used for setting HLS video language choices */
     const char *lang;
     const char *lang_system;
     const char *lang_subtitles;
@@ -885,3 +885,22 @@ uint64_t get_local_time() {
 void ntp_global_init(void) {
     raop_ntp_global_init();
 }
+
+const char *get_device_profile_name(device_profile_t device) {
+    //list of names below  must match the enum device_profile_e in raop.h
+    const char* names[] = {
+      "DESKTOP",
+      "PI_3",
+      "PI_3_ACTIVE_COOLING",
+      "PI_4",
+      "PI_4_ACTIVE_COOLING",
+      "PI_5",
+      "PI_5_ACTIVE_COOLING",
+      "CUSTOM"
+    };
+    if (device < DESKTOP || device > CUSTOM) {
+      return "(unlisted)";
+    }
+    return names[device];
+}
+

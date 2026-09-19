@@ -73,6 +73,11 @@ typedef struct slice_s{
     char type;
 } slice_t;
 
+static const char *avc  = "AVC";
+static const char *hevc = "HEVC";
+static const char *vp9  = "VP9";
+static const char *av1  = "AV1";
+
 //  initialize airplay_video service.
 airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, const char *lang, const char *lang_subtitles, const char *lang_system) {
     char uri[] = "http://localhost:";
@@ -907,6 +912,314 @@ void create_media_data_store(airplay_video_t * airplay_video, char ** uri_list, 
     airplay_video->num_uri = num_uri;
 }
 
+
+
+// Parses H.264 hex level to deduce FPS if FRAME-RATE tag is missing
+float deduce_h264_fps(const char *codec_str) {
+    if (strncmp(codec_str, "avc1", 4) == 0 && strlen(codec_str) >= 11) {
+        const char *level_hex = codec_str + 9; 
+        long level = strtol(level_hex, NULL, 16);
+        if (level >= 0x2A) {
+            return 60.0f;
+        }
+    }
+    return 30.0f;
+}
+
+// Helper to extract a value from an attribute key (e.g., "RESOLUTION=")
+bool get_attr_value(const char *line, const char *key, char *dest, size_t dest_len) {
+    const char *p = line;
+    
+    while ((p = strstr(p, key)) != NULL) {
+        // Ensure the character BEFORE the found key is either a ',' or a ':'
+        // This prevents false matches on longer sub-strings (e.g., matching "FRAME-RATE" inside "X-YT-FRAME-RATE")
+        if (p > line) {
+            char prev = *(p - 1);
+            if (prev != ',' && prev != ':') {
+                p += 1;
+                continue;
+            }
+        }
+        
+        p += strlen(key);
+        
+        size_t i = 0;
+        bool quoted = (*p == '"');
+        if (quoted) p++;
+        
+        while (*p && *p != '\n' && *p != '\r') {
+            if (quoted && *p == '"') break;
+            if (!quoted && *p == ',') break;
+            if (i < dest_len - 1) {
+                dest[i++] = *p;
+            }
+            p++;
+        }
+        dest[i] = '\0';
+        return i > 0;
+    }
+    
+    return false; // Key not found or invalid boundary
+}
+
+static bool find_custom_max_heights(const char *codec, int *hmax30, int *hmax60, const char *custom_profile_string) {
+    unsigned long val30 = 0, val60 = 0;
+    const char *endptr = NULL;
+ 
+    const char *ptr = strstr(custom_profile_string, codec);
+    if (!ptr) {
+        return false;
+    }
+
+    ptr += strlen(codec);
+    if (*ptr != ':') {
+        return false;
+    }
+
+    val30 = strtoul(++ptr, (char **)&endptr, 10);
+    if (!endptr) {
+        return false;
+    }
+
+    if (*endptr == ',') {
+        ptr = endptr; 
+        val60 = strtoul(++ptr, (char **)&endptr, 10);    
+        if (!endptr || val60 > val30) {
+            return false;
+        }
+    }
+
+    *hmax30 = (int) val30;
+    *hmax60 = (int) val60;
+    return true;      
+}
+
+static bool keep_stream(const char *info_line, device_profile_t profile, bool hw264, bool hw265,
+                        const char *custom_profile_string) {
+    // Immediate pass-through for high-power platforms
+    if (profile == DESKTOP) {
+        return true;
+    }
+
+    printf("keep_stream ? %s hw264 = %s hw265 = %s\n", get_device_profile_name(profile),
+           hw264 ? "true" : "false", hw265 ? "true" : "false");
+  
+    char res_str[32] = {0};
+    char codec_str[64] = {0};
+    char fps_str[16] = {0};
+    
+    int height = 0;
+    float fps_f = 0.0f;
+    int fps = 60;
+
+    bool keep = true;
+    
+    if (get_attr_value(info_line, "RESOLUTION=", res_str, sizeof(res_str))) {
+        char *x = strchr(res_str, 'x');
+        if (x) {
+            height = atoi(x + 1);
+        }
+    }
+    
+    get_attr_value(info_line, "CODECS=", codec_str, sizeof(codec_str));
+    
+    if (get_attr_value(info_line, "FRAME-RATE=", fps_str, sizeof(fps_str))) {
+        fps_f = strtof(fps_str, NULL);
+    } else {
+        fps_f = deduce_h264_fps(codec_str);
+    }
+
+    bool is_h264 = (strncmp(codec_str, "avc1", 4) == 0);
+    bool is_h265 = (strncmp(codec_str, "hvc1", 4) == 0 || strncmp(codec_str, "hev1", 4) == 0);
+    bool is_vp9  = (strncmp(codec_str, "vp09", 4) == 0);
+    bool is_av1  = (strncmp(codec_str, "av01", 4) == 0);
+
+    if (!is_h264 && !is_h265 && !is_vp9 && !is_av1) {
+        keep = false;
+    }
+    
+    //divide fps range into  fps = 30 or 60
+    if ((fps_f >  60.0f)) {
+        keep = false;
+    } else if (fps_f <= 30.0f) {
+        fps = 30;
+    }
+
+    if (keep && profile == CUSTOM && custom_profile_string) {
+        int hmax30;
+        int hmax60;
+        bool found_heights;
+        const char *codec_string = NULL;  
+        if (is_h264) {
+            codec_string = avc;
+        } else if (is_h265) {
+            codec_string = hevc;	  
+        } else if (is_vp9) {
+            codec_string = vp9;	  
+        } else if (is_av1) {
+            codec_string = av1;
+	}
+	assert(codec_string);
+	
+	found_heights = find_custom_max_heights(codec_string, &hmax30, &hmax60, custom_profile_string);
+	if (found_heights && (hmax30 >= hmax60) && ((fps == 60 && height > hmax60) || height > hmax30)) {
+                keep = false;
+	}
+    } else if (keep && profile != CUSTOM) {
+        if (height > 2160) {
+            keep =  false;
+        }
+        if (is_av1 ) {
+            keep = false;
+        }
+        switch (profile) {
+        case PI_3: //without cooling
+            if (is_h264 && hw264 && ((fps == 60 && height > 720) || height > 1080)) {
+	        // with hw decoding, allow 720p @ 60fps or 1080p @ 30fps.
+                keep = false;
+            } else if (is_h264  && !hw264 && (fps == 60 || height > 720))  {
+	        //restrict software h264 decoding to 720p @ 30fps
+                keep = false;
+            } else if ((is_vp9 || is_h265) && (fps == 60 || height > 480)) {
+                //  restrict vp9 and h265  to 480p @ 30fps
+                keep = false;
+            }
+            break;
+        case PI_3_ACTIVE_COOLING:
+            if (is_h264 && ((fps == 60 && height > 720) || height > 1080))  {
+                //restrict  both hardware h264, and software h264 with cooling,  to 720p @ 60fps or 1080p @ 30fps
+                keep = false;
+            } else if ((is_h265 || is_vp9) && (fps == 60 || height > 480)) {
+                //  restrict vp9 and h265  to 480p @ 30fps
+                keep = false;
+            }
+            break;
+        case PI_4:   //without cooling
+            // hardware h265 decoding max 2160p @ 60fps (4K)
+            if (is_h265 && !hw265 && (fps == 60 || height > 480)) {
+                // software h265 without fan: limit 480p @ 30fps
+                keep = false;
+            } else if (is_h264 && hw264 && height > 1080) {
+                 // allow hw h264, and software h264 with cooling,  up to 1080p @ 60fps 
+                keep = false;
+            } else if (is_h264 && !hw264 && ((fps == 60 && height > 720) || height > 1080)) {
+                //software decoded h264 without cooling only allowed up to 720p @ 60fps or 1080p @30fps	  
+                keep = false;
+            } else if (is_vp9 && (fps == 60 || height > 720)) {
+                // restrict to 720p @ 30fps without fan
+                keep = false;
+            }
+            break;
+        case PI_4_ACTIVE_COOLING:
+           // hardware h265 decoding max 2160p @ 60fps (4K)
+           if (is_h265 && !hw265 && (fps == 60 || height > 720)) {
+                // software h265 decoding with fan: max 720p @ 30 fps
+                keep = false;
+            } else if (is_h264 && height > 1080) {
+                //both hardware and software decoded h264 with fan: allowed up to 1080p @ 60fps	  
+                keep = false;
+            } else  if (is_vp9 && ((fps == 60 && height > 720) || height >1080)) {
+                // 720p @ 60fps or 1080p @ 30fps allowed with fan
+                keep = false;
+            }
+            break;
+        case PI_5: //without cooling
+           // hardware h265 allows up to 4K 
+           if (((is_h265 && !hw265) || is_vp9) && ((fps == 60 && height > 720) || height > 1080)) {
+                // software h265 and yp9 without fan: max 720 @ 60fps or 1080p @ 30fps 
+               keep = false;
+           }
+           if (is_h264 && height > 1080) {
+                //software h264 without fan  still allows 1080p @ 60fps (less complex decoding)
+	        keep = false;
+            }
+            break;  
+        case PI_5_ACTIVE_COOLING:
+            // hardware h265 allows up to 4K 2160 @ 60fps
+            if (((is_h265 && !hw265) || is_h264 || is_vp9)  && (fps == 60 && height > 1080)) {
+	        // software decoding with fan : max 1080 @ 60fps or 2160 @ 30fps
+                keep = false;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+
+    printf("%s%s\n", keep ? "KEEP  :" : "REMOVE:", info_line);
+
+    
+    return keep;
+}
+
+bool filter_master_playlist(char **master_playlist_ptr, device_profile_t device,  bool have_hw_AVC_decoder, bool have_hw_HEVC_decoder, const char * custom_profile_string) {
+
+    // if (device == DESKTOP) {
+    //      return true;
+    //  }
+    char *orig = *master_playlist_ptr;
+    size_t orig_len = strlen(orig);
+    
+    assert (*(orig + orig_len - 1) == '\n');
+
+    char *filtered = (char *) malloc(orig_len + 1);
+    if (!filtered) {
+        fprintf(stderr, "filter_master_playlist: failed to allocate filtered playlist\n");
+        return false;
+    }
+    filtered[0] = '\0';
+    char *out_p = filtered;
+
+    char *current_line = orig;
+    char *next_line = NULL;
+    char *saved_info = NULL;
+    bool have_saved_info = false;
+
+    while (current_line && *current_line != '\0') {
+        next_line = strchr(current_line , '\n');
+        if (next_line) {
+            *next_line = '\0';
+            next_line++;
+        }
+
+        size_t len = strlen(current_line);
+        if (len > 0 && current_line[len - 1] == '\r') {
+            current_line[len - 1] = '\0';
+        }
+ 
+        if (strncmp(current_line, "EXTM3U", strlen("EXTM3U")) == 0 ||
+              strncmp(current_line, "EXT-X-VERSION", strlen("EXT-X-VERSION")) == 0) {
+            out_p += sprintf(out_p, "%s\n", current_line);
+            current_line  = next_line;
+            continue;
+        }
+
+
+
+        if (strncmp(current_line, "#EXT-X-STREAM-INF:", strlen("#EXT-X-STREAM-INF")) == 0) {
+            saved_info = current_line; // Safely point directly inside the original buffer
+            have_saved_info = true;
+            current_line = next_line;
+            continue;
+        }
+	
+        if (have_saved_info) {
+	  if (keep_stream(saved_info, device, have_hw_AVC_decoder, have_hw_HEVC_decoder, custom_profile_string)) {
+                out_p += sprintf(out_p, "%s\n%s\n", saved_info, current_line);
+            }
+            have_saved_info = false;
+        } else {
+            if (strlen(current_line) > 0) {
+                out_p += sprintf(out_p, "%s\n", current_line);
+            }
+        }
+        printf ("       %s\n\n",current_line);
+        current_line = next_line;
+    }   
+    free (orig);
+    *master_playlist_ptr = filtered;
+    return true;
+}
 
 static int parse_media_playlist(media_item_t *media_item) {
     const char *ptr = media_item->playlist;

@@ -210,6 +210,10 @@ static std::string audio_rtp_pipeline = "";
 static GMainLoop *gmainloop = NULL;
 static bool mux_to_file = false;
 static std::string mux_filename = "recording";
+static device_profile_t device_profile = DESKTOP;
+static bool hw_support_h264 = false;
+static bool hw_support_h265 = false;
+static std::string custom_profile_string = "";
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv = 0;
@@ -946,6 +950,10 @@ static void print_info (char *name) {
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
     printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
     printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
+    printf("-rpi n    (For Raspbery Pi:) code n identifies model + if it has cooling\n");
+    printf("-rpi      Shows possible Raspberry Pi model codes (used for HLS streaming)\n");
+    printf("-custom s Alternative to \"-rpi\" for limiting HLS resolution choices\n");
+    printf("-custom   omit s to show required format for input\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
@@ -1273,6 +1281,71 @@ static void parse_arguments (int argc, char *argv[]) {
             }
         } else if (arg == "-nh") {
             do_append_hostname = false;
+        } else if (arg == "-rpi") {
+            std::string error_text =
+                                "    possible code values are:\n"
+                                "    3  (Raspberry Pi model 3 or lower, including Pi ZERO)\n"
+                                "    30 (Raspberry Pi model 3 or lower, WITH ACTIVE COOLING)\n"
+                                "    4  (Raspberry Pi model 4)\n"
+                                "    40 (Raspberry Pi model 4 WITH ACTIVE COOLING)\n"
+                                "    5  (Raspberry Pi model 5)\n"
+                                "    50 (Raspberry Pi model 5 WITH ACTIVE COOLING)\n";
+
+            unsigned int code = 0;
+            if (i == argc -1 ||  argv[i+1][0] == '-') {
+                fprintf(stderr,"invalid: \"-rpi\" must be followed by a model code:\n%s\n", error_text.c_str());
+                exit(0);
+            }
+            if (!get_value(argv[++i], &code)) {
+                fprintf(stderr, "invalid \"-rpi %s\"; -rpi must be followed by an integer model code:\n%s\n", argv[i], error_text.c_str());
+                exit(1);
+            }
+            switch (code) {
+            case 3:
+                device_profile = PI_3;
+                break;
+            case 30:
+                device_profile = PI_3_ACTIVE_COOLING;
+                break;
+            case 4:
+                device_profile = PI_4;
+                break;
+            case 40:
+                device_profile = PI_4_ACTIVE_COOLING;
+                break;
+            case 5:
+                device_profile = PI_5;
+                break;
+            case 50:
+                device_profile = PI_5_ACTIVE_COOLING;
+                break;
+            default:
+                fprintf(stderr,"invalid Raspberry Pi model code %s:\n%s\n", argv[i], error_text.c_str());
+                exit(1);
+            }
+        } else if (arg == "-custom") {
+#define MAX_PROFILE_STRING_LENGTH "64"
+            std::string text =
+              "   Uxplay restricts HLS video streams to a maximum resolution height 2160p at 60fps.\n"
+              "   If your system cannot decode this fast enough, you can set a lower limit for each codec.\n"
+              "   The codecs allowed are AVC (h264), HEVC (h265), VP9, AV1, and you can set a common limit\n"
+              "   for streams at 30 fps and 60 fps, or separate limits, for each.\n\n"
+              "   For example, the \"custom profile\" string : \"HEVC:1440,720 VP9:1080 AV1:0\" allows HEVC streams\n"
+              "   with resolution height up to 1440p @ 30fps or 720p @ 60fps, VP9 streams up to 1080p @ 60fps,\n"
+              "   and completely excludes streams with the AV1 codec, with no restrictions on AVC.\n\n"
+              "   The string length is limited to " MAX_PROFILE_STRING_LENGTH " characters: empty space between codec entries (as in the\n"
+              "   example above) is ignored (enclose the string in quotes if it includes empty spaces).\n";
+
+            if (i == argc -1 ||  argv[i+1][0] == '-') {
+                fprintf(stderr,"invalid \"-custom\" must be followed by s string encoding maximum HLS resolution choices:\n%s\n", text.c_str());
+                exit(0);
+            }
+            std::string str = argv[++i];
+            str.resize(atoi(MAX_PROFILE_STRING_LENGTH));
+            //remove spaces
+            str.erase(std::remove_if(str.begin(), str.end(), [](unsigned char x) {return std::isspace(x); }), str.end());
+            custom_profile_string = str;
+            printf("custom profile string stored as \"%s\"\n", custom_profile_string.c_str());
         } else if (arg == "-async") {
             audio_sync = true;
 	    if (i <  argc - 1) {
@@ -1468,15 +1541,6 @@ static void parse_arguments (int argc, char *argv[]) {
             video_decoder = "v4l2h264dec";
             video_converter.erase();
             video_converter = "v4l2convert";
-        } else if (arg == "-rpi" || arg == "-rpifb" || arg == "-rpigl" || arg == "-rpiwl") {
-            fprintf(stderr,"*** -rpi* options do not apply to Raspberry Pi model 5, and have been removed\n");
-            fprintf(stderr,"     For models 3 and 4, use their equivalents, if needed:\n");
-            fprintf(stderr,"     -rpi   was equivalent to \"-v4l2\"\n");
-            fprintf(stderr,"     -rpifb was equivalent to \"-v4l2 -vs kmssink\"\n");
-            fprintf(stderr,"     -rpigl was equivalent to \"-v4l2 -vs glimagesink\"\n");
-            fprintf(stderr,"     -rpiwl was equivalent to \"-v4l2 -vs waylandsink\"\n");
-            fprintf(stderr,"     Option \"-bt709\" may also be needed for R Pi model 4B and earlier\n");
-            exit(1);
         } else if (arg == "-fs" ) {
             fullscreen = true;
         } else if (arg == "-FPSdata") {
@@ -2189,9 +2253,20 @@ static bool check_blocked_client(char *deviceid) {
 
 // Server callbacks
 
+extern "C" void get_device_profile (void *cls, device_profile_t *device, const char **custom_profile, bool *hw264, bool *hw265) {
+    if (device) {
+        *device = device_profile;
+    }
+    if (device_profile == CUSTOM) {
+        *custom_profile = custom_profile_string.c_str();
+    }
+    if (device_profile != DESKTOP && device_profile != CUSTOM) {
+        *hw264 = hw_support_h264;
+        *hw265 = hw_support_h265;
+    }
+}
 
 //to be simplified
-
 extern "C" void video_reset(void *cls, reset_type_t type) {
     switch (type) {
     case RESET_TYPE_NOHOLD:
@@ -2797,6 +2872,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.on_video_stop = on_video_stop;
     raop_cbs.on_video_playlist_remove = on_video_playlist_remove;
     raop_cbs.on_video_acquire_playback_info = on_video_acquire_playback_info;
+    raop_cbs.get_device_profile = get_device_profile;
 
     raop = raop_init(&raop_cbs);
     if (raop == NULL) {
@@ -3242,6 +3318,39 @@ int main (int argc, char *argv[]) {
         LOGE ("stopping");
         exit (1);
     }
+
+    if (hls_support) {
+        // must be called after gstreamer_init()
+        std::string hw_decoder;
+        printf("device-profile = %s\n", get_device_profile_name(device_profile));
+        //AVC (H264) support
+        switch (device_profile) {
+        case PI_3:
+        case PI_3_ACTIVE_COOLING:
+        case PI_4:
+        case PI_4_ACTIVE_COOLING:
+            hw_decoder = "v4l2h264dec";
+            hw_support_h264 = gstreamer_decoder_check(hw_decoder.c_str());
+            break;
+        default:
+            break;
+        }
+        printf("hw_support_h264 is %s\n", hw_support_h264 ? "true" : "false");
+	
+        //HEVC (H265) support
+        switch (device_profile) {
+        case PI_4:
+	case PI_4_ACTIVE_COOLING:
+        case PI_5:
+	case PI_5_ACTIVE_COOLING:
+            hw_decoder = "v4l2slh265dec";
+            hw_support_h265 = gstreamer_decoder_check(hw_decoder.c_str());
+            break;
+        default:
+            break;
+        }
+	printf("hw_support_h265 is %s\n", hw_support_h265 ? "true" : "false");
+     }
 
     render_logger = logger_init();
     logger_set_callback(render_logger, log_callback, NULL);
