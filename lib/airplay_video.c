@@ -74,8 +74,6 @@ typedef struct slice_s{
     unsigned char is_autoselect;
     char type;
     /* Variant metadata; codec_index is the eligible -hls-select entry. */
-    const char *codecs;
-    size_t codecs_len;
     unsigned int width, height;
     size_t codec_index;
 } slice_t;
@@ -788,6 +786,9 @@ static char *prune_master_playlist(char *master_playlist, const slice_t *slice,
     }
 
     if (changed) {
+        /* In-place compaction can only shrink: the video path marks no
+         * AUDIO/SUBTITLES slices, so no LANGUAGE attributes are added. */
+        assert(!in_place || added == 0);
         size_t newlen = strlen(master_playlist) + added  - removed;
         if (!in_place) {
             new_master_playlist = (char *) calloc(newlen + 1, sizeof(char));
@@ -955,13 +956,12 @@ static size_t hls_variant(const char *line, const char *end, const hls_codec_t *
     if (end > line && end[-1] == '\r') end--;
     if (hls_attribute(attrs, end, "CODECS", &value, &last) != 1 || last - value < 3 ||
         *value != '"' || last[-1] != '"') return count;
-    variant->codecs = value + 1;
-    variant->codecs_len = last - value - 2;
+    const char *codec_list = value + 1, *codec_end = last - 1;
     int has_size = hls_attribute(attrs, end, "RESOLUTION", &value, &last);
     if (has_size < 0) return count;
     if (has_size && !hls_dimensions(value, last, &variant->width, &variant->height)) return count;
-    value = variant->codecs;
-    last = value + variant->codecs_len;
+    value = codec_list;
+    last = codec_end;
     while (value < last) {
         const char *comma = memchr(value, ',', last - value);
         const char *stop = comma ? comma : last;
