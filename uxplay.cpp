@@ -1,4 +1,4 @@
-/**
+/**20000
  * RPiPlay - An open-source AirPlay mirroring server for Raspberry Pi
  * Copyright (C) 2019 Florian Draschbacher
  * Modified extensively to become 
@@ -210,6 +210,9 @@ static std::string audio_rtp_pipeline = "";
 static GMainLoop *gmainloop = NULL;
 static bool mux_to_file = false;
 static std::string mux_filename = "recording";
+static device_profile_t device_profile = DESKTOP;
+static bool raspberry_pi_hls_support = false;
+static std::string custom_profile_string = "";
 
 //Support for D-Bus-based screensaver inhibition (org.freedesktop.ScreenSaver) 
 static unsigned int scrsv = 0;
@@ -946,6 +949,10 @@ static void print_info (char *name) {
     printf("          v = 2 or 3 (default 3) optionally selects video player version\n");
     printf("-lang ... Ranked HLS language preferences (\"fr:pt-BR:..\");\" \" = none\n");
     printf("-slang ...Ranked HLS subtitle language preferences (overrides -lang)\n");
+    printf("-custom s Restrict HLS resolutions by codec (useful on low-power hosts)\n");
+    printf("-custom   Omit input \"profile string\" s to show its required format\n");
+    printf("-rpi n    Set pre-selected HLS \"profile strings\" on R PI by model code n\n");
+    printf("-rpi      Shows possible Raspberry Pi model codes n for \"-rpi n\"\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
@@ -1154,6 +1161,180 @@ static bool get_videorotate (const char *str, videoflip_t *videoflip) {
     return true;
 }
 
+std::vector<std::string> split_string(std::string &text, char delimiter) {
+    std::vector<std::string> tokens;
+    size_t start = 0;
+    size_t end = text.find(delimiter);
+
+    while (end != std::string::npos) {
+        tokens.push_back(text.substr(start, end - start));
+        start = end + 1;
+        end = text.find(delimiter, start);
+    }
+
+    tokens.push_back(text.substr(start));
+    return tokens;
+}
+
+static bool validate_custom_profile_string(const char *profile) {
+    std::string codec_list = CODEC_LIST;
+    std:: vector<std::string> codec = split_string(codec_list, ':');
+    std::string profile_string(profile);
+
+    std:: vector<std::string> codec_strings = split_string(profile_string, ';');
+    for (size_t i = 0; i < codec_strings.size(); ++i) {
+        std:: vector<std::string> codec_substrings = split_string(codec_strings[i], ':');
+        if (codec_substrings.size() != 2) {
+            return false;
+        }
+        bool is_codec = false;
+        for (size_t i = 0; i < codec.size(); ++i) {
+            if (codec_substrings[0] == codec[i]) {
+                is_codec = true;
+                break;
+            }
+        }
+        if (!is_codec) {
+            LOGE("%s is not a valid codec", codec_substrings[0].c_str());
+            return false;
+        }
+        std:: vector<std::string> height = split_string(codec_substrings[1], ',');
+        if (!(height.size() == 1 || height.size() == 2)) {
+            return false;
+        }
+        char *endptr = NULL;
+        size_t n_chars = 0;
+        int  height_30 = std::stoi(height[0].c_str(), &n_chars);
+        if (n_chars != height[0].size() || height_30 < 0) {
+            return false;
+        }
+        if (height.size() == 2) {
+            int  height_60 = std::stoi(height[1].c_str(), &n_chars);
+            if (n_chars != height[1].size() || height_60 < 0) { 
+                return false;
+            } else if (height_60 > height_30) {
+                LOGE("%s : invalid heights, %d > %d", codec_strings[i].c_str(), height_30, height_60);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+void set_rpi_profile_string() {
+    std::string hw_decoder;
+    printf("Raspberry Pi HLS support: device-profile = %s\n", get_device_profile_name(device_profile));
+
+    std::string v4l2h264dec = "v4l2h264dec";
+    std::string v4l2slh265dec = "v4l2slh265dec";
+    bool hw264 = gstreamer_decoder_check(v4l2h264dec.c_str());
+    bool hw265 = gstreamer_decoder_check(v4l2slh265dec.c_str());
+
+    /* AVC/H.264 */
+    if (hw264) {
+      switch (device_profile) {
+      case PI_3:
+      case PI_3_ACTIVE_COOLING:
+	custom_profile_string = "AVC:1080,720";
+	break;
+      case PI_4:
+      case PI_4_ACTIVE_COOLING:
+	custom_profile_string = "AVC:1080";
+	break;
+      default:
+	break;
+      }
+    } else {
+      if (device_profile != PI_5 && device_profile != PI_5_ACTIVE_COOLING) {
+          LOGI ("*** gstreamer plugin v4l2h624dec not found: no H.264/AVC hardware decoding");
+      }
+      switch (device_profile) {
+      case PI_3:
+      case PI_3_ACTIVE_COOLING:
+	custom_profile_string = "AVC:1080,720";
+	break;
+      case PI_4:
+      case PI_4_ACTIVE_COOLING:
+      case PI_5:
+      case PI_5_ACTIVE_COOLING:
+	custom_profile_string = "AVC:1080";
+	break;
+      default:
+	break;
+      }
+    }
+
+    /* HEVC/H.265 */    
+    if (hw265) {
+      switch (device_profile) {
+      case PI_4:
+      case PI_4_ACTIVE_COOLING:
+      case PI_5:
+      case PI_5_ACTIVE_COOLING:
+	custom_profile_string += ";HEVC:2160";
+	break;
+      default:
+	break;
+      }
+    } else {
+      if (device_profile != PI_3 && device_profile != PI_3_ACTIVE_COOLING) {
+	  LOGI ("*** gstreamer plugin v4l2slh625dec not found: no H.265/HEVC hardware decoding");
+      }      
+      switch (device_profile) {
+      case PI_3:
+      case PI_3_ACTIVE_COOLING:
+      case PI_4:
+      case PI_4_ACTIVE_COOLING:
+	custom_profile_string += ";HEVC:480,0";
+	break;
+      case PI_5:
+	custom_profile_string += ";HEVC:1080,720";
+	break;
+      case PI_5_ACTIVE_COOLING:
+	custom_profile_string += ";HEVC:2160,1080";
+	break;
+      default:
+	break;
+      }
+    }	
+
+    /* VP9 */
+
+    switch (device_profile) {
+    case PI_3:
+    case PI_3_ACTIVE_COOLING:
+        custom_profile_string += ";VP9:480,0";
+        break;
+    case PI_4:
+    case PI_4_ACTIVE_COOLING:
+        custom_profile_string += ";VP9:720,0";
+        break;
+    case PI_5:
+        custom_profile_string += ";VP9:1080,720";
+        break;
+    case PI_5_ACTIVE_COOLING:
+        custom_profile_string += ";VP9:2160,1080";
+        break;
+    default:
+        break;
+    }
+
+
+    /* AV1 */
+    switch (device_profile) {
+    case PI_3:
+    case PI_3_ACTIVE_COOLING:
+    case PI_4:
+    case PI_4_ACTIVE_COOLING:
+    case PI_5:
+    case PI_5_ACTIVE_COOLING:
+        custom_profile_string += ";AV1:0";
+        break;
+    default:
+        break;
+    }
+}
+
 static void append_hostname(std::string &server_name) {
     std::string hostname;
 #ifdef _WIN32   /*modification for compilation on Windows */
@@ -1273,6 +1454,79 @@ static void parse_arguments (int argc, char *argv[]) {
             }
         } else if (arg == "-nh") {
             do_append_hostname = false;
+        } else if (arg == "-rpi") {
+            std::string error_text =
+                                "    possible code values are:\n"
+                                "    3  (Raspberry Pi model 3 or lower, including Pi ZERO)\n"
+                                "    30 (Raspberry Pi model 3 or lower, WITH ACTIVE COOLING)\n"
+                                "    4  (Raspberry Pi model 4)\n"
+                                "    40 (Raspberry Pi model 4 WITH ACTIVE COOLING)\n"
+                                "    5  (Raspberry Pi model 5)\n"
+                                "    50 (Raspberry Pi model 5 WITH ACTIVE COOLING)\n";
+
+            unsigned int code = 0;
+            if (i == argc -1 ||  argv[i+1][0] == '-') {
+                fprintf(stderr,"invalid: \"-rpi\" must be followed by a model code:\n%s\n", error_text.c_str());
+                exit(0);
+            }
+            if (!get_value(argv[++i], &code)) {
+                fprintf(stderr, "invalid \"-rpi %s\"; -rpi must be followed by an integer model code:\n%s\n", argv[i], error_text.c_str());
+                exit(1);
+            }
+	    raspberry_pi_hls_support = true;
+            switch (code) {
+            case 3:
+                device_profile = PI_3;
+                break;
+            case 30:
+                device_profile = PI_3_ACTIVE_COOLING;
+                break;
+            case 4:
+                device_profile = PI_4;
+                break;
+            case 40:
+                device_profile = PI_4_ACTIVE_COOLING;
+                break;
+            case 5:
+                device_profile = PI_5;
+                break;
+            case 50:
+                device_profile = PI_5_ACTIVE_COOLING;
+                break;
+            default:
+                fprintf(stderr,"invalid Raspberry Pi model code %s:\n%s\n", argv[i], error_text.c_str());
+                exit(1);
+            }
+        } else if (arg == "-custom") {
+#define MAX_PROFILE_STRING_LENGTH "64"
+            std::string text =
+              "   Uxplay restricts HLS video streams to a maximum resolution height 2160p at 60fps.\n"
+              "   If your system cannot decode this fast enough, you can set a lower limit for each codec.\n"
+              "   The codecs allowed are AVC (h264), HEVC (h265), VP9, AV1, and you can set a common limit\n"
+              "   for streams at 30 fps and 60 fps, or separate limits, for each.\n\n"
+              "   For example, the \"custom profile\" string\n"
+              "                  \"HEVC:1440,720; VP9:1080; AV1:0\"\n"
+              "   allows HEVC streams with resolution height up to 1440p @ 30fps or 720p @ 60fps, VP9 streams\n"
+              "   up to 1080p @ 60 fps, and excludes streams with the AV1 codec, with no restrictions on AVC.\n\n"
+              "   The string length is limited to " MAX_PROFILE_STRING_LENGTH " characters: empty space between codec entries (as in the\n"
+              "   example above) is ignored (enclose the string in quotes if it includes empty spaces).\n";
+
+            if (i == argc -1 ||  argv[i+1][0] == '-') {
+                fprintf(stderr,"invalid \"-custom\" must be followed by s string encoding maximum HLS resolution choices:\n%s\n", text.c_str());
+                exit(0);
+            }
+            std::string str = argv[++i];
+            str.resize(atoi(MAX_PROFILE_STRING_LENGTH));
+            //remove spaces
+            str.erase(std::remove_if(str.begin(), str.end(), [](unsigned char x) {return std::isspace(x); }), str.end());
+            custom_profile_string = str;
+            if (!validate_custom_profile_string(custom_profile_string.c_str())) {
+                fprintf(stderr,"*** invalid custom HLS profile string \"%s\"\n\n%s\n", argv[i], text.c_str());
+                exit(1);
+            } else {
+                printf("custom HLS profile string is valid, stored as: \"%s\"\n",custom_profile_string.c_str());
+            }
+            device_profile = CUSTOM;
         } else if (arg == "-async") {
             audio_sync = true;
 	    if (i <  argc - 1) {
@@ -1468,15 +1722,6 @@ static void parse_arguments (int argc, char *argv[]) {
             video_decoder = "v4l2h264dec";
             video_converter.erase();
             video_converter = "v4l2convert";
-        } else if (arg == "-rpi" || arg == "-rpifb" || arg == "-rpigl" || arg == "-rpiwl") {
-            fprintf(stderr,"*** -rpi* options do not apply to Raspberry Pi model 5, and have been removed\n");
-            fprintf(stderr,"     For models 3 and 4, use their equivalents, if needed:\n");
-            fprintf(stderr,"     -rpi   was equivalent to \"-v4l2\"\n");
-            fprintf(stderr,"     -rpifb was equivalent to \"-v4l2 -vs kmssink\"\n");
-            fprintf(stderr,"     -rpigl was equivalent to \"-v4l2 -vs glimagesink\"\n");
-            fprintf(stderr,"     -rpiwl was equivalent to \"-v4l2 -vs waylandsink\"\n");
-            fprintf(stderr,"     Option \"-bt709\" may also be needed for R Pi model 4B and earlier\n");
-            exit(1);
         } else if (arg == "-fs" ) {
             fullscreen = true;
         } else if (arg == "-FPSdata") {
@@ -2189,9 +2434,11 @@ static bool check_blocked_client(char *deviceid) {
 
 // Server callbacks
 
+extern "C" void get_custom_profile (void *cls, const char **custom_profile) {
+    *custom_profile = custom_profile_string.c_str();
+}
 
 //to be simplified
-
 extern "C" void video_reset(void *cls, reset_type_t type) {
     switch (type) {
     case RESET_TYPE_NOHOLD:
@@ -2797,6 +3044,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.on_video_stop = on_video_stop;
     raop_cbs.on_video_playlist_remove = on_video_playlist_remove;
     raop_cbs.on_video_acquire_playback_info = on_video_acquire_playback_info;
+    raop_cbs.get_custom_profile = get_custom_profile;
 
     raop = raop_init(&raop_cbs);
     if (raop == NULL) {
@@ -2958,7 +3206,7 @@ int main (int argc, char *argv[]) {
 #endif
     std::vector<char> server_hw_addr;
     std::string config_file = "";
-
+    LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 #ifdef _WIN32
     /* initialise Windows kernel qpc frequency for recv timestamping */
     ntp_global_init();
@@ -3063,7 +3311,6 @@ int main (int argc, char *argv[]) {
     }
 #endif
 
-    LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 
 #ifdef DBUS
     if (scrsv && !use_video) {
@@ -3241,6 +3488,16 @@ int main (int argc, char *argv[]) {
     if (!gstreamer_init()) {
         LOGE ("stopping");
         exit (1);
+    }
+
+    if (hls_support) {
+      if (raspberry_pi_hls_support) {
+        // must be called after gstreamer_init()
+        set_rpi_profile_string();
+      }
+      if (!custom_profile_string.empty()) {
+	LOGI("Using HLS custom_profile string \"%s\"\n", custom_profile_string.c_str());
+      }
     }
 
     render_logger = logger_init();
