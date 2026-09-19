@@ -72,6 +72,9 @@ typedef struct slice_s{
     bool delete;
     unsigned char is_default;
     unsigned char is_autoselect;
+    /* Two producers: master_playlist_slicer stores 'a', 's', 'v' or 'c' from an
+     * EXT-X-MEDIA TYPE=; parse_master_playlist stores 'V' for a STREAM-INF
+     * variant and 'I' for an I-frame one. Note 'v' and 'V' are not the same. */
     char type;
     /* Variant metadata; codec_index is the eligible -hls-select entry. */
     unsigned int width, height;
@@ -873,7 +876,7 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     bool subtitles;
     slice_t *slice = master_playlist_slicer(master_playlist, airplay_video, &n_slice, &subtitles);
 
-    char *new_master_playlist = prune_master_playlist(master_playlist, slice, n_slice, subtitles, false);
+    char *new_master_playlist = prune_master_playlist(master_playlist, slice, n_slice, subtitles, /* in_place */ false);
     free(slice);
     return new_master_playlist;
 }
@@ -1060,7 +1063,7 @@ int select_master_playlist_video(char *playlist, const hls_codec_t *codecs, size
     int removed;
     slice_t *slice = parse_master_playlist(playlist, codecs, count, &n_slice, &removed);
     if (!slice) return -1;
-    prune_master_playlist(playlist, slice, n_slice, false, true);
+    prune_master_playlist(playlist, slice, n_slice, /* subtitles */ false, /* in_place */ true);
     free(slice);
     return removed;
 }
