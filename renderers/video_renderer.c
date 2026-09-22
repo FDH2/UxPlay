@@ -48,7 +48,6 @@ void video_renderer_set_window_handle(uintptr_t handle) {
 }
 
 #define SECOND_IN_NSECS 1000000000UL
-#define SECOND_IN_MICROSECS 1000000
 #ifdef X_DISPLAY_FIX
 #include <gst/video/navigation.h>
 #include "x_display_fix.h"
@@ -1163,16 +1162,20 @@ bool video_get_playback_info(double *duration, double *position, double *seek_st
     return true;
 }
 
+/* a position in seconds as GStreamer time: 32-bit microseconds end at 2147 s (35:47), and a
+ * later position was converted to that (aarch64 saturates) or to a negative time (x86) */
+static gint64 seconds_to_gst_time(float position) {
+    return (gint64) ((double) position * GST_SECOND);
+}
+
 void video_renderer_set_start(float position) {
-    int pos_in_micros = (int) (position * SECOND_IN_MICROSECS);
-    hls_requested_start_position = (gint64) (pos_in_micros * GST_USECOND);
+    hls_requested_start_position = seconds_to_gst_time(position);
     logger_log(logger, LOGGER_DEBUG, "register HLS video start position %f %lld", position,
-               hls_requested_start_position);    
+               hls_requested_start_position);
 }
 
 void video_renderer_seek(float position) {
-    int pos_in_micros = (int) (position * SECOND_IN_MICROSECS);
-    gint64 seek_position = (gint64) (pos_in_micros * GST_USECOND);
+    gint64 seek_position = seconds_to_gst_time(position);
     /* don't seek to within 1  microsecond  of beginning or end of video */
     if (hls_duration < 2000) return;
     seek_position =  seek_position < 1000 ? 1000 : seek_position;
