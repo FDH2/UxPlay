@@ -977,11 +977,10 @@ static bool find_custom_max_heights(const char *codec, int *hmax30, int *hmax60,
     }
 
     val30 = strtoul(++ptr, (char **)&endptr, 10);
+    val60 = val30;   // will replace if val60 is also given
     if (!endptr) {
         return false;
-    }
-
-    if (*endptr == ',') {
+    } else if (*endptr == ',') {
         ptr = endptr; 
         val60 = strtoul(++ptr, (char **)&endptr, 10);    
         if (!endptr || val60 > val30) {

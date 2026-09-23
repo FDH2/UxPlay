@@ -1346,6 +1346,7 @@ static void parse_arguments (int argc, char *argv[]) {
             str.erase(std::remove_if(str.begin(), str.end(), [](unsigned char x) {return std::isspace(x); }), str.end());
             custom_profile_string = str;
             printf("custom profile string stored as \"%s\"\n", custom_profile_string.c_str());
+            device_profile = CUSTOM;
         } else if (arg == "-async") {
             audio_sync = true;
 	    if (i <  argc - 1) {
