@@ -55,6 +55,10 @@ struct airplay_video_s {
     const char *lang_subtitles;
     const char *lang_system;
     char *lang_client;
+    char *lang_client_applied;  /* lang_client when the master playlist was last reduced */
+    char *lang_audio_selected;  /* the AUDIO language the master playlist was reduced to */
+    bool fetching_playlists;
+    char *media_selection;      /* the client's selectedMediaArray value (XML plist), for getProperty */
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -92,6 +96,10 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
     airplay_video->lang_system = lang_system;
     airplay_video->lang_subtitles = lang_subtitles;
     airplay_video->lang_client = NULL;
+    airplay_video->lang_client_applied = NULL;
+    airplay_video->lang_audio_selected = NULL;
+    airplay_video->fetching_playlists = false;
+    airplay_video->media_selection = NULL;
      /* create local_uri_prefix string */
     snprintf(port, sizeof(port), "%u", http_port);
     size_t len = strlen(uri) + strlen(port);
@@ -133,6 +141,15 @@ airplay_video_destroy(airplay_video_t *airplay_video) {
     }
     if (airplay_video->lang_client) {
         free(airplay_video->lang_client);
+    }
+    if (airplay_video->lang_client_applied) {
+        free(airplay_video->lang_client_applied);
+    }
+    if (airplay_video->lang_audio_selected) {
+        free(airplay_video->lang_audio_selected);
+    }
+    if (airplay_video->media_selection) {
+        free(airplay_video->media_selection);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -204,12 +221,38 @@ void set_playback_location(airplay_video_t *airplay_video, const char *location,
     str = NULL;
 }
 
+static void replace_string(char **string, const char *value) {
+    if (*string) {
+        free(*string);
+    }
+    *string = value ? strdup(value) : NULL;
+}
+
 /* the audio language selected on the client (PUT /setProperty?selectedMediaArray), or NULL */
 void set_client_audio_language(airplay_video_t *airplay_video, const char *language) {
-    if (airplay_video->lang_client) {
-        free(airplay_video->lang_client);
-    }
-    airplay_video->lang_client = language ? strdup(language) : NULL;
+    replace_string(&airplay_video->lang_client, language);
+}
+
+const char *get_client_audio_language(airplay_video_t *airplay_video) {
+    return airplay_video->lang_client;
+}
+
+/* the playlists of the video are requested from the client, and it has not yet been started with them */
+void set_fetching_playlists(airplay_video_t *airplay_video, bool fetching) {
+    airplay_video->fetching_playlists = fetching;
+}
+
+bool get_fetching_playlists(airplay_video_t *airplay_video) {
+    return airplay_video->fetching_playlists;
+}
+
+/* the media selection the client set (the value of PUT /setProperty?selectedMediaArray, as an XML plist), or NULL */
+void set_client_media_selection(airplay_video_t *airplay_video, const char *selection) {
+    replace_string(&airplay_video->media_selection, selection);
+}
+
+const char *get_client_media_selection(airplay_video_t *airplay_video) {
+    return airplay_video->media_selection;
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
@@ -409,6 +452,20 @@ static bool match_hls_language(const char *tag1, const char *tag2) {
     return false;
 }
 
+/* true if the client selected an audio language since the master playlist was reduced to another one:
+   the master playlist must then be requested again.  A language that the playlist does not offer is only
+   tried once */
+bool client_audio_language_changed(airplay_video_t *airplay_video) {
+    const char *language = airplay_video->lang_client;
+    if (!language || !airplay_video->master_playlist) {
+        return false;
+    }
+    if (airplay_video->lang_client_applied && !strcmp(language, airplay_video->lang_client_applied)) {
+        return false;
+    }
+    return !match_hls_language(language, airplay_video->lang_audio_selected);
+}
+
 static const char* strict_match_language(const char* preferred[], size_t pref_count,
                                   const char* available[], size_t avail_count)
 {
@@ -550,6 +607,8 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
     /* the audio language selected on the client comes before those requested with -lang */
     const char **lang_audio_list = (const char **) calloc(n_lang_requested + 1, sizeof(char *));
     int n_lang_audio = 0;
+    replace_string(&airplay_video->lang_client_applied, airplay_video->lang_client);
+    replace_string(&airplay_video->lang_audio_selected, NULL);
     if (airplay_video->lang_client) {
         printf("%s (client-selected audio language)\n", airplay_video->lang_client);
         lang_audio_list[n_lang_audio++] = airplay_video->lang_client;
@@ -696,6 +755,7 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             case 0:
             case 1:
                 audio_lang_selected = true;
+                replace_string(&airplay_video->lang_audio_selected, selected);
                 break;
             case 2:
             case 3:

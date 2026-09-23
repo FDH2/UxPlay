@@ -43,6 +43,114 @@ get_playlist_by_uuid(raop_t *raop, const char *uuid) {
     return -1;
 }
 
+/* stores a new playlist (airplay_video structure) for playback_uuid and makes it the current video */
+static airplay_video_t *
+hls_add_video(raop_t *raop, const char *apple_session_id, const char *playback_uuid) {
+    /* first delete any short stored playlists (probably advertisements */
+    int count = 0;
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (raop->airplay_video[i]) {
+            float duration = get_duration(raop->airplay_video[i]);
+            if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { //likely to be an advertisement
+                logger_log(raop->logger, LOGGER_INFO,
+                          "deleting playlist playback_uuid %s duration (seconds) %f",
+                           get_playback_uuid(raop->airplay_video[i]), duration);
+                raop_destroy_airplay_video(raop, i);
+            } else {
+                count++;
+            }
+        }
+    }
+
+    assert (count < MAX_AIRPLAY_VIDEO);
+    int id = -1;
+    /* initialize new airplay_video structure to hold playlist */
+    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
+        if (raop->airplay_video[i]) {
+            continue;
+        }
+        id = i;
+        break;
+    }
+    assert(id >= 0);
+
+    raop->current_video = id;
+    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang, raop->lang_subtitles, raop->lang_system);
+    airplay_video_t *airplay_video = hls_get_current_video(raop);
+    if (!airplay_video) {
+        return NULL;
+    }
+    set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
+    set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
+    count++;
+
+    /* ensure that space will always be available for adding future playlists */
+
+    if (count == MAX_AIRPLAY_VIDEO) {
+        int next = (id + 1) % (int) MAX_AIRPLAY_VIDEO;
+        logger_log(raop->logger, LOGGER_INFO,
+                   "deleting playlist playback_uuid %s duration (seconds) %f",
+                   get_playback_uuid(raop->airplay_video[next]),
+                   get_duration(raop->airplay_video[next]));
+        airplay_video_destroy(raop->airplay_video[next]);
+        raop->airplay_video[next] = NULL;
+    }
+    return airplay_video;
+}
+
+/* for a master playlist served by the client (Content-Location ".../master.m3u8"): the player gets the
+   playlists from this server, which requests them from the client */
+static void
+hls_set_master_location(airplay_video_t *airplay_video, const char *playback_location) {
+    const char *uri_suffix = strstr(playback_location, "/master.m3u8");
+    size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
+    char *location = (char *) calloc(len + 1, sizeof(char));
+    if (!location) {
+        printf("Memory allocation failed (location)\n");
+        exit(1);
+    }
+    strcat(location, get_uri_local_prefix(airplay_video));
+    strcat(location, uri_suffix);
+    set_playback_location(airplay_video, location, strlen(location));
+    free(location);
+    char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
+    if (!uri_prefix) {
+        printf("Memory allocation failed (uri_prefix)\n");
+        exit(1);
+    }
+    strcat(uri_prefix, playback_location);
+    char *end = strstr(uri_prefix, "/master.m3u8");
+    *end = '\0';
+    set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
+    free (uri_prefix);
+}
+
+/* requests the master playlist from the client (FCUP Request): the media playlists follow, and then the
+   video starts (see http_handler_action) */
+static void
+hls_request_master_playlist(raop_conn_t *conn, airplay_video_t *airplay_video, const char *master_url) {
+    set_next_media_uri_id(airplay_video, 0);
+    set_fetching_playlists(airplay_video, true);
+    fcup_request((void *) conn, master_url, get_apple_session_id(airplay_video),
+                 get_next_FCUP_RequestID(airplay_video));
+}
+
+/* requests the master playlist again, to reduce it to another audio language */
+static void
+hls_reload_master_playlist(raop_conn_t *conn, airplay_video_t *airplay_video) {
+    const char *uri_prefix = get_uri_prefix(airplay_video);
+    size_t len = strlen(uri_prefix) + strlen("/master.m3u8");
+    char *master_url = (char *) calloc(len + 1, sizeof(char));
+    if (!master_url) {
+        printf("Memory allocation failed (master_url)\n");
+        exit(1);
+    }
+    strcat(master_url, uri_prefix);
+    strcat(master_url, "/master.m3u8");
+    hls_request_master_playlist(conn, airplay_video, master_url);
+    free(master_url);
+}
+
 static void
 http_handler_server_info(raop_conn_t *conn, http_request_t *request, http_response_t *response,
                          char **response_data, int *response_datalen)  {
@@ -125,6 +233,14 @@ http_handler_scrub(raop_conn_t *conn, http_request_t *request, http_response_t *
         }
     }
     logger_log(raop->logger, LOGGER_DEBUG, "**********************SCRUB %f ***********************",scrub_position);
+    /* A seek for the replacement item must not resume the removed pipeline.
+       Keep it with the new item until its playlists are ready, including a seek to zero. */
+    int id = raop->current_video;
+    if (id >= 0 && raop->airplay_video[id] && get_fetching_playlists(raop->airplay_video[id])) {
+        set_start_position_seconds(raop->airplay_video[id], scrub_position);
+        logger_log(raop->logger, LOGGER_INFO, "scrub before the video starts: it will start at %.3f s", scrub_position);
+        return;
+    }
     raop->callbacks.on_video_scrub(raop->callbacks.cls, scrub_position);
 }
 
@@ -156,17 +272,23 @@ http_handler_stop(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_INFO, "client HTTP request POST stop");
 
+    raop->removed_video = -1;
     raop->callbacks.on_video_stop(raop->callbacks.cls);
 }
 
 /* stores the audio language the client selected (e.g. the audio track picked in the YouTube app), or
    none: selectedMediaArray arrives after POST /play and before the master playlist, whose AUDIO
-   renditions are then reduced to that language */
+   renditions are then reduced to that language.
+   A selection that arrives while the playlists are fetched is applied when they are complete; one that
+   arrives while the video plays requests the master playlist again, and restarts the video where it was */
 static void
-set_selected_audio_language(raop_t *raop, http_request_t *request) {
-    if (raop->current_video < 0 || !raop->airplay_video[raop->current_video]) {
+set_selected_audio_language(raop_conn_t *conn, http_request_t *request) {
+    raop_t *raop = conn->raop;
+    int id = raop->current_video;
+    if (id < 0 || !raop->airplay_video[id]) {
         return;
     }
+    airplay_video_t *airplay_video = raop->airplay_video[id];
     int request_datalen = 0;
     const char *request_data = http_request_get_data(request, &request_datalen);
     if (request_datalen <= 0) {
@@ -176,6 +298,13 @@ set_selected_audio_language(raop_t *raop, http_request_t *request) {
     plist_from_bin(request_data, request_datalen, &req_root_node);
     plist_t options_node = PLIST_IS_DICT(req_root_node) ? plist_dict_get_item(req_root_node, "value") : NULL;
     int count = PLIST_IS_ARRAY(options_node) ? (int) plist_array_get_size(options_node) : 0;
+    char *selection = NULL;
+    if (PLIST_IS_ARRAY(options_node)) {
+        uint32_t selection_len = 0;
+        plist_to_xml(options_node, &selection, &selection_len);
+    }
+    set_client_media_selection(airplay_video, selection);
+    plist_mem_free(selection);
     char *language = NULL;
     for (int i = 0; i < count && !language; i++) {
         plist_t option_node = plist_array_get_item(options_node, i);
@@ -202,12 +331,25 @@ set_selected_audio_language(raop_t *raop, http_request_t *request) {
             plist_get_string_val(language_node, &language);
         }
     }
-    set_client_audio_language(raop->airplay_video[raop->current_video], language);
+    set_client_audio_language(airplay_video, language);
     logger_log(raop->logger, LOGGER_INFO, "client selected audio language: %s", language ? language : "none");
     if (language) {
         plist_mem_free(language);
     }
     plist_free(req_root_node);
+
+    /* nothing to reload before the video plays, for a video that is not an HLS playlist served by the
+       client, or for the language it plays already */
+    if (get_fetching_playlists(airplay_video) || !get_uri_prefix(airplay_video) ||
+        !client_audio_language_changed(airplay_video)) {
+        return;
+    }
+    playback_info_t playback_info;
+    raop->callbacks.on_video_acquire_playback_info(raop->callbacks.cls, &playback_info);
+    float position = playback_info.position > 0.0 ? (float) playback_info.position : get_start_position_seconds(airplay_video);
+    set_start_position_seconds(airplay_video, position);
+    logger_log(raop->logger, LOGGER_INFO, "audio language changed: reloading the video at %.3f s", position);
+    hls_reload_master_playlist(conn, airplay_video);
 }
 
 /* handles PUT /setProperty http requests from Client to Server */
@@ -238,7 +380,7 @@ http_handler_set_property(raop_conn_t *conn,
     */
 
     if (!strcmp(property, "selectedMediaArray")) {
-        set_selected_audio_language(raop, request);
+        set_selected_audio_language(conn, request);
     } else if (!strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
@@ -268,7 +410,34 @@ http_handler_get_property(raop_conn_t *conn, http_request_t *request, http_respo
                           char **response_data, int *response_datalen) {
     raop_t *raop = conn->raop;
     const char *url = http_request_get_url(request);
-    const char *property = url + strlen("getProperty?");
+    const char *property = strchr(url, '?');
+    property = property ? property + 1 : "";
+
+    /* the media selection of the current video: the one the client set, else that of the video it replaced */
+    if (!strcmp(property, "selectedMediaArray")) {
+        int id = raop->current_video;
+        const char *selection = id >= 0 && raop->airplay_video[id] ?
+                                get_client_media_selection(raop->airplay_video[id]) : NULL;
+        plist_t value_node = NULL;
+        if (selection) {
+            plist_from_xml(selection, strlen(selection), &value_node);
+        }
+        if (!PLIST_IS_ARRAY(value_node)) {
+            if (value_node) {
+                plist_free(value_node);
+            }
+            value_node = plist_new_array();
+        }
+        logger_log(raop->logger, LOGGER_INFO, "getProperty selectedMediaArray: %u media selection option(s)",
+                   plist_array_get_size(value_node));
+        plist_t res_root_node = plist_new_dict();
+        plist_dict_set_item(res_root_node, "errorCode", plist_new_uint(0));
+        plist_dict_set_item(res_root_node, "value", value_node);
+        plist_to_xml(res_root_node, response_data, (uint32_t *) response_datalen);
+        plist_free(res_root_node);
+        http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
+        return;
+    }
     logger_log(raop->logger, LOGGER_DEBUG, "http_handler_get_property: %s (unhandled)", property);
 }
 
@@ -311,6 +480,11 @@ void time_range_to_plist(void *time_ranges, const int n_time_ranges,
 int create_playback_info_plist_xml(playback_info_t *playback_info, char **plist_xml) {
 
     plist_t res_root_node = plist_new_dict();
+
+    if (playback_info->uuid) {
+        plist_t uuid_node = plist_new_string(playback_info->uuid);
+        plist_dict_set_item(res_root_node, "uuid", uuid_node);
+    }
 
     plist_t duration_node = plist_new_real(playback_info->duration);
     plist_dict_set_item(res_root_node, "duration", duration_node);
@@ -367,6 +541,10 @@ http_handler_playback_info(raop_conn_t *conn, http_request_t *request, http_resp
     playback_info_t playback_info;
 
     playback_info.stallcount = 0;
+    /* the client identifies the video by its uuid: after it replaced the video (playlistRemove, then
+       playlistInsert under a new uuid), it takes this information as that of the new one */
+    int id = raop->current_video;
+    playback_info.uuid = id >= 0 && raop->airplay_video[id] ? get_playback_uuid(raop->airplay_video[id]) : NULL;
     //playback_info.playback_buffer_empty = false;   // maybe  need to get this from playbin 
     //playback_info.playback_buffer_full = true;
     //ayback_info.ready_to_play = true; // ???;
@@ -461,9 +639,17 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     char *type = NULL;
     bool logger_debug = (logger_get_level(raop->logger) >= LOGGER_DEBUG);
 
-    /* fetched only after the locals above are initialized: post_action_error releases them */
-    airplay_video = (airplay_video_t *) hls_get_current_video(raop);
-    if (!airplay_video) {
+    /* fetched only after the locals above are initialized: post_action_error releases them.
+       After the client removed the current video (playlistRemove), it may insert the one that replaces it
+       (playlistInsert): the session is then that of the removed video */
+    airplay_video_t *session_video = NULL;
+    if (raop->current_video < 0 && raop->removed_video >= 0) {
+        session_video = raop->airplay_video[raop->removed_video];
+    } else {
+        airplay_video = (airplay_video_t *) hls_get_current_video(raop);
+        session_video = airplay_video;
+    }
+    if (!session_video) {
         goto post_action_error;
     }
 
@@ -472,7 +658,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         logger_log(raop->logger, LOGGER_ERR, "Play request had no X-Apple-Session-ID");
         goto post_action_error;
     }    
-    const char *apple_session_id = get_apple_session_id(airplay_video);
+    const char *apple_session_id = get_apple_session_id(session_video);
     if (strcmp(session_id, apple_session_id)){
         logger_log(raop->logger, LOGGER_ERR, "X-Apple-Session-ID has changed:\n  was:\"%s\"\n  now:\"%s\"",
                    apple_session_id, session_id);
@@ -515,6 +701,10 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         goto post_action_error;
     }
     logger_log(raop->logger, LOGGER_DEBUG, "action type is %s", type);
+    if (!airplay_video && strcmp(type, "playlistInsert")) {
+        logger_log(raop->logger, LOGGER_ERR, "action type %s: the client removed the current video", type);
+        goto post_action_error;
+    }
     /* check that plist structure is as expected*/
     plist_t req_params_node = NULL;
     if (PLIST_IS_DICT (req_root_node)) {
@@ -535,6 +725,7 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
         int id  =  get_playlist_by_uuid(raop, remove_uuid);
         if (id == raop->current_video) {
             raop->current_video = -1;
+            raop->removed_video = id;
             float position = raop->callbacks.on_video_playlist_remove(raop->callbacks.cls);
             /* keep the playlist (until space is needed for another one) in case its playback_uuid is re-requested
                the video will then be restarted at its previous position */
@@ -551,23 +742,59 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
             goto post_action_error;
         }
         plist_t req_params_item_uuid_node = plist_dict_get_item(req_params_item_node, "uuid");
-        char* remove_uuid = NULL;
-        plist_get_string_val(req_params_item_uuid_node, &remove_uuid);
-        if (remove_uuid) {
-            int id  =  get_playlist_by_uuid(raop, remove_uuid);
+        char* insert_uuid = NULL;
+        plist_get_string_val(req_params_item_uuid_node, &insert_uuid);
+        if (insert_uuid) {
+            int id  =  get_playlist_by_uuid(raop, insert_uuid);
             if (id >= 0) {
-                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is stored at airplay_video[%d]", remove_uuid, id);
+                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is stored at airplay_video[%d]", insert_uuid, id);
             } else {
-                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is not a stored playlist", remove_uuid);
+                logger_log(raop->logger, LOGGER_INFO, "playlistInsert uuid %s is not a stored playlist", insert_uuid);
             }
-            plist_mem_free(remove_uuid);
             char *plist_xml = NULL;
             uint32_t plist_len = 0;
             plist_to_xml(req_params_item_node, &plist_xml, &plist_len);
             printf("playlistInsert parameter item list is:\n%s", plist_xml);
             plist_mem_free(plist_xml);
         }
-        logger_log(raop->logger, LOGGER_ERR, "FIXME: playlistInsert is not yet implemented");
+        char *location = NULL;
+        char *selection = NULL;
+        plist_t req_params_item_location_node = plist_dict_get_item(req_params_item_node, "Content-Location");
+        if (PLIST_IS_STRING(req_params_item_location_node)) {
+            plist_get_string_val(req_params_item_location_node, &location);
+        }
+        if (airplay_video) {
+            /* a video plays: the client queues another one after it */
+            logger_log(raop->logger, LOGGER_ERR, "FIXME: playlistInsert is not yet implemented");
+        } else if (insert_uuid && location && strstr(location, "/master.m3u8") &&
+                   strncmp(location, "http://", strlen("http://")) && strncmp(location, "https://", strlen("https://"))) {
+            /* the client removed the video that played and inserts the one that replaces it: the YouTube app does
+               this when another audio track is selected, for the same video under a new uuid.  It starts where
+               the removed one was */
+            float position = get_resume_position_seconds(session_video);
+            position = position > 0.0f ? position : 0.0f;
+            const char *removed_selection = get_client_media_selection(session_video);
+            selection = removed_selection ? strdup(removed_selection) : NULL;
+            raop->removed_video = -1;
+            airplay_video = hls_add_video(raop, session_id, insert_uuid);
+            if (airplay_video) {
+                set_start_position_seconds(airplay_video, position);
+                set_client_media_selection(airplay_video, selection);
+                hls_set_master_location(airplay_video, location);
+                logger_log(raop->logger, LOGGER_INFO, "playlistInsert: playing uuid %s in place of the removed video, at %.3f s",
+                           insert_uuid, position);
+                video_current_item_event(conn, airplay_video);
+                hls_request_master_playlist(conn, airplay_video, location);
+            }
+        } else {
+            logger_log(raop->logger, LOGGER_ERR, "playlistInsert: Content-Location %s is not supported", location ? location : "(none)");
+        }
+        plist_mem_free(location);
+        plist_mem_free(insert_uuid);
+        free(selection);
+        if (!airplay_video) {
+            goto post_action_error;
+        }
 
     } else if (!strcmp(type, "unhandledURLResponse")) {   
         /* handling type "unhandledURLResponse" */
@@ -689,7 +916,12 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
                                                              apple_session_id,
                                                              get_next_FCUP_RequestID(airplay_video));
             set_next_media_uri_id(airplay_video, ++uri_num);
+        } else if (client_audio_language_changed(airplay_video)) {
+            /* the client selected another audio language while the playlists were fetched */
+            logger_log(raop->logger, LOGGER_INFO, "audio language changed: requesting the master playlist again");
+            hls_reload_master_playlist(conn, airplay_video);
         } else {
+            set_fetching_playlists(airplay_video, false);
             raop->callbacks.on_video_play(raop->callbacks.cls,
                                                 get_playback_location(airplay_video),
                                                 get_start_position_seconds(airplay_video));
@@ -699,6 +931,13 @@ http_handler_action(raop_conn_t *conn, http_request_t *request, http_response_t 
     } else {
         logger_log(raop->logger, LOGGER_INFO, "unknown action type (unhandled)"); 
     }
+    /* Remote actions return a plist status, just like setProperty. An empty
+       success response does not acknowledge completion of the queue operation. */
+    plist_t status = plist_new_dict();
+    plist_dict_set_item(status, "errorCode", plist_new_uint(0));
+    plist_to_xml(status, response_data, (uint32_t *) response_datalen);
+    plist_free(status);
+    http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     plist_mem_free(type);
     plist_free(req_root_node);
     return;
@@ -775,6 +1014,7 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
 
     int id = -1;
     id = get_playlist_by_uuid(raop, playback_uuid);
+    raop->removed_video = -1;
 
     if (id >= 0 && !get_playback_location(raop->airplay_video[id])) {
         raop_destroy_airplay_video(raop, id);
@@ -804,56 +1044,11 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
     }
     
     /* initialize a new playlist (airplay_video structure) */
-    /* first delete any short stored playlists (probably advertisements */
-    int count = 0;
-    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
-        if (raop->airplay_video[i]) {
-            float duration = get_duration(raop->airplay_video[i]); 
-            if (duration < (float) MIN_STORED_AIRPLAY_VIDEO_DURATION_SECONDS ) { //likely to be an advertisement
-                logger_log(raop->logger, LOGGER_INFO,
-                          "deleting playlist playback_uuid %s duration (seconds) %f",
-                           get_playback_uuid(raop->airplay_video[i]), duration);
-                raop_destroy_airplay_video(raop, i);
-            } else {
-                count++;
-            }
-        }
-    }
-
-    assert (count < MAX_AIRPLAY_VIDEO);
     assert(id == -1);
-    /* initialize new airplay_video structure to hold playlist */
-    for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
-        if (raop->airplay_video[i]) {
-            continue;
-        }
-        id = i;
-        break;
-    }
-    assert(id >= 0);
-
-    raop->current_video = id;
-    raop->airplay_video[id] = airplay_video_init(raop, raop->port, raop->lang, raop->lang_subtitles, raop->lang_system);
-    airplay_video = hls_get_current_video(raop);
-    if (!airplay_video) {
-        plist_mem_free(playback_uuid);
-        goto play_error;
-    }
-    set_apple_session_id(airplay_video, apple_session_id, strlen(apple_session_id));
-    set_playback_uuid(airplay_video, playback_uuid, strlen(playback_uuid));
+    airplay_video = hls_add_video(raop, apple_session_id, playback_uuid);
     plist_mem_free (playback_uuid);
-    count++;
-
-    /* ensure that space will always be available for adding future playlists */
-
-    if (count == MAX_AIRPLAY_VIDEO) {
-        int next = (id + 1) % (int) MAX_AIRPLAY_VIDEO;
-        logger_log(raop->logger, LOGGER_INFO,
-                   "deleting playlist playback_uuid %s duration (seconds) %f",
-                   get_playback_uuid(raop->airplay_video[next]),
-                   get_duration(raop->airplay_video[next]));
-        airplay_video_destroy(raop->airplay_video[next]);
-        raop->airplay_video[next] = NULL;
+    if (!airplay_video) {
+        goto play_error;
     }
 #if 0    
     for (int i = 0; i < MAX_AIRPLAY_VIDEO; i++) {
@@ -899,28 +1094,8 @@ http_handler_play(raop_conn_t *conn, http_request_t *request, http_response_t *r
             }
             plist_mem_free(client_proc_name);
         }
-        size_t len = strlen(get_uri_local_prefix(airplay_video)) + strlen(uri_suffix);
-        char *location = (char *) calloc(len + 1, sizeof(char));
-        if (!location) {
-            printf("Memory allocation failed (location)\n");
-            exit(1);
-        }
-        strcat(location, get_uri_local_prefix(airplay_video));
-        strcat(location, uri_suffix);
-        set_playback_location(airplay_video, location, strlen(location));
-        free(location);
-        char *uri_prefix = (char *) calloc(strlen(playback_location) + 1, sizeof(char));
-        if (!playback_location) {
-            printf("Memeory allocation failed (playback_location)\n");
-            exit(1);
-        }
-        strcat(uri_prefix, playback_location);
-        char *end = strstr(uri_prefix, "/master.m3u8");
-        *end = '\0';
-        set_uri_prefix(airplay_video, uri_prefix, strlen(uri_prefix));
-        free (uri_prefix);
-        set_next_media_uri_id(airplay_video, 0);
-        fcup_request((void *) conn, playback_location, apple_session_id, get_next_FCUP_RequestID(airplay_video));
+        hls_set_master_location(airplay_video, playback_location);
+        hls_request_master_playlist(conn, airplay_video, playback_location);
     } else {
         logger_log(raop->logger, LOGGER_ERR, "Content-Location has unsupported form:\n%s\n", playback_location);
         goto play_error;

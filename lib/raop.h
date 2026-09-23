@@ -36,7 +36,7 @@ typedef struct raop_s raop_t;
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);
 
 typedef struct playback_info_s {
-  //char * uuid;
+    const char *uuid;  /* the video that plays (its playback uuid), or NULL */
     uint32_t stallcount;
     double duration;
     double position;
