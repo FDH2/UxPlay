@@ -562,11 +562,14 @@ bool waiting_for_x11_window() {
         return false;
     }
 #ifdef X_DISPLAY_FIX
-    if (use_x11 && renderer->gst_window) {
-        get_x_window(renderer->gst_window, renderer->server_name);
-        if (!renderer->gst_window->window) {
-	    return true;    /* window still not found */
-        }
+    /* nothing to find, or to make fullscreen, without an X11 window: a videosink that is not an X11
+       one (e.g. waylandsink), no X11 display, or no renderer */
+    if (!use_x11 || !renderer || !renderer->gst_window) {
+        return false;
+    }
+    get_x_window(renderer->gst_window, renderer->server_name);
+    if (!renderer->gst_window->window) {
+        return true;    /* window still not found */
     }
     if (fullscreen) {
          set_fullscreen(renderer->gst_window, &fullscreen);
