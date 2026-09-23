@@ -1257,6 +1257,8 @@ the preference order by a colon-separated list: e.g.,  `fr:en-US:en`, for French
 choice, any variant), English (second choice, US regional variant), English (third choice, any variant).
 All blank characters in the string are removed before processing; if option `-lang` is not
 followed by a list, any previous language selection is removed. 
+An audio track selected on the client before the video starts (e.g., in the YouTube app) takes precedence
+over these preferences.
 
 **-slang \[list\]**. Similar to `-lang`, but specifies language preferences for subtitle languages.
 (If not present, preferences specified by  `-lang ...` will be used.)
