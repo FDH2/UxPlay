@@ -3350,6 +3350,13 @@ int main (int argc, char *argv[]) {
             break;
         }
 	printf("hw_support_h265 is %s\n", hw_support_h265 ? "true" : "false");
+
+        /* the same settings the FCUP path gets, for master playlists GStreamer fetches itself (Vimeo, Safari) */
+        device_profile_t profile = DESKTOP;
+        const char *custom_profile = NULL;
+        bool hw264 = false, hw265 = false;
+        get_device_profile(NULL, &profile, &custom_profile, &hw264, &hw265);
+        video_renderer_set_hls_filter(profile, hw264, hw265, custom_profile);
      }
 
     render_logger = logger_init();
