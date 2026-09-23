@@ -159,6 +159,57 @@ http_handler_stop(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop->callbacks.on_video_stop(raop->callbacks.cls);
 }
 
+/* stores the audio language the client selected (e.g. the audio track picked in the YouTube app), or
+   none: selectedMediaArray arrives after POST /play and before the master playlist, whose AUDIO
+   renditions are then reduced to that language */
+static void
+set_selected_audio_language(raop_t *raop, http_request_t *request) {
+    if (raop->current_video < 0 || !raop->airplay_video[raop->current_video]) {
+        return;
+    }
+    int request_datalen = 0;
+    const char *request_data = http_request_get_data(request, &request_datalen);
+    if (request_datalen <= 0) {
+        return;
+    }
+    plist_t req_root_node = NULL;
+    plist_from_bin(request_data, request_datalen, &req_root_node);
+    plist_t options_node = PLIST_IS_DICT(req_root_node) ? plist_dict_get_item(req_root_node, "value") : NULL;
+    int count = PLIST_IS_ARRAY(options_node) ? (int) plist_array_get_size(options_node) : 0;
+    char *language = NULL;
+    for (int i = 0; i < count && !language; i++) {
+        plist_t option_node = plist_array_get_item(options_node, i);
+        if (!PLIST_IS_DICT(option_node)) {
+            continue;
+        }
+        plist_t type_node = plist_dict_get_item(option_node, "MediaSelectionGroupMediaType");
+        char *type = NULL;
+        if (PLIST_IS_STRING(type_node)) {
+            plist_get_string_val(type_node, &type);
+        }
+        bool audio = type && !strcmp(type, "soun");
+        if (type) {
+            plist_mem_free(type);
+        }
+        if (!audio) {
+            continue;
+        }
+        plist_t language_node = plist_dict_get_item(option_node, "MediaSelectionOptionsExtendedLanguageTag");
+        if (!PLIST_IS_STRING(language_node)) {
+            language_node = plist_dict_get_item(option_node, "MediaSelectionOptionsUnicodeLanguageIdentifier");
+        }
+        if (PLIST_IS_STRING(language_node)) {
+            plist_get_string_val(language_node, &language);
+        }
+    }
+    set_client_audio_language(raop->airplay_video[raop->current_video], language);
+    logger_log(raop->logger, LOGGER_INFO, "client selected audio language: %s", language ? language : "none");
+    if (language) {
+        plist_mem_free(language);
+    }
+    plist_free(req_root_node);
+}
+
 /* handles PUT /setProperty http requests from Client to Server */
 
 static void
@@ -177,7 +228,7 @@ http_handler_set_property(raop_conn_t *conn,
                   1: pause   (pause playing)
                   2: none    (do nothing)             
 
-        selectedMediaArray contains plist with info on master playlist default AUDIO (soun) language, and if SUBTITLES (sbtl) are present.
+        selectedMediaArray contains plist with the client's selected AUDIO (soun) language, and if SUBTITLES (sbtl) are present.
         reverseEndTime   (only used when rate < 0) time at which reverse playback ends (sent to reset previous values)
         forwardEndTime   (only used when rate > 0) time at which reverse playback ends (sent to reset previous values)
         interstitialEvents  sent twice to reset any previously registered interstitial events (advertisements)
@@ -186,25 +237,25 @@ http_handler_set_property(raop_conn_t *conn,
 
     */
 
-    if (!strcmp(property, "actionAtItemEnd") ||
-        !strcmp(property, "selectedMediaArray") ||
+    if (!strcmp(property, "selectedMediaArray")) {
+        set_selected_audio_language(raop, request);
+    } else if (!strcmp(property, "actionAtItemEnd") ||
         !strcmp(property, "reverseEndTime") ||
         !strcmp(property, "forwardEndTime") ||
         !strcmp(property, "interstitialEvents") ||
         !strcmp(property, "textMarkupArray") ||
         !strcmp(property, "isInterestedInDateRange")) {
         logger_log(raop->logger, LOGGER_DEBUG, "property %s is known but unhandled", property);
-
-        plist_t errResponse = plist_new_dict();
-        plist_t errCode = plist_new_uint(0);
-        plist_dict_set_item(errResponse, "errorCode", errCode);
-        plist_to_xml(errResponse, response_data, (uint32_t *) response_datalen);
-        plist_free(errResponse);
-        http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     } else {
         logger_log(raop->logger, LOGGER_DEBUG, "property %s is unknown, unhandled", property);      
         goto post_error;
     }
+    plist_t errResponse = plist_new_dict();
+    plist_t errCode = plist_new_uint(0);
+    plist_dict_set_item(errResponse, "errorCode", errCode);
+    plist_to_xml(errResponse, response_data, (uint32_t *) response_datalen);
+    plist_free(errResponse);
+    http_response_add_header(response, "Content-Type", "text/x-apple-plist+xml");
     return;
  post_error:
     http_response_add_header(response, "Content-Length", "0");

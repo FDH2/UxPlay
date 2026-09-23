@@ -55,6 +55,7 @@ struct airplay_video_s {
     const char *lang;
     const char *lang_subtitles;
     const char *lang_system;
+    char *lang_client;
     int next_uri;
     int FCUP_RequestID;
     float start_position_seconds;
@@ -91,6 +92,7 @@ airplay_video_t *airplay_video_init(raop_t *raop, unsigned short http_port, cons
     airplay_video->lang = lang;
     airplay_video->lang_system = lang_system;
     airplay_video->lang_subtitles = lang_subtitles;
+    airplay_video->lang_client = NULL;
      /* create local_uri_prefix string */
     snprintf(port, sizeof(port), "%u", http_port);
     size_t len = strlen(uri) + strlen(port);
@@ -129,6 +131,9 @@ airplay_video_destroy(airplay_video_t *airplay_video) {
     }
     if (airplay_video->playback_location) {
         free(airplay_video->playback_location);
+    }
+    if (airplay_video->lang_client) {
+        free(airplay_video->lang_client);
     }
     if (airplay_video->media_data_store) {
         destroy_media_data_store(airplay_video);
@@ -198,6 +203,14 @@ void set_playback_location(airplay_video_t *airplay_video, const char *location,
     }
     airplay_video->playback_location = str;
     str = NULL;
+}
+
+/* the audio language selected on the client (PUT /setProperty?selectedMediaArray), or NULL */
+void set_client_audio_language(airplay_video_t *airplay_video, const char *language) {
+    if (airplay_video->lang_client) {
+        free(airplay_video->lang_client);
+    }
+    airplay_video->lang_client = language ? strdup(language) : NULL;
 }
 
 const char *get_apple_session_id(airplay_video_t *airplay_video) {
@@ -535,6 +548,17 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
         }
     }
 
+    /* the audio language selected on the client comes before those requested with -lang */
+    const char **lang_audio_list = (const char **) calloc(n_lang_requested + 1, sizeof(char *));
+    int n_lang_audio = 0;
+    if (airplay_video->lang_client) {
+        printf("%s (client-selected audio language)\n", airplay_video->lang_client);
+        lang_audio_list[n_lang_audio++] = airplay_video->lang_client;
+    }
+    for (int i = 0; i < n_lang_requested; i++) {
+        lang_audio_list[n_lang_audio++] = lang_requested_list[i];
+    }
+
     char *lang_subtitles = NULL;
     const char **lang_subtitles_list = NULL;
     bool lang_subtitles_request = false;
@@ -578,12 +602,12 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
         char type = '\0';
         const char *selected = NULL;
         switch (iter) {
-        case 0:  /* requested audio */
-            if (!n_lang_requested) {
+        case 0:  /* requested audio: selected on the client, then -lang */
+            if (!n_lang_audio) {
                 continue;
             }
-            n_lang = n_lang_requested;
-            lang_list = lang_requested_list;
+            n_lang = n_lang_audio;
+            lang_list = lang_audio_list;
             type = 'a';
             autoselect = false;
             break;
@@ -698,6 +722,7 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
         free(available);
     }
     
+    free(lang_audio_list);
     if (n_lang_requested) {
         free(lang_requested_list);
         free(lang_requested);
