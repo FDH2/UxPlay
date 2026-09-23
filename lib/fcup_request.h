@@ -111,3 +111,45 @@ int fcup_request(void *conn_opaque, const char *media_url, const char *client_se
                send_len, socket_fd);
     return 0;
 }
+
+/* A playlist insertion replaces the client's current item without a new /play.
+ * The media-control notification identifies that item; the legacy category=video
+ * state event alone does not update the client's play queue. */
+static int video_current_item_event(raop_conn_t *conn, airplay_video_t *video) {
+    raop_t *raop = conn->raop;
+    const char *uuid = get_playback_uuid(video);
+    plist_t event = plist_new_dict();
+    plist_dict_set_item(event, "sessionID", plist_new_uint(1));
+    plist_dict_set_item(event, "type", plist_new_string("currentItemChanged"));
+    plist_dict_set_item(event, "uuid", plist_new_string(uuid));
+    plist_t item = plist_new_dict();
+    plist_dict_set_item(item, "uuid", plist_new_string(uuid));
+    plist_dict_set_item(event, "itemCurrent", item);
+    char *xml = NULL;
+    uint32_t len = 0;
+    plist_to_xml(event, &xml, &len);
+    plist_free(event);
+
+    http_response_t *request = http_response_create();
+    http_response_reverse_request_init(request, "POST", "/event", "HTTP/1.1");
+    http_response_add_header(request, "X-Apple-Session-ID", get_apple_session_id(video));
+    http_response_add_header(request, "Content-Type", "text/x-apple-plist+xml");
+    http_response_finish(request, xml, (int) len);
+    plist_mem_free(xml);
+    int requestlen = 0;
+    const char *data = http_response_get_data(request, &requestlen);
+    int fd = httpd_get_connection_socket_by_type(raop->httpd, CONNECTION_TYPE_PTTH, 1);
+    int written = 0;
+    while (written < requestlen) {
+        int n = send(fd, data + written, requestlen - written, 0);
+        if (n <= 0) {
+            logger_log(raop->logger, LOGGER_ERR, "could not send currentItemChanged event");
+            http_response_destroy(request);
+            return -1;
+        }
+        written += n;
+    }
+    http_response_destroy(request);
+    logger_log(raop->logger, LOGGER_INFO, "currentItemChanged: %s", uuid);
+    return 0;
+}
