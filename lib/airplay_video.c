@@ -963,7 +963,7 @@ bool get_attr_value(const char *line, const char *key, char *dest, size_t dest_l
 }
 
 static bool find_custom_max_heights(const char *codec, int *hmax30, int *hmax60, const char *custom_profile_string) {
-    unsigned long val30 = 0, val60 = 0;
+    long val30 = 0, val60 = 0;
     const char *endptr = NULL;
  
     const char *ptr = strstr(custom_profile_string, codec);
@@ -976,14 +976,17 @@ static bool find_custom_max_heights(const char *codec, int *hmax30, int *hmax60,
         return false;
     }
 
-    val30 = strtoul(++ptr, (char **)&endptr, 10);
+    val30 = strtol(++ptr, (char **)&endptr, 10);
+    if (val30 < 0) {
+        return false;
+    }
     val60 = val30;   // will replace if val60 is also given
     if (!endptr) {
         return false;
     } else if (*endptr == ',') {
         ptr = endptr; 
-        val60 = strtoul(++ptr, (char **)&endptr, 10);    
-        if (!endptr || val60 > val30) {
+        val60 = strtol(++ptr, (char **)&endptr, 10);    
+        if (!endptr || val60 > val30 || val60 < 0) {
             return false;
         }
     }

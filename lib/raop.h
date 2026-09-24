@@ -47,11 +47,13 @@ typedef enum device_profile_e {
 
 const char *get_device_profile_name(device_profile_t device);
 
+#define CODEC_LIST "AVC:HEVC:VP9:AV1:"
 typedef enum hls_video_codec_e {
-    AVC,
+    AVC,    //AVC should always be the first listed codec
     HEVC,
     VP9,
-    AV1
+    AV1,
+    UNKNOWN //UNKNOWN should always be the last listed codec.
 } hls_video_codec_t;
 
 typedef void (*raop_log_callback_t)(void *cls, int level, const char *msg);

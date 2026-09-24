@@ -1162,6 +1162,66 @@ static bool get_videorotate (const char *str, videoflip_t *videoflip) {
     return true;
 }
 
+std::vector<std::string> split_string(std::string &text, char delimiter) {
+    std::vector<std::string> tokens;
+    size_t start = 0;
+    size_t end = text.find(delimiter);
+
+    while (end != std::string::npos) {
+        tokens.push_back(text.substr(start, end - start));
+        start = end + 1;
+        end = text.find(delimiter, start);
+    }
+
+    tokens.push_back(text.substr(start));
+    return tokens;
+}
+
+static bool validate_custom_profile_string(const char *profile) {
+    std::string codec_list = CODEC_LIST;
+    std:: vector<std::string> codec = split_string(codec_list, ':');
+    std::string profile_string(profile);
+
+    std:: vector<std::string> codec_strings = split_string(profile_string, ';');
+    for (size_t i = 0; i < codec_strings.size(); ++i) {
+        std:: vector<std::string> codec_substrings = split_string(codec_strings[i], ':');
+        if (codec_substrings.size() != 2) {
+            return false;
+        }
+        bool is_codec = false;
+        for (size_t i = 0; i < codec.size(); ++i) {
+            if (codec_substrings[0] == codec[i]) {
+                is_codec = true;
+                break;
+            }
+        }
+        if (!is_codec) {
+            LOGE("%s is not a valid codec", codec_substrings[0].c_str());
+            return false;
+        }
+        std:: vector<std::string> height = split_string(codec_substrings[1], ',');
+        if (!(height.size() == 1 || height.size() == 2)) {
+            return false;
+        }
+        char *endptr = NULL;
+        size_t n_chars = 0;
+        int  height_30 = std::stoi(height[0].c_str(), &n_chars);
+        if (n_chars != height[0].size() || height_30 < 0) {
+            return false;
+        }
+        if (height.size() == 2) {
+            int  height_60 = std::stoi(height[1].c_str(), &n_chars);
+            if (n_chars != height[1].size() || height_60 < 0) { 
+                return false;
+            } else if (height_60 > height_30) {
+                LOGE("%s : invalid heights, %d > %d", codec_strings[i].c_str(), height_30, height_60);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 static void append_hostname(std::string &server_name) {
     std::string hostname;
 #ifdef _WIN32   /*modification for compilation on Windows */
@@ -1330,9 +1390,10 @@ static void parse_arguments (int argc, char *argv[]) {
               "   If your system cannot decode this fast enough, you can set a lower limit for each codec.\n"
               "   The codecs allowed are AVC (h264), HEVC (h265), VP9, AV1, and you can set a common limit\n"
               "   for streams at 30 fps and 60 fps, or separate limits, for each.\n\n"
-              "   For example, the \"custom profile\" string : \"HEVC:1440,720 VP9:1080 AV1:0\" allows HEVC streams\n"
-              "   with resolution height up to 1440p @ 30fps or 720p @ 60fps, VP9 streams up to 1080p @ 60fps,\n"
-              "   and completely excludes streams with the AV1 codec, with no restrictions on AVC.\n\n"
+              "   For example, the \"custom profile\" string\n"
+              "                  \"HEVC:1440,720; VP9:1080; AV1:0\"\n"
+              "   allows HEVC streams with resolution height up to 1440p @ 30fps or 720p @ 60fps, VP9 streams\n"
+              "   up to 1080p @ 60 fps, and excludes streams with the AV1 codec, with no restrictions on AVC.\n\n"
               "   The string length is limited to " MAX_PROFILE_STRING_LENGTH " characters: empty space between codec entries (as in the\n"
               "   example above) is ignored (enclose the string in quotes if it includes empty spaces).\n";
 
@@ -1345,7 +1406,12 @@ static void parse_arguments (int argc, char *argv[]) {
             //remove spaces
             str.erase(std::remove_if(str.begin(), str.end(), [](unsigned char x) {return std::isspace(x); }), str.end());
             custom_profile_string = str;
-            printf("custom profile string stored as \"%s\"\n", custom_profile_string.c_str());
+            if (!validate_custom_profile_string(custom_profile_string.c_str())) {
+                fprintf(stderr,"*** invalid custom HLS profile string \"%s\"\n\n%s\n", argv[i], text.c_str());
+                exit(1);
+            } else {
+                printf("custom HLS profile string is valid, stored as: \"%s\"\n",custom_profile_string.c_str());
+            }
             device_profile = CUSTOM;
         } else if (arg == "-async") {
             audio_sync = true;
@@ -3035,7 +3101,7 @@ int main (int argc, char *argv[]) {
 #endif
     std::vector<char> server_hw_addr;
     std::string config_file = "";
-
+    LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 #ifdef _WIN32
     /* initialise Windows kernel qpc frequency for recv timestamping */
     ntp_global_init();
@@ -3140,7 +3206,6 @@ int main (int argc, char *argv[]) {
     }
 #endif
 
-    LOGI("UxPlay %s: An Open-Source AirPlay mirroring and audio-streaming server.", VERSION);
 
 #ifdef DBUS
     if (scrsv && !use_video) {
