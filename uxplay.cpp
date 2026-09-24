@@ -177,6 +177,11 @@ static double db_low = -30.0;
 static double db_high = 0.0;
 static bool taper_volume = false;
 static double initial_volume = 0.0;
+/* The AirPlay volume (dB) the renderers play at. A client is told this in "initialVolume" and asks for it with
+ * GET_PARAMETER, and it then sends no volume of its own until someone moves its slider: uxplay must therefore
+ * start at the volume it announces and keep announcing the volume it is at, or the slider on the client says
+ * one thing while the speaker does another. */
+static double current_volume = 0.0;
 static bool h265_support = false;
 static int n_video_renderers = 0;
 static int n_audio_renderers = 0;
@@ -1784,6 +1789,7 @@ static void parse_arguments (int argc, char *argv[]) {
                         initial_volume = db_flat;
                     }
                     printf("initial_volume attenuation %f db\n", initial_volume);
+                    current_volume = initial_volume;
                     vol_bad = false;
                 }
             }
@@ -2465,7 +2471,7 @@ extern "C" void video_flush (void *cls) {
 }
 
 extern "C" double audio_set_client_volume(void *cls) {
-    return initial_volume;
+    return current_volume;
 }
 
 extern "C" void audio_set_volume (void *cls, float volume) {
@@ -2510,8 +2516,10 @@ extern "C" void audio_set_volume (void *cls, float volume) {
         /* conversion from (gain) decibels to GStreamer's linear volume scale */
         gst_volume = pow(10.0, 0.05*db);
     }
+    current_volume = (double) volume;
     audio_renderer_set_volume(gst_volume);
     video_renderer_hls_set_volume(gst_volume);
+    LOGI("AirPlay volume %.1f dB (slider %.0f%%): GStreamer volume %.3f", (double) volume, 100.0 * frac, gst_volume);
 }
 
 extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat) {
@@ -3265,6 +3273,11 @@ int main (int argc, char *argv[]) {
         }
 #endif
     }
+
+    /* Play at the volume clients are told this receiver has ("-vol", full volume by default): without this the
+     * renderers stay at GStreamer's default, and a client that believes the receiver is already at its own
+     * slider position sends nothing to correct it. */
+    audio_set_volume(NULL, (float) current_volume);
 
     if (mux_to_file) {
         mux_renderer_init(render_logger, mux_filename.c_str(), use_audio, use_video);
