@@ -74,6 +74,18 @@ DNSSD_API void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val);
 DNSSD_API uint64_t dnssd_get_airplay_features(dnssd_t *dnssd);
 DNSSD_API void dnssd_set_pk(dnssd_t *dnssd, char * pk_str);
 
+/* An external dns_sd.h library (Avahi's compat layer, Bonjour) hands each
+   registered service a socket that the application must service with
+   DNSServiceProcessResult() whenever it is readable; otherwise the library never
+   reads its daemon connection and the messages queue up in the daemon (for Avahi,
+   in the system dbus-daemon, without bound). DNSSD_SERVICE_RAOP / _AIRPLAY select
+   the service. dnssd_get_service_fd() returns -1 when there is nothing to service
+   (not registered, or the internal mdnsd backend). */
+#define DNSSD_SERVICE_RAOP     0
+#define DNSSD_SERVICE_AIRPLAY  1
+DNSSD_API int dnssd_get_service_fd(dnssd_t *dnssd, int service);
+DNSSD_API int dnssd_process_service(dnssd_t *dnssd, int service);
+
 DNSSD_API void dnssd_destroy(dnssd_t *dnssd);
 
 /* p2p support (macOS only) */
