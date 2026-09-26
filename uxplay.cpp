@@ -691,14 +691,25 @@ static gboolean video_eos_watch_callback (gpointer loop) {
     return TRUE;
 }
 
-#ifndef _WIN32
+#ifdef EXTERNAL_DNS_SD   /* only used when UxPlay is  compiled to use Bonjour/Avahi DNS_SD */  
 /* Service a DNS-SD registration's socket (see dnssd_get_service_fd in dnssd.h).
    Without this, Avahi's compat library never reads its D-Bus connection and the
    system dbus-daemon queues every bus signal addressed to it, without bound. */
-static gboolean dnssd_socket_callback(gint fd, GIOCondition condition, gpointer data) {
+
+#ifdef _WIN32
+#define BONJOUR_SOURCE GIOChannel *source
+#else
+#define BONJOUR_SOURCE gint fd
+#endif
+
+static gboolean dnssd_socket_callback(BONJOUR_SOURCE, GIOCondition condition, gpointer data) {
     int service = GPOINTER_TO_INT(data);
     if ((condition & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) ||
         dnssd_process_service(dnssd, service) != 0) {
+
+#ifdef _WIN32
+      int  fd = g_io_channel_unix_get_fd(source);
+#endif
         LOGE("dnssd: stopped servicing the DNS-SD socket (fd %d) for service %d", fd, service);
         return G_SOURCE_REMOVE;   /* never spin on a socket that keeps failing */
     }
@@ -761,6 +772,11 @@ static void main_loop()  {
     guint feedback_watch_id = g_timeout_add_seconds(1, (GSourceFunc) feedback_callback, (gpointer) loop);
     guint reset_watch_id = g_timeout_add(100, (GSourceFunc) reset_callback, (gpointer) loop);
 
+#ifdef EXTERNAL_DNS_SD
+    guint dnssd_watch_id[2] = { 0 };
+    const int dnssd_services[2] = { DNSSD_SERVICE_RAOP, DNSSD_SERVICE_AIRPLAY };
+#endif
+
 #ifdef _WIN32
     gmainloop = loop;
 #else 
@@ -770,18 +786,34 @@ static void main_loop()  {
     guint sigterm_watch_id = g_unix_signal_add(SIGTERM, (GSourceFunc) sigterm_callback, (gpointer) loop);
     guint sigint_watch_id = g_unix_signal_add(SIGINT, (GSourceFunc) sigint_callback, (gpointer) loop);
     guint sighup_watch_id = g_unix_signal_add(SIGHUP, (GSourceFunc) sigint_callback, (gpointer) loop);
-#ifdef EXTERNAL_DNS_SD     /* used when compiled to used  Bonjour/DNS_DS */
-    guint dnssd_watch_id[2] = { 0 };
-    const int dnssd_services[2] = { DNSSD_SERVICE_RAOP, DNSSD_SERVICE_AIRPLAY };
+#endif
+
+#ifdef EXTERNAL_DNS_SD
     for (int i = 0; i < 2 && dnssd; i++) {
         int fd = dnssd_get_service_fd(dnssd, dnssd_services[i]);
         if (fd >= 0) {
+#ifdef _WIN32
+            /* On Windows, cast the fd to a Winsock SOCKET and create a specialized channel */
+            SOCKET win32_sock = (SOCKET)fd;
+            GIOChannel *channel = g_io_channel_win32_new_socket((gint)win32_sock);
+            if (channel != NULL) {
+                /* Add a cross-platform watch using g_io_add_watch */
+                dnssd_watch_id[i] = g_io_add_watch(channel, 
+                                                   (GIOCondition)(G_IO_IN | G_IO_HUP | G_IO_ERR),
+                                                   dnssd_socket_callback, 
+                                                   GINT_TO_POINTER(dnssd_services[i]));
+                /* The main loop watch now increments the ref count; we can release ours safely */
+                g_io_channel_unref(channel);
+            }
+#else
             dnssd_watch_id[i] = g_unix_fd_add(fd, (GIOCondition) (G_IO_IN | G_IO_HUP | G_IO_ERR),
-                                              dnssd_socket_callback, GINT_TO_POINTER(dnssd_services[i]));
+                                              dnssd_socket_callback,
+                                              GINT_TO_POINTER(dnssd_services[i]));
+#endif
         }
     }
 #endif
-#endif
+
     g_main_loop_run(loop);
 
 #ifdef _WIN32
@@ -793,6 +825,8 @@ static void main_loop()  {
     if (sigint_watch_id > 0) g_source_remove(sigint_watch_id);
     if (sigterm_watch_id > 0) g_source_remove(sigterm_watch_id);
     if (sighup_watch_id > 0) g_source_remove(sighup_watch_id);
+#endif
+
 #ifdef EXTERNAL_DNS_SD
     for (int i = 0; i < 2; i++) {
         /* a watch that removed itself (G_SOURCE_REMOVE) is already gone */
@@ -801,8 +835,7 @@ static void main_loop()  {
         }
     }
 #endif
-#endif
-
+    
     for (int i = 0; i < n_video_renderers; i++) {
         if (gst_video_bus_watch_id[i] > 0) g_source_remove(gst_video_bus_watch_id[i]);
     }

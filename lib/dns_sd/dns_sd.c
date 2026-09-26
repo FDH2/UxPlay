@@ -87,7 +87,6 @@ typedef DNSServiceErrorType (DNSSD_STDCALL *DNSServiceRegister_t)
                 void                                *context
         );
 typedef void (DNSSD_STDCALL *DNSServiceRefDeallocate_t)(DNSServiceRef sdRef);
-/* dnssd_sock_t is an int everywhere but Windows, where these two are not loaded */
 typedef int (DNSSD_STDCALL *DNSServiceRefSockFD_t)(DNSServiceRef sdRef);
 typedef DNSServiceErrorType (DNSSD_STDCALL *DNSServiceProcessResult_t)(DNSServiceRef sdRef);
 typedef void (DNSSD_STDCALL *TXTRecordCreate_t)
@@ -133,6 +132,14 @@ typedef struct dnssd_private_s {
 
 } dnssd_private_t;
 
+/* --- Dummy Callback to prevent Avahi/DBus from leaking OutgoingBytes --- */
+static void DNSSD_STDCALL 
+dnssd_register_dummy_callback(DNSServiceRef sdRef, DNSServiceFlags flags, DNSServiceErrorType errorCode,
+                              const char *name, const char *regtype, const char *domain, void *context) 
+{
+    (void)sdRef; (void)flags; (void)errorCode; (void)name; (void)regtype; (void)domain; (void)context;
+}
+
 void *
 dnssd_private_init(dnssd_t *dnssd_public, int *error)
 {
@@ -153,6 +160,8 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
     }
     dnssd->DNSServiceRegister = (DNSServiceRegister_t)GetProcAddress(dnssd->module, "DNSServiceRegister");
     dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)GetProcAddress(dnssd->module, "DNSServiceRefDeallocate");
+    dnssd->DNSServiceRefSockFD = (DNSServiceRefSockFD_t)GetProcAddress(dnssd->module, "DNSServiceRefSockFD");
+    dnssd->DNSServiceProcessResult = (DNSServiceProcessResult_t)GetProcAddress(dnssd->module, "DNSServiceProcessResult");
     dnssd->TXTRecordCreate = (TXTRecordCreate_t)GetProcAddress(dnssd->module, "TXTRecordCreate");
     dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)GetProcAddress(dnssd->module, "TXTRecordSetValue");
     dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)GetProcAddress(dnssd->module, "TXTRecordGetLength");
@@ -304,7 +313,8 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
                                                           htons(port),
                                                           dnssd->TXTRecordGetLength(&dnssd->raop_record),
                                                           dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record),
-                                                          NULL, NULL);
+                                                          dnssd_register_dummy_callback,
+                                                          NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
@@ -371,7 +381,8 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
                                                            htons(port),
                                                            dnssd->TXTRecordGetLength(&dnssd->airplay_record),
                                                            dnssd->TXTRecordGetBytesPtr(&dnssd->airplay_record),
-                                                           NULL, NULL);
+                                                           dnssd_register_dummy_callback,
+                                                           NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
