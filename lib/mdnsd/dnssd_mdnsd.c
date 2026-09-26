@@ -348,6 +348,23 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
     }
 }
 
+/* The internal responder runs its own sockets; nothing for the caller to service. */
+int
+dnssd_get_service_fd(dnssd_t *dnssd_public, int service)
+{
+    (void) dnssd_public;
+    (void) service;
+    return -1;
+}
+
+int
+dnssd_process_service(dnssd_t *dnssd_public, int service)
+{
+    (void) dnssd_public;
+    (void) service;
+    return 0;
+}
+
 void dnssd_error_text(int *dnssd_error, const  char *appname) {
     printf("*** dnssd_implementation: internal, mdnsd\n");
     printf("setup or start of self-contained mDNSResponder (lib/mdnsd) failed; check UDP port 5353 and multicast access");

@@ -711,6 +711,21 @@ static gboolean video_eos_watch_callback (gpointer loop) {
     return TRUE;
 }
 
+#ifndef _WIN32
+/* Service a DNS-SD registration's socket (see dnssd_get_service_fd in dnssd.h).
+   Without this, Avahi's compat library never reads its D-Bus connection and the
+   system dbus-daemon queues every bus signal addressed to it, without bound. */
+static gboolean dnssd_socket_callback(gint fd, GIOCondition condition, gpointer data) {
+    int service = GPOINTER_TO_INT(data);
+    if ((condition & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) ||
+        dnssd_process_service(dnssd, service) != 0) {
+        LOGE("dnssd: stopped servicing the DNS-SD socket (fd %d) for service %d", fd, service);
+        return G_SOURCE_REMOVE;   /* never spin on a socket that keeps failing */
+    }
+    return G_SOURCE_CONTINUE;
+}
+#endif
+
 #define MAX_VIDEO_RENDERERS 3
 #define MAX_AUDIO_RENDERERS 2
 static void main_loop()  {
@@ -775,6 +790,15 @@ static void main_loop()  {
     guint sigterm_watch_id = g_unix_signal_add(SIGTERM, (GSourceFunc) sigterm_callback, (gpointer) loop);
     guint sigint_watch_id = g_unix_signal_add(SIGINT, (GSourceFunc) sigint_callback, (gpointer) loop);
     guint sighup_watch_id = g_unix_signal_add(SIGHUP, (GSourceFunc) sigint_callback, (gpointer) loop);
+    guint dnssd_watch_id[2] = { 0 };
+    const int dnssd_services[2] = { DNSSD_SERVICE_RAOP, DNSSD_SERVICE_AIRPLAY };
+    for (int i = 0; i < 2 && dnssd; i++) {
+        int fd = dnssd_get_service_fd(dnssd, dnssd_services[i]);
+        if (fd >= 0) {
+            dnssd_watch_id[i] = g_unix_fd_add(fd, (GIOCondition) (G_IO_IN | G_IO_HUP | G_IO_ERR),
+                                              dnssd_socket_callback, GINT_TO_POINTER(dnssd_services[i]));
+        }
+    }
 #endif
     g_main_loop_run(loop);
 
@@ -787,6 +811,12 @@ static void main_loop()  {
     if (sigint_watch_id > 0) g_source_remove(sigint_watch_id);
     if (sigterm_watch_id > 0) g_source_remove(sigterm_watch_id);
     if (sighup_watch_id > 0) g_source_remove(sighup_watch_id);
+    for (int i = 0; i < 2; i++) {
+        /* a watch that removed itself (G_SOURCE_REMOVE) is already gone */
+        if (dnssd_watch_id[i] > 0 && g_main_context_find_source_by_id(NULL, dnssd_watch_id[i])) {
+            g_source_remove(dnssd_watch_id[i]);
+        }
+    }
 #endif
 
     for (int i = 0; i < n_video_renderers; i++) {
