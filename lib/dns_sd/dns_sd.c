@@ -87,6 +87,8 @@ typedef DNSServiceErrorType (DNSSD_STDCALL *DNSServiceRegister_t)
                 void                                *context
         );
 typedef void (DNSSD_STDCALL *DNSServiceRefDeallocate_t)(DNSServiceRef sdRef);
+typedef int (DNSSD_STDCALL *DNSServiceRefSockFD_t)(DNSServiceRef sdRef);
+typedef DNSServiceErrorType (DNSSD_STDCALL *DNSServiceProcessResult_t)(DNSServiceRef sdRef);
 typedef void (DNSSD_STDCALL *TXTRecordCreate_t)
         (
                 TXTRecordRef     *txtRecord,
@@ -114,6 +116,8 @@ typedef struct dnssd_private_s {
 
     DNSServiceRegister_t       DNSServiceRegister;
     DNSServiceRefDeallocate_t  DNSServiceRefDeallocate;
+    DNSServiceRefSockFD_t      DNSServiceRefSockFD;       /* optional: NULL on Windows */
+    DNSServiceProcessResult_t  DNSServiceProcessResult;   /* optional: NULL on Windows */
     TXTRecordCreate_t          TXTRecordCreate;
     TXTRecordSetValue_t        TXTRecordSetValue;
     TXTRecordGetLength_t       TXTRecordGetLength;
@@ -127,6 +131,14 @@ typedef struct dnssd_private_s {
     DNSServiceRef airplay_service;
 
 } dnssd_private_t;
+
+/* --- Dummy Callback to prevent Avahi/DBus from leaking OutgoingBytes --- */
+static void DNSSD_STDCALL 
+dnssd_register_dummy_callback(DNSServiceRef sdRef, DNSServiceFlags flags, DNSServiceErrorType errorCode,
+                              const char *name, const char *regtype, const char *domain, void *context) 
+{
+    (void)sdRef; (void)flags; (void)errorCode; (void)name; (void)regtype; (void)domain; (void)context;
+}
 
 void *
 dnssd_private_init(dnssd_t *dnssd_public, int *error)
@@ -148,6 +160,8 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
     }
     dnssd->DNSServiceRegister = (DNSServiceRegister_t)GetProcAddress(dnssd->module, "DNSServiceRegister");
     dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)GetProcAddress(dnssd->module, "DNSServiceRefDeallocate");
+    dnssd->DNSServiceRefSockFD = (DNSServiceRefSockFD_t)GetProcAddress(dnssd->module, "DNSServiceRefSockFD");
+    dnssd->DNSServiceProcessResult = (DNSServiceProcessResult_t)GetProcAddress(dnssd->module, "DNSServiceProcessResult");
     dnssd->TXTRecordCreate = (TXTRecordCreate_t)GetProcAddress(dnssd->module, "TXTRecordCreate");
     dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)GetProcAddress(dnssd->module, "TXTRecordSetValue");
     dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)GetProcAddress(dnssd->module, "TXTRecordGetLength");
@@ -171,6 +185,8 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
     }
     dnssd->DNSServiceRegister = (DNSServiceRegister_t)dlsym(dnssd->module, "DNSServiceRegister");
     dnssd->DNSServiceRefDeallocate = (DNSServiceRefDeallocate_t)dlsym(dnssd->module, "DNSServiceRefDeallocate");
+    dnssd->DNSServiceRefSockFD = (DNSServiceRefSockFD_t)dlsym(dnssd->module, "DNSServiceRefSockFD");
+    dnssd->DNSServiceProcessResult = (DNSServiceProcessResult_t)dlsym(dnssd->module, "DNSServiceProcessResult");
     dnssd->TXTRecordCreate = (TXTRecordCreate_t)dlsym(dnssd->module, "TXTRecordCreate");
     dnssd->TXTRecordSetValue = (TXTRecordSetValue_t)dlsym(dnssd->module, "TXTRecordSetValue");
     dnssd->TXTRecordGetLength = (TXTRecordGetLength_t)dlsym(dnssd->module, "TXTRecordGetLength");
@@ -188,6 +204,8 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
 #else
     dnssd->DNSServiceRegister = &DNSServiceRegister;
     dnssd->DNSServiceRefDeallocate = &DNSServiceRefDeallocate;
+    dnssd->DNSServiceRefSockFD = &DNSServiceRefSockFD;
+    dnssd->DNSServiceProcessResult = &DNSServiceProcessResult;
     dnssd->TXTRecordCreate = &TXTRecordCreate;
     dnssd->TXTRecordSetValue = &TXTRecordSetValue;
     dnssd->TXTRecordGetLength = &TXTRecordGetLength;
@@ -295,7 +313,8 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
                                                           htons(port),
                                                           dnssd->TXTRecordGetLength(&dnssd->raop_record),
                                                           dnssd->TXTRecordGetBytesPtr(&dnssd->raop_record),
-                                                          NULL, NULL);
+                                                          dnssd_register_dummy_callback,
+                                                          NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
@@ -362,7 +381,8 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
                                                            htons(port),
                                                            dnssd->TXTRecordGetLength(&dnssd->airplay_record),
                                                            dnssd->TXTRecordGetBytesPtr(&dnssd->airplay_record),
-                                                           NULL, NULL);
+                                                           dnssd_register_dummy_callback,
+                                                           NULL);
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
@@ -425,6 +445,44 @@ dnssd_unregister_airplay(dnssd_t *dnssd_public)
 
     dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
     dnssd->airplay_service = NULL;
+}
+
+static DNSServiceRef
+dnssd_service_ref(dnssd_private_t *dnssd, int service)
+{
+    switch (service) {
+    case DNSSD_SERVICE_RAOP:    return dnssd->raop_service;
+    case DNSSD_SERVICE_AIRPLAY: return dnssd->airplay_service;
+    default:                    return NULL;
+    }
+}
+
+int
+dnssd_get_service_fd(dnssd_t *dnssd_public, int service)
+{
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+    DNSServiceRef ref = dnssd_service_ref(dnssd, service);
+
+    if (!ref || !dnssd->DNSServiceRefSockFD || !dnssd->DNSServiceProcessResult) {
+        return -1;
+    }
+    return dnssd->DNSServiceRefSockFD(ref);
+}
+
+int
+dnssd_process_service(dnssd_t *dnssd_public, int service)
+{
+    assert(dnssd_public);
+    assert(dnssd_public->dnssd_private);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_public->dnssd_private;
+    DNSServiceRef ref = dnssd_service_ref(dnssd, service);
+
+    if (!ref || !dnssd->DNSServiceProcessResult) {
+        return -1;
+    }
+    return (int) dnssd->DNSServiceProcessResult(ref);
 }
 
 void dnssd_error_text(int *dnssd_error, const char *appname) {

@@ -56,6 +56,7 @@ endif()
 
 if (USE_DNS_SD OR ( APPLE AND NOT USE_MDNS ))
   message ( STATUS "******** using Bounjour/Apple dns_sd.h for Service Discovery")
+  add_definitions( -DEXTERNAL_DNS_SD )
   if ( APPLE )
     add_definitions( -DUXPLAY_HAVE_APPLE_P2P )
   endif()
