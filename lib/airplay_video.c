@@ -565,14 +565,14 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
     bool subtitle_lang_selected = false;
     bool listed_audio_languages = true;
     bool listed_subtitle_languages = true;
+    char *available = NULL;
+    char *default_lang = NULL;
     for (int iter = 0; iter < 4; iter++) {
         const char **lang_list  = NULL;
-        char *available = NULL;
         const char **available_list = NULL;
         int n_lang = 0;
         int n_items = 0;
         int n_list = 0;
-        char *default_lang = NULL;
         bool autoselect = false;
         char type = '\0';
         const char *selected = NULL;
@@ -620,7 +620,13 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             type = 's';
             autoselect = true;
         }
-
+        if (available) {
+            free(available);
+        }
+        if (default_lang) {
+            free(default_lang);
+        }
+        // available and default_lang are allocated by list_languages, and must be freed
         available = list_languages(master_playlist, count, slice, type, &n_items, &default_lang, autoselect);
         switch (iter) {
         case 0:
@@ -694,9 +700,14 @@ static slice_t *master_playlist_slicer(const char *master_playlist, airplay_vide
             }
         }
         free(available_list);
+    }
+    if (available) {
         free(available);
     }
-    
+    if (default_lang) {
+        free(default_lang);
+    }
+
     if (n_lang_requested) {
         free(lang_requested_list);
         free(lang_requested);
