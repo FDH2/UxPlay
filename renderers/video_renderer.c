@@ -23,6 +23,7 @@
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
 #include "video_renderer.h"
+#include "hls_filter.h"
 #include <gst/video/videooverlay.h>
 
 static uintptr_t external_window_handle = 0;
@@ -76,6 +77,11 @@ static gboolean hls_seek_enabled = FALSE;
 static gboolean hls_playing = FALSE;
 static gboolean hls_buffer_empty = FALSE;
 static gboolean hls_buffer_full = FALSE;
+/* The HLS stream filter's settings (-rpi, -custom), for master playlists GStreamer fetches itself */
+static device_profile_t hls_filter_device = DESKTOP;
+static bool hls_filter_hw_avc = false;
+static bool hls_filter_hw_hevc = false;
+static char *hls_filter_custom_profile = NULL;
 static int type_264 = 0;
 static int type_265 = 0;
 static int type_hls = 0;
@@ -348,6 +354,8 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             }
             logger_log(logger, LOGGER_INFO, "Will use GStreamer playbin version %u to play HLS streamed video", playbin_version);	    
             g_assert(renderer_type[i]->pipeline);
+            hls_filter_install(renderer_type[i]->pipeline, hls_filter_device, hls_filter_hw_avc, hls_filter_hw_hevc,
+                               hls_filter_custom_profile, logger);
             renderer_type[i]->codec = hls;
             /* if we are not using an autovideosink, build a videosink based on the string "videosink" */
             if (!auto_videosink) { 
@@ -1203,6 +1211,16 @@ bool video_renderer_eos_watch() {
 	return true;
     }
     return false; 
+}
+
+/* A client that hands over a plain http(s) URL (Vimeo, Safari) has its master playlist fetched by GStreamer,
+ * not delivered through FCUP: apply the same device profile to it. */
+void video_renderer_set_hls_filter(device_profile_t device, bool hw_avc, bool hw_hevc, const char *custom_profile) {
+    hls_filter_device = device;
+    hls_filter_hw_avc = hw_avc;
+    hls_filter_hw_hevc = hw_hevc;
+    g_free(hls_filter_custom_profile);
+    hls_filter_custom_profile = g_strdup(custom_profile);
 }
 
 void video_renderer_hls_set_volume(double volume) {

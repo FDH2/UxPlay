@@ -35,6 +35,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include "../lib/logger.h"
+#include "../lib/raop.h"
 
 typedef enum videoflip_e {
     NONE,
@@ -77,6 +78,7 @@ bool video_renderer_eos_watch();
 void video_renderer_hls_set_volume(double volume);
 void video_renderer_set_window_handle(uintptr_t handle);
 bool gstreamer_decoder_check(const char *decoder);
+void video_renderer_set_hls_filter(device_profile_t device, bool hw_avc, bool hw_hevc, const char *custom_profile);
 #ifdef __cplusplus
 }
 #endif

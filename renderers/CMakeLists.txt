@@ -48,6 +48,7 @@ pkg_check_modules(GST REQUIRED    gstreamer-1.0>=1.4
 add_library( renderers
              STATIC
              audio_renderer.c
+             hls_filter.c
              video_renderer.c
              mux_renderer.c )
 
