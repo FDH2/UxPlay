@@ -836,7 +836,8 @@ static void hls_video_seek_to_start_position(GstElement *pipeline) {
         && hls_requested_start_position  <= hls_seek_end) {
         g_print("***************** seek to hls_requested_start_position %" GST_TIME_FORMAT "\n", GST_TIME_ARGS(hls_requested_start_position));
         if (gst_element_seek_simple (pipeline, GST_FORMAT_TIME,
-				 GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, hls_requested_start_position)) {
+                                     (GstSeekFlags) (GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
+                                     hls_requested_start_position)) {
             hls_requested_start_position = 0;
         } else {
             g_print("*** seek to requested_start_position failed\n"); 
@@ -1188,7 +1189,7 @@ void video_renderer_seek(float position) {
     g_print("SCRUB: seek to %f secs =  %" GST_TIME_FORMAT ", duration = %" GST_TIME_FORMAT "\n", position,
             GST_TIME_ARGS(seek_position),  GST_TIME_ARGS(hls_duration));
     gboolean result = gst_element_seek_simple(renderer->pipeline, GST_FORMAT_TIME,
-                                              (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT),
+                                              (GstSeekFlags)(GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_ACCURATE),
                                               seek_position);
     if (result) {
         g_print("seek succeeded\n");
