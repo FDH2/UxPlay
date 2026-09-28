@@ -177,6 +177,7 @@ static double db_low = -30.0;
 static double db_high = 0.0;
 static bool taper_volume = false;
 static double initial_volume = 0.0;
+static double current_volume = 0.0;
 static bool h265_support = false;
 static int n_video_renderers = 0;
 static int n_audio_renderers = 0;
@@ -2786,9 +2787,10 @@ extern "C" void video_flush (void *cls) {
 }
 
 extern "C" double audio_set_client_volume(void *cls) {
-    return initial_volume;
+    return current_volume;
 }
 
+//callback from RAOP_SET_PARAMETER "volume" handler
 extern "C" void audio_set_volume (void *cls, float volume) {
     double db, db_flat, frac, gst_volume;
     if (!use_audio) {
@@ -2798,11 +2800,13 @@ extern "C" void audio_set_volume (void *cls, float volume) {
     if (volume == -144.0f) {   /* AirPlay "mute" signal */
         frac = 0.0;
     } else if (volume < -30.0f) {
-        LOGE(" invalid AirPlay volume %f", volume);
+        LOGE(" invalid AirPlay volume %f < -30.0, use -30.0", volume);
         frac = 0.0;
+        volume = -30.0f;
     } else if (volume > 0.0f) {
-        LOGE(" invalid AirPlay volume %f", volume);
+        LOGE(" invalid AirPlay volume %f > 0.0, use 0.0", volume);
         frac = 1.0;
+        volume == 0.0f;
     } else if (volume == -30.0f) {
         frac = 0.0;
     } else if (volume == 0.0f) {
@@ -2811,7 +2815,7 @@ extern "C" void audio_set_volume (void *cls, float volume) {
         frac = (double) ( (30.0f + volume) / 30.0f);
         frac = (frac > 1.0) ? 1.0 : frac;
     }
-
+    current_volume = (double) volume;
     /* frac is length of volume slider as fraction of max length */
     /* also (steps/16) where steps is number of discrete steps above mute (16 = full volume) */
     if (frac == 0.0) {
@@ -2833,6 +2837,7 @@ extern "C" void audio_set_volume (void *cls, float volume) {
     }
     audio_renderer_set_volume(gst_volume);
     video_renderer_hls_set_volume(gst_volume);
+    LOGI("AirPlay volume %.1f dB (slider %.0f%%): GStreamer volume %.3f", (double) volume, 100.0 * frac, gst_volume);
 }
 
 extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat) {
@@ -3630,6 +3635,9 @@ int main (int argc, char *argv[]) {
         }	  
     }
 
+    /* starting volume is the user-selected initial volume */
+    current_volume = initial_volume;
+    
     if (start_dnssd(server_hw_addr, server_name)) {
         cleanup();
     }

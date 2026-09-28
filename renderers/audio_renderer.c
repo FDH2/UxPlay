@@ -41,6 +41,7 @@ static gboolean async = FALSE;
 static gboolean vsync = FALSE;
 static gboolean sync = FALSE;
 static gboolean audio_rtp = FALSE;
+static gdouble volume_level = 1.0;
 
 typedef struct audio_renderer_s {
     GstElement *appsrc; 
@@ -205,6 +206,9 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
+        if (renderer_type[i]->volume) {
+            g_object_set(renderer_type[i]->volume, "volume", volume_level, NULL);
+        }
         switch (i) {
         case 0:
             caps =  gst_caps_from_string(aac_eld_caps);
@@ -377,7 +381,12 @@ void audio_renderer_set_volume(double volume) {
     }
     volume = (volume > 10.0) ? 10.0 : volume;
     volume = (volume < 0.0) ? 0.0 : volume;
-    g_object_set(renderer->volume, "volume", volume, NULL);
+    volume_level = (gdouble) volume;
+    for (int i = 0; i < NFORMATS; i++) {
+        if (renderer_type[i] && renderer_type[i]->volume) {
+            g_object_set(renderer_type[i]->volume, "volume", volume_level, NULL);
+        }
+    }
 }
 
 void audio_renderer_flush() {

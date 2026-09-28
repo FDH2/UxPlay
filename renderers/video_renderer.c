@@ -75,6 +75,7 @@ static gboolean hls_seek_enabled = FALSE;
 static gboolean hls_playing = FALSE;
 static gboolean hls_buffer_empty = FALSE;
 static gboolean hls_buffer_full = FALSE;
+static gdouble hls_volume_level = 1.0; 
 static int type_264 = 0;
 static int type_265 = 0;
 static int type_hls = 0;
@@ -363,6 +364,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             flags |= GST_PLAY_FLAG_DOWNLOAD;
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
+            g_object_set(renderer_type[i]->pipeline, "volume", hls_volume_level, NULL);
             //g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
         } else {
             bool jpeg_pipeline = false;
@@ -1215,7 +1217,10 @@ void video_renderer_hls_set_volume(double volume) {
     }
     volume = (volume > 10.0) ? 10.0 : volume;
     volume = (volume < 0.0) ? 0.0 : volume;
-    g_object_set(renderer->pipeline, "volume", volume, NULL);
+    hls_volume_level = (gdouble) volume;
+    if (renderer && !strcmp(renderer->codec, hls)) {
+        g_object_set(renderer->pipeline, "volume", volume, NULL);
+    }
 }
 
 bool gstreamer_decoder_check(const char *decoder) {
