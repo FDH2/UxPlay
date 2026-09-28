@@ -796,8 +796,10 @@ void video_renderer_destroy() {
     for (int i = 0; i < n_renderers; i++) {
         if (renderer_type[i]) {
             video_renderer_destroy_instance(renderer_type[i]);
-        }
+            renderer_type[i] = NULL;
+        } 
     }
+    renderer = NULL;
 }
 
 static void get_stream_status_name(GstStreamStatusType type, char *name, size_t len) {
@@ -1180,7 +1182,7 @@ void video_renderer_set_start(float position) {
 void video_renderer_seek(float position) {
      gint64 seek_position = (gint64) ((double) position * GST_SECOND);
     /* don't seek to within 1  microsecond  of beginning or end of video */
-    if (hls_duration < 2000) return;
+    if (!renderer || hls_duration < 2000) return;
     seek_position =  seek_position < 1000 ? 1000 : seek_position;
     seek_position =  seek_position > hls_duration  - 1000 ? hls_duration - 1000 : seek_position;
     g_print("SCRUB: seek to %f secs =  %" GST_TIME_FORMAT ", duration = %" GST_TIME_FORMAT "\n", position,
@@ -1204,7 +1206,7 @@ unsigned int video_renderer_listen(void *loop, int id) {
 }
 
 bool video_renderer_eos_watch() {
-    if (hls_video && renderer->eos) {
+    if (hls_video && renderer || renderer->eos) {
         renderer->eos = FALSE;
 	return true;
     }
