@@ -555,19 +555,26 @@ void video_renderer_start() {
 #endif
 }
 
-/* used to find any X11 Window used by the playbin (HLS) pipeline after it starts playing. 
-*  if use_x11 is true, called every 100 ms after playbin state is READY until the x11 window is found*/
+/* this is a g_timeout_add (100ms interval) callback in the uxplay main_loop that watches to see if an X11 window has been
+   created by GStreamer's Playbin/Playbin3 (to activate X11 features such as full-screen toggle.).
+   Initially renderer->use_x11 is true if the requested videosink was either X11 (xvimagesink or ximagesink)
+   or auto (autovideosink, fpsdisplaysink).    In the auto case, renderer->use_x11 is set to false
+   once a bus message that the  videosink has been chosen is received, and the choice is NOT X11. */
 bool waiting_for_x11_window() {
     if (!hls_video) {
+        /* not HLS */
         return false;
     }
 #ifdef X_DISPLAY_FIX
-    if (use_x11 && renderer->gst_window) {
-        get_x_window(renderer->gst_window, renderer->server_name);
-        if (!renderer->gst_window->window) {
-	    return true;    /* window still not found */
-        }
+    /*not using X11 */
+    if (!renderer || !renderer->gst_window || !renderer->use_x11) {
+        return false;
     }
+    get_x_window(renderer->gst_window, renderer->server_name);
+    if (!renderer->gst_window->window) {
+        return true;    /* may be using X11, but window still not found */
+    }
+    /* have found X11 window */
     if (fullscreen) {
          set_fullscreen(renderer->gst_window, &fullscreen);
     }
