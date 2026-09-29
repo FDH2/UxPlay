@@ -186,7 +186,6 @@ static std::string lang_requested = "";
 static std::string lang_subtitles = "";
 static std::string lang_system = "";
 static std::string url = "";
-static float url_start_position = 0.0f;
 static guint gst_x11_window_id = 0;
 static guint video_eos_watch_id = 0;
 static guint progress_id = 0;
@@ -2993,8 +2992,8 @@ extern "C" bool check_register(void *cls, const char *client_pk) {
 /* control  callbacks for video player (unimplemented) */
 
 extern "C" void on_video_play(void *cls, const char* location, const float start_position) {
-    /* store start_position until renderer for this url exists */
-    url_start_position = start_position;
+    /* start_position needs to be implemented */
+    video_renderer_set_start(start_position);
     url.erase();
     url.append(location);
     relaunch_video = true;
@@ -3692,10 +3691,6 @@ int main (int argc, char *argv[]) {
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
-            if (uri) {
-                video_renderer_set_start(url_start_position);
-                url_start_position = 0.0f;
-            }
             full_video_reset = false;
             video_renderer_start();
         }
