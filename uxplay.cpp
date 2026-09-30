@@ -2806,7 +2806,7 @@ extern "C" void audio_set_volume (void *cls, float volume) {
     } else if (volume > 0.0f) {
         LOGE(" invalid AirPlay volume %f > 0.0, use 0.0", volume);
         frac = 1.0;
-        volume == 0.0f;
+        volume = 0.0f;
     } else if (volume == -30.0f) {
         frac = 0.0;
     } else if (volume == 0.0f) {
