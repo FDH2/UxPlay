@@ -46,6 +46,7 @@ struct http_connection_s {
     int pending_remove;
     char staging[8];
     int staging_len;
+    time_t last_active;
 };
 typedef struct http_connection_s http_connection_t;
 
@@ -183,6 +184,7 @@ httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
         httpd->connections[i].pending_remove = 0;
         httpd->connections[i].staging_len = 0;
         httpd->connections[i].staging[0] = '\0';
+        httpd->connections[i].last_active = time(NULL);
     }
 
     /* Use the logger provided */
@@ -282,6 +284,7 @@ httpd_add_connection(httpd_t *httpd, int fd, unsigned char *local, int local_len
     httpd->connections[i].type = CONNECTION_TYPE_UNKNOWN;   //should not be necessary ...
     httpd->connections[i].staging_len = 0;
     httpd->connections[i].staging[0] = '\0';
+    httpd->connections[i].last_active = time(NULL);
     return 0;
 }
 
@@ -371,6 +374,7 @@ httpd_thread(void *arg)
     char http[] = "HTTP/1.1";
     char event[] = "EVENT/1.0";
     char buffer[1024];
+    int timeout_limit = 60; //drop connection after 60 secs of silence
 
     bool logger_debug = (logger_get_level(httpd->logger) >= LOGGER_DEBUG);
     assert(httpd);
@@ -445,6 +449,7 @@ httpd_thread(void *arg)
                 continue;
             }
         }
+        time_t now = time(NULL);
         if (httpd->open_connections < httpd->max_connections &&
             httpd->server_fd6 != -1 && FD_ISSET(httpd->server_fd6, &rfds)) {
             int ret = httpd_accept_connection(httpd, httpd->server_fd6, 1);
@@ -464,6 +469,12 @@ httpd_thread(void *arg)
             }
             if (!FD_ISSET(connection->socket_fd, &rfds)) {
                 continue;
+            }
+            if (now - connection->last_active > timeout_limit) {
+                logger_log(httpd->logger, LOGGER_WARNING,
+                           "httpd closing dead connection on socket %d after timeout_limit = %d seconds of inactivity",
+                            connection->socket_fd, timeout_limit);
+                httpd_remove_connection(httpd, connection, 0);
             }
             /* If not in the middle of request, allocate one */
             if (!connection->request) {
@@ -515,6 +526,7 @@ httpd_thread(void *arg)
                         continue;
                     }
                 }
+                connection->last_active = time(NULL);
                 connection->staging_len += ret;
                 if (connection->staging_len < 8) {
                     connection->staging[connection->staging_len] = '\0';
@@ -539,6 +551,7 @@ httpd_thread(void *arg)
                         continue;
                     }
                 } else {
+                    connection->last_active = time(NULL);
                     recv_datalen = ret;
                 }
             }
