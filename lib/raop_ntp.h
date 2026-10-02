@@ -67,7 +67,7 @@ uint64_t raop_ntp_get_local_time();
 uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp);
 uint64_t raop_ntp_convert_remote_time(raop_ntp_t *raop_ntp, uint64_t remote_time);
 uint64_t raop_ntp_convert_local_time(raop_ntp_t *raop_ntp, uint64_t local_time);
-
+void raop_ntp_get_sync_params(raop_ntp_t *raop_ntp, int64_t *offset_ns, double *delay_sec);
 void  raop_ntp_set_video_arrival_offset(raop_ntp_t* raop_ntp, const uint64_t *offset);
 uint64_t raop_ntp_get_video_arrival_offset(raop_ntp_t* raop_ntp);
 
