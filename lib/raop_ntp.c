@@ -77,6 +77,7 @@ struct raop_ntp_s {
     mutex_handle_t sync_params_mutex;
     int64_t sync_offset;
     bool is_synced;
+    double sync_delay;
     uint64_t root_distance; 
     bool kernel_timestamp_inconsistency_detected;
     uint64_t last_detection_time;
@@ -823,6 +824,7 @@ raop_ntp_thread(void *arg) {
                         raop_ntp->is_synced = is_synced;
                         raop_ntp->sync_offset = sync_offset;
                         raop_ntp->root_distance = root_distance_nsec;
+                        raop_ntp->sync_delay = data_sorted[0].delay;
                         MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
                         have_offset = true;
                         logger_log(raop_ntp->logger, LOGGER_DEBUG, "current client NTP offset (secs) = %9.6f, root_distance (secs) = %8.6f, is_synced = %s\n",
@@ -933,6 +935,19 @@ raop_ntp_stop(raop_ntp_t *raop_ntp)
     MUTEX_LOCK(raop_ntp->run_mutex);
     raop_ntp->joined = 1;
     MUTEX_UNLOCK(raop_ntp->run_mutex);
+}
+
+void raop_ntp_get_sync_params(raop_ntp_t *raop_ntp, int64_t *offset_ns, double *delay_sec) {
+    if (!raop_ntp) return;
+
+    MUTEX_LOCK(raop_ntp->sync_params_mutex);
+    if (offset_ns) {
+        *offset_ns = raop_ntp->sync_offset;
+    }
+    if (delay_sec) {
+        *delay_sec = raop_ntp->sync_delay;
+    }
+    MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
 }
 
 /**
