@@ -33,7 +33,7 @@
 #include "utils.h"
 #include "byteutils.h"
 
-#define RAOP_BUFFER_LENGTH 256
+#define RAOP_BUFFER_LENGTH 32
 
 typedef struct {
     /* Data available */
