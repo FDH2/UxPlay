@@ -203,11 +203,12 @@ kernel_timestamp_session_t* kernel_timestamp_session_create(raop_ntp_t *raop_ntp
 
 ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char *buf, size_t buf_len, 
                                       void *src_addr, int *addrlen, uint64_t *recv_time_kernel, uint64_t *recv_time_clock) {
-    if (!session || !buf || buf_len == 0 || !recv_time_kernel || !recv_time_clock) return -1;
-    *recv_time_kernel = 0;
-    *recv_time_clock = 0;
+    if (!session || !buf || buf_len == 0) return -1;
+
+    if (recv_time_kernel && recv_time_clock) {
+        *recv_time_kernel = 0;
+        *recv_time_clock = 0;
 #ifdef _WIN32
-    {
 #if defined(SIO_TIMESTAMPING) //not defined in legacy MSVCRT systems such as MSYS2 MINGW64
         if (session->pWSARecvMsg_ptr) {
             LPFN_WSARECVMSG pWSARecvMsg = (LPFN_WSARECVMSG) session->pWSARecvMsg_ptr;
@@ -306,27 +307,7 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
             } 
         }
 #endif
-        //Windows fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems
-        int from_len = (src_addr && addrlen) ? *addrlen : sizeof(struct sockaddr_storage);
-        struct sockaddr_storage fallback_addr = {0};
-
-        ssize_t n = recvfrom((SOCKET)session->sock_fd, buf, (int)buf_len, 0, 
-                                 src_addr ? (struct sockaddr*)src_addr : (struct sockaddr*)&fallback_addr, &from_len);
-        if (n >= 0) {
-            LARGE_INTEGER qpc_now;
-            int64_t elapsed_ticks;
-            if (addrlen) {
-                *addrlen = from_len;
-            }
-            QueryPerformanceCounter(&qpc_now);
-            elapsed_ticks = qpc_now.QuadPart - session->base_qpc_ticks;
-            *recv_time_clock = (session->base_system_time_us + ((elapsed_ticks * 1000000LL) / session->qpc_frequency)) * USEC_IN_NSECS;
-            return n;
-        }
-        return -1;
-    }
 #else // non-Windows POSIX path
-    {
         struct sockaddr_storage remote_addr = {0};
         struct iovec iov = { .iov_base = buf, .iov_len = buf_len };
     
@@ -371,8 +352,21 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
         }
 
         return n;
-    }
 #endif
+    }
+    //Fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems or if recv_time_kernel == NULL
+#ifdef _WIN32
+    int n = recvfrom(session->sock_fd, buf, (int) buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) &addrlen);
+#else
+    ssize_t n = recvfrom(session->sock_fd, buf, buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) &addrlen);
+#endif
+    if (recv_time_clock) {
+        *recv_time_clock = 0;
+        if ( n >= 0) {
+            *recv_time_clock = raop_ntp_get_local_time();
+        }
+    }
+    return (ssize_t) n;
 }
 
 void kernel_timestamp_session_destroy(kernel_timestamp_session_t *ntp_session) {
