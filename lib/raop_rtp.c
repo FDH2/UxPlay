@@ -97,6 +97,9 @@ struct raop_rtp_s {
 
     /* Sockets for control and data */
     int csock, dsock;
+    /* add-ons for accessing kernel recv timetamps */
+    kernel_timestamp_session_t *rtp_session_csock;
+    kernel_timestamp_session_t *rtp_session_dsock;
 
     /* Local control, timing and data ports */
     unsigned short control_lport;
@@ -244,6 +247,18 @@ raop_rtp_init_sockets(raop_rtp_t *raop_rtp, int use_ipv6)
         goto sockets_cleanup;
     }
 
+    raop_rtp->rtp_session_csock = kernel_timestamp_session_create(raop_rtp->ntp, csock);
+    if (raop_rtp->rtp_session_csock == NULL) {
+        logger_log(raop_rtp->logger, LOGGER_ERR, "raop_rtp: Failed to allocate high-precision session context (csock)");
+        goto sockets_cleanup;
+    }
+
+    raop_rtp->rtp_session_dsock = kernel_timestamp_session_create(raop_rtp->ntp, dsock);
+    if (raop_rtp->rtp_session_dsock == NULL) {
+        logger_log(raop_rtp->logger, LOGGER_ERR, "raop_rtp: Failed to allocate high-precision session context (dsock)");
+        goto sockets_cleanup;
+    }
+
     /* Set socket descriptors */
     raop_rtp->csock = csock;
     raop_rtp->dsock = dsock;
@@ -256,8 +271,22 @@ raop_rtp_init_sockets(raop_rtp_t *raop_rtp, int use_ipv6)
     return 0;
 
     sockets_cleanup:
-    if (csock != -1) CLOSESOCKET(csock);
-    if (dsock != -1) CLOSESOCKET(dsock);
+    if (raop_rtp->rtp_session_csock != NULL) {
+        kernel_timestamp_session_destroy(raop_rtp->rtp_session_csock);
+        raop_rtp->rtp_session_csock = NULL;
+    } else if (csock != -1) {
+        // Fallback to protect if the handle crashed out before session instantiation
+        CLOSESOCKET(csock);
+    }
+
+    if (raop_rtp->rtp_session_dsock != NULL) {
+        kernel_timestamp_session_destroy(raop_rtp->rtp_session_dsock);
+        raop_rtp->rtp_session_dsock = NULL;
+    } else if (dsock != -1) {
+        // Fallback to protect if the handle crashed out before session instantiation
+        CLOSESOCKET(dsock);
+    }
+
     return -1;
 }
 
@@ -386,6 +415,8 @@ raop_rtp_thread_udp(void *arg)
     socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
+    uint64_t recv_time_kernel = 0;
+    uint64_t recv_time_clock = 0;
 
     /* initial audio stream has no data */    
     unsigned char no_data_marker[] = {0x00, 0x68, 0x34, 0x00 };
@@ -449,15 +480,17 @@ raop_rtp_thread_udp(void *arg)
         if (FD_ISSET(raop_rtp->csock, &rfds)) {
             if (got_remote_control_saddr== false) {
                 saddrlen = sizeof(saddr);
-                packetlen = recvfrom(raop_rtp->csock, (char *) packet, sizeof(packet), 0,
-				     (struct sockaddr *)&saddr, &saddrlen);
+                packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
+                                                          (void *) &saddr, (int *) &saddrlen,
+                                                          &recv_time_kernel, &recv_time_clock);
                 if (packetlen > 0) {
                     memcpy(&raop_rtp->control_saddr, &saddr, saddrlen);
                     raop_rtp->control_saddr_len = saddrlen;
                     got_remote_control_saddr = true;
                 }
             } else {
-	      packetlen = recvfrom(raop_rtp->csock, (char *) packet, sizeof(packet), 0, NULL, NULL);
+                packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_csock, (char *) packet, sizeof(packet),
+                                                          NULL, NULL, &recv_time_kernel, &recv_time_clock);
             }
 
             int type_c = packet[1] & ~0x80;
@@ -563,11 +596,14 @@ raop_rtp_thread_udp(void *arg)
             }
             //logger_log(raop_rtp->logger, LOGGER_INFO, "Would have data packet in queue");
             // Receiving audio data here
-            saddrlen = sizeof(saddr);
-            packetlen = recvfrom(raop_rtp->dsock, (char *) packet, sizeof(packet), 0, NULL, NULL);
+
             // rtp payload type
             //int type_d = packet[1] & ~0x80;
             //logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp_thread_udp type_d 0x%02x, packetlen = %d", type_d, packetlen);
+
+            saddrlen = sizeof(saddr);
+            packetlen = kernel_timestamp_session_recv(raop_rtp->rtp_session_dsock, (char *) packet, sizeof(packet),
+                                                      NULL, NULL, &recv_time_kernel, &recv_time_clock);
 
             if (packetlen < 12)  {
                 if (logger_debug) {
