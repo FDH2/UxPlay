@@ -1206,6 +1206,10 @@ unsigned int video_renderer_listen(void *loop, int id) {
                                             gstreamer_video_pipeline_bus_callback, (gpointer) loop);    
 }
 
+bool video_renderer_is_hls() {
+    return hls_video;
+}
+
 bool video_renderer_eos_watch() {
     if (hls_video && renderer && renderer->eos) {
         renderer->eos = FALSE;
