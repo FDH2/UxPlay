@@ -32,6 +32,7 @@
 #include <sstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <iterator>
 #include <sys/stat.h>
 #include <cstdio>
@@ -195,6 +196,11 @@ static guint missed_feedback_limit = MISSED_FEEDBACK_LIMIT;
 static guint missed_feedback = 0;
 static guint playbin_version = DEFAULT_PLAYBIN_VERSION;
 static bool reset_httpd = false;
+/* restart requests (url, relaunch_video, reset_loop, preserve_connections, reset_httpd,
+ * close_window, full_video_reset) are posted from the http, mirror and main threads:
+ * post them under this lock; the main thread consumes them only in take_restart_request().
+ * (recursive: on_video_play() calls video_reset()) */
+static std::recursive_mutex restart_request_lock;
 static bool monitor_progress = false;
 static uint32_t rtptime = 0;
 static uint32_t rtptime_prev = 0;
@@ -573,6 +579,7 @@ static void dump_video_to_file(unsigned char *data, int datalen) {
 }
 
 static gboolean feedback_callback(gpointer loop) {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
     if (open_connections) {
         if (missed_feedback_limit && missed_feedback > missed_feedback_limit) {
             LOGI("***ERROR lost connection with client (network problem?)");
@@ -598,6 +605,7 @@ static gboolean feedback_callback(gpointer loop) {
 }
 
 static gboolean reset_callback(gpointer loop) {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
     if (reset_loop) {
         g_main_loop_quit((GMainLoop *) loop);
     }
@@ -732,23 +740,49 @@ static gboolean dnssd_socket_callback(BONJOUR_SOURCE, GIOCondition condition, gp
 }
 #endif
 
+struct restart_request {
+    bool relaunch;
+    bool rebuild_video;
+    bool preserve_connections;
+    bool restart_httpd;
+    std::string url;
+};
+
+/* consume the restart request posted while main_loop ran, and reset it to defaults.
+ * Requests are only cleared here: one posted after this returns (e.g. a /play that
+ * arrives while the video renderer is being rebuilt) makes the next main_loop exit. */
+static restart_request take_restart_request() {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
+    restart_request request;
+    request.relaunch = relaunch_video;
+    request.rebuild_video = close_window || preserve_connections || full_video_reset;
+    request.preserve_connections = preserve_connections;
+    request.restart_httpd = reset_httpd;
+    if (preserve_connections) {
+        request.url = url;
+    }
+    url.erase();
+    relaunch_video = use_video;
+    reset_loop = false;
+    reset_httpd = false;
+    preserve_connections = false;
+    full_video_reset = false;
+    close_window = new_window_closing_behavior;
+    return request;
+}
+
 #define MAX_VIDEO_RENDERERS 3
 #define MAX_AUDIO_RENDERERS 2
 static void main_loop()  {
     guint gst_video_bus_watch_id[MAX_VIDEO_RENDERERS] = { 0 };
     guint gst_audio_bus_watch_id[MAX_AUDIO_RENDERERS] = { 0 };
     GMainLoop *loop = g_main_loop_new(NULL,FALSE);
-    relaunch_video = false;
     monitor_progress = false;
-    reset_loop = false;
-    reset_httpd = false;
-    preserve_connections = false;
     n_video_renderers = 0;
     n_audio_renderers = 0;
     if (use_video) {
         n_video_renderers = 1;
-        relaunch_video = true;
-        if (url.empty()) {
+        if (!video_renderer_is_hls()) {
             if (h265_support) {
                 n_video_renderers++;
             }
@@ -760,7 +794,6 @@ static void main_loop()  {
 	    video_eos_watch_id = 0;
         } else {
             /* hls video will be rendered: renderer[0] : hls  */
-            url.erase();
             video_eos_watch_id = g_timeout_add(100, (GSourceFunc) video_eos_watch_callback, (gpointer) loop);
             gst_x11_window_id = g_timeout_add(100, (GSourceFunc) x11_window_callback, (gpointer) loop);
         }
@@ -2515,6 +2548,7 @@ static bool check_blocked_client(char *deviceid) {
 //to be simplified
 
 extern "C" void video_reset(void *cls, reset_type_t type) {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
     switch (type) {
     case RESET_TYPE_NOHOLD:
         LOGD("video_reset: type = NoHold");
@@ -2651,6 +2685,7 @@ extern "C" void conn_feedback (void *cls) {
 }
 
 extern "C" void conn_reset (void *cls, int reason) {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
     switch (reason) {
     case 1:
         LOGI("*** ERROR lost connection with client (network problem?)");
@@ -2992,6 +3027,7 @@ extern "C" bool check_register(void *cls, const char *client_pk) {
 /* control  callbacks for video player (unimplemented) */
 
 extern "C" void on_video_play(void *cls, const char* location, const float start_position) {
+    std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
     /* start_position needs to be implemented */
     video_renderer_set_start(start_position);
     url.erase();
@@ -3669,32 +3705,35 @@ int main (int argc, char *argv[]) {
         stop_dnssd();
         cleanup();
     }
+    {
+        std::lock_guard<std::recursive_mutex> lock(restart_request_lock);
+        relaunch_video = use_video;
+        close_window = new_window_closing_behavior;
+    }
     reconnect:
     compression_type = 0;
-    close_window = new_window_closing_behavior;
     main_loop();
-    if (relaunch_video) {
-        if (reset_httpd) {
+    restart_request request = take_restart_request();
+    if (request.relaunch) {
+        if (request.restart_httpd) {
             raop_stop_httpd(raop);
         }
         if (use_audio) {
             audio_renderer_stop();
         }
-        if (use_video && (close_window || preserve_connections || full_video_reset)) {
+        if (use_video && request.rebuild_video) {
             video_renderer_destroy();
-            if (!preserve_connections) {
-                url.erase();
+            if (!request.preserve_connections) {
                 raop_remove_known_connections(raop);
             }
-            const char *uri = (url.empty() ? NULL : url.c_str());
+            const char *uri = (request.url.empty() ? NULL : request.url.c_str());
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
                                 render_coverart, playbin_version, uri);
-            full_video_reset = false;
             video_renderer_start();
         }
-        if (reset_httpd) {
+        if (request.restart_httpd) {
             unsigned short port = raop_get_port(raop);
             raop_start_httpd(raop, &port);
             raop_set_port(raop, port);
