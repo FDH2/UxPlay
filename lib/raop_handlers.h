@@ -148,7 +148,7 @@ raop_handler_info(raop_conn_t *conn,
     plist_t status_flags_node = plist_new_uint(68);
     plist_dict_set_item(res_node, "statusFlags", status_flags_node);
 
-    plist_t keep_alive_low_power_node = plist_new_uint(1);
+    plist_t keep_alive_low_power_node = plist_new_bool(1);
     plist_dict_set_item(res_node, "keepAliveLowPower", keep_alive_low_power_node);
 
     plist_t source_version_node = plist_new_string(GLOBAL_VERSION);
