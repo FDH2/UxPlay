@@ -118,6 +118,14 @@ struct video_renderer_s {
 
 static video_renderer_t *renderer = NULL;
 static video_renderer_t *renderer_type[NCODECS] = {0};
+/* renderer, renderer_type[], hls_video and the appsrcs are used by the mirror thread (codec choice,
+ * video frames), the http thread (HLS control, video reset) and the main loop (bus messages, renderer
+ * reset).  Every public entry point that uses them, and the bus callback, holds this lock for its whole
+ * body, so a renderer cannot be destroyed while another thread is using it.  (recursive: locked
+ * functions call each other) */
+static GRecMutex renderer_lock;
+#define LOCK_RENDERER() \
+    g_autoptr(GRecMutexLocker) renderer_locker G_GNUC_UNUSED = g_rec_mutex_locker_new(&renderer_lock)
 static int n_renderers = NCODECS;
 static char h264[] = "h264";
 static char h265[] = "h265";
@@ -275,6 +283,7 @@ g_string_replace (GString     *string,
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
+    LOCK_RENDERER();
     GError *error = NULL;
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
@@ -510,6 +519,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
 }
 
 void video_renderer_pause() {
+    LOCK_RENDERER();
     if (!renderer) {
         return;
     }
@@ -518,6 +528,7 @@ void video_renderer_pause() {
 }
 
 void video_renderer_resume() {
+    LOCK_RENDERER();
     if (!renderer) {
         return;
     }
@@ -533,6 +544,7 @@ void video_renderer_resume() {
 }
 
 void video_renderer_start() {
+    LOCK_RENDERER();
     GstState state;
     const gchar *state_name = NULL;
     if (hls_video) {
@@ -563,6 +575,7 @@ void video_renderer_start() {
    or auto (autovideosink, fpsdisplaysink).    In the auto case, renderer->use_x11 is set to false
    once a bus message that the  videosink has been chosen is received, and the choice is NOT X11. */
 bool waiting_for_x11_window() {
+    LOCK_RENDERER();
     if (!hls_video) {
         /* not HLS */
         return false;
@@ -586,6 +599,7 @@ bool waiting_for_x11_window() {
 
 /* use this to cycle the jpeg renderer to remove expired coverart when no new coverart has replaced it */
 int video_renderer_cycle() {
+    LOCK_RENDERER();
     if (!renderer || !strstr(renderer->codec, jpeg)) {
         return -1;
     }
@@ -627,6 +641,7 @@ int video_renderer_cycle() {
 }
 
 void video_renderer_display_jpeg(const void *data, int *data_len) {
+    LOCK_RENDERER();
     GstBuffer *buffer = NULL;
     if (type_jpeg == -1) {
         return;
@@ -640,6 +655,7 @@ void video_renderer_display_jpeg(const void *data, int *data_len) {
 }
 
 uint64_t video_renderer_render_buffer(unsigned char* data, int *data_len, int *nal_count, uint64_t *ntp_time) {
+    LOCK_RENDERER();
     GstBuffer *buffer = NULL;
     GstClockTime pts = (GstClockTime) *ntp_time; /*now in nsecs */
     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
@@ -698,6 +714,7 @@ void video_renderer_flush() {
 }
 
 void video_renderer_hls_ready() {
+    LOCK_RENDERER();
     GstState state;
     GstStateChangeReturn ret;
     if (renderer && hls_video) {
@@ -711,6 +728,7 @@ void video_renderer_hls_ready() {
 }
 
 void video_renderer_stop() {
+    LOCK_RENDERER();
     if (renderer) {
         logger_log(logger, LOGGER_DEBUG,"video_renderer_stop");
         if (renderer->appsrc) {
@@ -728,6 +746,7 @@ void video_renderer_set_device_model(const char *model, const char *name) {
 }
 
 void video_renderer_set_track_metadata(const char *title, const char *artist, const char *album) {
+    LOCK_RENDERER();
     // Track metadata display superimposed on coverart is now supported in GStreamer renderer
     GString *metadata = g_string_new("");
     if (artist) {
@@ -793,6 +812,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
 }
 
 void video_renderer_destroy() {
+    LOCK_RENDERER();
     for (int i = 0; i < n_renderers; i++) {
         if (renderer_type[i]) {
             video_renderer_destroy_instance(renderer_type[i]);
@@ -846,6 +866,7 @@ static void hls_video_seek_to_start_position(GstElement *pipeline) {
 }
 
 static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *message, void *loop) {
+    LOCK_RENDERER();
     GstState old_state, new_state;
     const gchar no_state[] = "";
     const gchar *old_state_name = no_state, *new_state_name = no_state;
@@ -1075,8 +1096,13 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
 }
 
 int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
+    LOCK_RENDERER();
     video_renderer_t *renderer_used = NULL;
-    g_assert(!hls_video);
+    if (hls_video) {
+        /* mirror video arrived before the HLS renderer was replaced */
+        logger_log(logger, LOGGER_ERR, "video_renderer_choose_codec: HLS renderer is still active");
+        return -1;
+    }
     if (video_is_jpeg) {
         g_assert(type_jpeg != -1);
         renderer_used = renderer_type[type_jpeg];
@@ -1128,6 +1154,7 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
     
 
 bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full) {
+    LOCK_RENDERER();
     gint64 pos = 0;
     GstState state;
     *duration = 0.0;
@@ -1181,6 +1208,7 @@ void video_renderer_set_start(float position) {
 }
 
 void video_renderer_seek(float position) {
+    LOCK_RENDERER();
      gint64 seek_position = (gint64) ((double) position * GST_SECOND);
     /* don't seek to within 1  microsecond  of beginning or end of video */
     if (!renderer || hls_duration < 2000) return;
@@ -1200,6 +1228,7 @@ void video_renderer_seek(float position) {
 }
 
 unsigned int video_renderer_listen(void *loop, int id) {
+    LOCK_RENDERER();
     g_assert(id >= 0 && id < n_renderers);
     g_assert (renderer_type[id] && renderer_type[id]->bus);
     return (unsigned int) gst_bus_add_watch(renderer_type[id]->bus,(GstBusFunc)
@@ -1207,6 +1236,7 @@ unsigned int video_renderer_listen(void *loop, int id) {
 }
 
 bool video_renderer_eos_watch() {
+    LOCK_RENDERER();
     if (hls_video && renderer && renderer->eos) {
         renderer->eos = FALSE;
 	return true;
@@ -1215,6 +1245,7 @@ bool video_renderer_eos_watch() {
 }
 
 void video_renderer_hls_set_volume(double volume) {
+    LOCK_RENDERER();
     if (!renderer || strcmp(renderer->codec, hls)) {
        return;
     }
