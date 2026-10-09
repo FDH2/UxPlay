@@ -405,6 +405,32 @@ static uint64_t rtp_time_to_client_ntp(raop_rtp_t *raop_rtp,  uint32_t rtp32) {
     }
 }
 
+static void
+raop_rtp_process_audio(raop_rtp_t *raop_rtp, void *payload, unsigned int payload_size,
+                      uint32_t rtp_timestamp, unsigned short seqnum, const char *type) {
+    bool logger_debug_data = (logger_get_level(raop_rtp->logger) >= LOGGER_DEBUG_DATA);
+    audio_decode_struct audio_data; 
+    audio_data.rtp_time = rtp_timestamp;
+    audio_data.seqnum = seqnum;
+    audio_data.data_len = payload_size;
+    audio_data.data = payload;
+    audio_data.ct = raop_rtp->ct;
+    audio_data.ntp_time_remote = rtp_time_to_client_ntp(raop_rtp, rtp_timestamp);
+    audio_data.ntp_time_local  = raop_ntp_convert_remote_time(raop_rtp->ntp, audio_data.ntp_time_remote);
+
+    if (logger_debug_data) {
+        uint64_t ntp_now = raop_ntp_get_local_time();
+        int64_t latency = (audio_data.ntp_time_local ? ((int64_t) ntp_now) - ((int64_t) audio_data.ntp_time_local) : 0); 
+        logger_log(raop_rtp->logger, LOGGER_DEBUG,
+                   "raop_rtp audio: now = %8.6f, ntp = %8.6f, latency = %9.6f, ts = %8.6f, rtp_time=%u seqnum = %5u %s %d",
+                   (double) ntp_now / SEC, (double) audio_data.ntp_time_local / SEC, (double) latency / SEC,
+                   (double) audio_data.ntp_time_remote /SEC, rtp_timestamp, seqnum, type, payload_size);
+    }
+
+    raop_rtp->callbacks.audio_process(raop_rtp->callbacks.cls, raop_rtp->ntp, &audio_data);
+    free(payload);
+}
+
 static THREAD_RETVAL
 raop_rtp_thread_udp(void *arg)
 {
@@ -628,6 +654,21 @@ raop_rtp_thread_udp(void *arg)
             if (packetlen == 12 ||(packetlen == 16 && memcmp(packet + 12, no_data_marker, 4) == 0)) {
                 /* this is a "no data" packet */
 	        /* the first such packet could be used to provide the initial rtptime and seqnum formerly given in the RECORD request */
+                /* A "no data" packet also carries the seqnum the sender has reached: the sender skips
+                 * seqnums over silence (e.g. pauses in a podcast). Those numbers are not lost packets, so
+                 * deliver what is buffered below it and expect the next packet at seqnum + 1, instead of
+                 * requesting resends that will never be answered. */
+                if (raop_rtp->initial_sync && packetlen >= 4) {
+                    unsigned short skip_seqnum = byteutils_get_short_be(packet, 2);
+                    void *skip_payload = NULL;
+                    unsigned int skip_size = 0;
+                    unsigned short skip_seq = 0;
+                    uint32_t skip_ts = 0;
+                    while ((skip_payload = raop_buffer_dequeue_upto(raop_rtp->buffer, &skip_size, &skip_ts, &skip_seq, skip_seqnum))) {
+                        raop_rtp_process_audio(raop_rtp, skip_payload, skip_size, skip_ts, skip_seq, type);
+                    }
+                    raop_buffer_set_next_seqnum(raop_rtp->buffer, (unsigned short) (skip_seqnum + 1));
+                }
                 continue;
             }
 	    
@@ -646,26 +687,7 @@ raop_rtp_thread_udp(void *arg)
                 uint32_t rtp_timestamp = 0;
 
                 while ((payload = raop_buffer_dequeue(raop_rtp->buffer, &payload_size, &rtp_timestamp, &seqnum, no_resend))) {
-                    audio_decode_struct audio_data; 
-                    audio_data.rtp_time = rtp_timestamp;
-                    audio_data.seqnum = seqnum;
-                    audio_data.data_len = payload_size;
-                    audio_data.data = payload;
-                    audio_data.ct = raop_rtp->ct;
-                    audio_data.ntp_time_remote = rtp_time_to_client_ntp(raop_rtp, rtp_timestamp);
-                    audio_data.ntp_time_local  = raop_ntp_convert_remote_time(raop_rtp->ntp, audio_data.ntp_time_remote);
-
-                    if (logger_debug_data) {
-                        uint64_t ntp_now = raop_ntp_get_local_time();
-                        int64_t latency = (audio_data.ntp_time_local ? ((int64_t) ntp_now) - ((int64_t) audio_data.ntp_time_local) : 0); 
-                        logger_log(raop_rtp->logger, LOGGER_DEBUG,
-                                   "raop_rtp audio: now = %8.6f, ntp = %8.6f, latency = %9.6f, ts = %8.6f, rtp_time=%u seqnum = %5u %s %d",
-                                   (double) ntp_now / SEC, (double) audio_data.ntp_time_local / SEC, (double) latency / SEC,
-                                   (double) audio_data.ntp_time_remote /SEC, rtp_timestamp, seqnum, type, payload_size);
-                    }
-
-                    raop_rtp->callbacks.audio_process(raop_rtp->callbacks.cls, raop_rtp->ntp, &audio_data);
-                    free(payload);
+                    raop_rtp_process_audio(raop_rtp, payload, payload_size, rtp_timestamp, seqnum, type);
                 }
 
                 /* Handle possible resend requests */
