@@ -30,6 +30,12 @@ raop_buffer_t *raop_buffer_init(logger_t *logger,
                                 const unsigned char *aesiv);
 int raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned short datalen, int use_seqnum);
 void *raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *rtp_timestamp, unsigned short *seqnum, int no_resend);
+/* Dequeue buffered entries with seqnum before limit_seq, in order, skipping missing ones without a
+ * resend. Returns NULL when none remain. */
+void *raop_buffer_dequeue_upto(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *rtp_timestamp,
+                               unsigned short *seqnum, unsigned short limit_seq);
+/* Expect seqnum next; free any older entries still buffered. */
+void raop_buffer_set_next_seqnum(raop_buffer_t *raop_buffer, unsigned short seqnum);
 void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t resend_cb, void *opaque);
 void raop_buffer_flush(raop_buffer_t *raop_buffer, int next_seq);
 

@@ -266,6 +266,51 @@ raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *
     return data;
 }
 
+void *
+raop_buffer_dequeue_upto(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *rtp_timestamp,
+                         unsigned short *seqnum, unsigned short limit_seq) {
+    assert(raop_buffer);
+    while (!raop_buffer->is_empty &&
+           seqnum_cmp(raop_buffer->first_seqnum, limit_seq) < 0 &&
+           seqnum_cmp(raop_buffer->first_seqnum, raop_buffer->last_seqnum) <= 0) {
+        raop_buffer_entry_t *entry = &raop_buffer->entries[raop_buffer->first_seqnum % RAOP_BUFFER_LENGTH];
+        raop_buffer->first_seqnum += 1;
+        if (!entry->filled) {
+            continue;
+        }
+        entry->filled = 0;
+        *rtp_timestamp = entry->rtp_timestamp;
+        *seqnum = entry->seqnum;
+        *length = entry->payload_size;
+        entry->payload_size = 0;
+        void *data = entry->payload_data;
+        entry->payload_data = NULL;
+        return data;
+    }
+    return NULL;
+}
+
+void
+raop_buffer_set_next_seqnum(raop_buffer_t *raop_buffer, unsigned short seqnum) {
+    assert(raop_buffer);
+    if (raop_buffer->is_empty || seqnum_cmp(seqnum, raop_buffer->first_seqnum) <= 0) {
+        return;
+    }
+    for (unsigned short s = raop_buffer->first_seqnum; seqnum_cmp(s, seqnum) < 0; s++) {
+        raop_buffer_entry_t *entry = &raop_buffer->entries[s % RAOP_BUFFER_LENGTH];
+        if (entry->filled && seqnum_cmp(entry->seqnum, seqnum) < 0) {
+            free(entry->payload_data);
+            entry->payload_data = NULL;
+            entry->payload_size = 0;
+            entry->filled = 0;
+        }
+    }
+    raop_buffer->first_seqnum = seqnum;
+    if (seqnum_cmp(seqnum, raop_buffer->last_seqnum) > 0) {
+        raop_buffer->last_seqnum = seqnum - 1;
+    }
+}
+
 void raop_buffer_handle_resends(raop_buffer_t *raop_buffer, raop_resend_cb_t resend_cb, void *opaque) {
     assert(raop_buffer);
     assert(resend_cb);
