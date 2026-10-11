@@ -625,11 +625,13 @@ raop_rtp_thread_udp(void *arg)
                  raop_rtp->initial_sync = true;
             }	    
 
-            if (packetlen == 12 ||(packetlen == 16 && memcmp(packet + 12, no_data_marker, 4) == 0)) {
-                /* this is a "no data" packet */
+            if (!raop_rtp->initial_sync && (packetlen == 12 ||(packetlen == 16 && memcmp(packet + 12, no_data_marker, 4) == 0))) {
+                /* this is a "no data" packet before the first sync */
 	        /* the first such packet could be used to provide the initial rtptime and seqnum formerly given in the RECORD request */
                 continue;
             }
+            /* after the first sync, "no data" packets (sent during silence, with seqnums continuing the sequence)
+             * go through the buffer so their seqnums are not requested as resends; the buffer drops them on dequeue */
 	    
             if (raop_rtp->ct == 2 && packetlen == 44)  continue;   /* ignore the ALAC packets with format information only. */
 

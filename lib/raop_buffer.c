@@ -172,10 +172,9 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
     if (datalen < 12 || datalen > RAOP_PACKET_LEN) {
         return -1;
     }
-    /* before time is synchronized, some empty data packets are sent */
-    if (datalen == 12 || (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4))) {
-        return 0;
-    }
+    /* "no data" packets (sent during silence) still use up a seqnum:
+     * buffer them without a payload so that seqnum is not requested as a resend */
+    bool no_data = (datalen == 12 || (datalen == 16 && !memcmp(&data[12], empty_packet_marker, 4)));
     int payload_size = datalen - 12;
 
     /* Get correct seqnum for the packet */
@@ -208,9 +207,14 @@ raop_buffer_enqueue(raop_buffer_t *raop_buffer, unsigned char *data, unsigned sh
     entry->rtp_timestamp = byteutils_get_int_be(data, 4);
     entry->filled = 1;
 
-    entry->payload_data = malloc(payload_size);
-    raop_buffer_decrypt(raop_buffer, data, entry->payload_data, payload_size, &entry->payload_size);
-    assert((int) entry->payload_size <= payload_size);
+    if (no_data) {
+        entry->payload_data = NULL;
+        entry->payload_size = 0;
+    } else {
+        entry->payload_data = malloc(payload_size);
+        raop_buffer_decrypt(raop_buffer, data, entry->payload_data, payload_size, &entry->payload_size);
+        assert((int) entry->payload_size <= payload_size);
+    }
 
     /* Update the raop_buffer seqnums */
     if (raop_buffer->is_empty) {
@@ -263,6 +267,10 @@ raop_buffer_dequeue(raop_buffer_t *raop_buffer, unsigned int *length, uint32_t *
     entry->payload_size = 0;
     void* data = entry->payload_data;
     entry->payload_data = NULL;
+    if (!data) {
+        /* "no data" packet: nothing to render, go on to the next entry */
+        return raop_buffer_dequeue(raop_buffer, length, rtp_timestamp, seqnum, no_resend);
+    }
     return data;
 }
 
