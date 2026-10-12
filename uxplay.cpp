@@ -206,6 +206,7 @@ static std::string track_title;
 static std::string track_album;
 static std::string coverart_artist;
 static std::string ble_filename = "";
+static std::string yt_web_manifest_filename = "";
 static std::string rtp_pipeline = "";
 static std::string audio_rtp_pipeline = "";
 static GMainLoop *gmainloop = NULL;
@@ -3002,6 +3003,87 @@ extern "C" void on_video_play(void *cls, const char* location, const float start
     video_reset(cls, RESET_TYPE_ON_VIDEO_PLAY);
 }
 
+/* true for the url of a YouTube web manifest: https://[xxx.]googlevideo.com/[...]/manifest/hls_variant/[...] */
+static bool is_yt_web_manifest_url(const std::string &location) {
+    const std::string scheme = "https://";
+    const std::string domain = "googlevideo.com";
+    if (location.compare(0, scheme.length(), scheme)) {
+        return false;
+    }
+    size_t start = scheme.length();
+    size_t end = location.find_first_of("/?#\\", start);
+    if (end == std::string::npos || location[end] != '/') {
+        return false;
+    }
+    /* the host is what remains of [userinfo@]host[:port] */
+    std::string host = location.substr(start, end - start);
+    size_t userinfo = host.rfind('@');
+    if (userinfo != std::string::npos) {
+        host.erase(0, userinfo + 1);
+    }
+    host = host.substr(0, host.find(':'));
+    if (host.length() < domain.length() ||
+        host.compare(host.length() - domain.length(), domain.length(), domain) ||
+        (host.length() > domain.length() && host[host.length() - domain.length() - 1] != '.')) {
+        return false;
+    }
+    std::string path = location.substr(end, location.find_first_of("?#", end) - end);
+    return (path.find("/manifest/hls_variant") != std::string::npos);
+}
+
+/* A YouTube web page (as opposed to the YouTube app) AirPlays the url of a HLS master playlist in which
+   each audio language (the original, and AI-dubbed ones) has its own set of variant streams, that the video
+   player cannot choose between by language.   For such a url, fetch the playlist, keep only the variant
+   streams with the preferred language (option -lang, etc.), and return the uri of a local file with the
+   filtered copy, to be played instead.    Returns an empty string if the url should be played unchanged
+   (it is not a YouTube web manifest, or something failed).
+   (This blocks while fetching the playlist, so is not called from on_video_play, which runs in the httpd thread) */
+#define YT_WEB_MANIFEST_TIMEOUT 5000 /* msecs */
+static std::string filter_yt_web_manifest_url(const std::string &location) {
+    std::string filtered_uri = "";
+    if (!is_yt_web_manifest_url(location)) {
+        return filtered_uri;
+    }
+    char *manifest = video_renderer_fetch_text(location.c_str(), YT_WEB_MANIFEST_TIMEOUT);
+    if (!manifest) {
+        LOGI("failed to fetch YouTube web manifest for audio language selection: it will be played unchanged");
+        return filtered_uri;
+    }
+    char *filtered = raop_select_yt_web_manifest_language(raop, manifest);
+    g_free(manifest);
+    if (!filtered) {
+        return filtered_uri;
+    }
+
+    if (yt_web_manifest_filename.empty()) {
+        /* create a file (only readable by the user) for the filtered copy: it is removed by cleanup() */
+        gchar *filename = g_build_filename(g_get_user_runtime_dir(), "uxplay-XXXXXX.m3u8", NULL);
+        int fd = g_mkstemp(filename);
+        if (fd >= 0) {
+            close(fd);
+            yt_web_manifest_filename = filename;
+        }
+        g_free(filename);
+    }
+    gchar *file_uri = NULL;
+    FILE *fp = (yt_web_manifest_filename.empty() ? NULL : fopen(yt_web_manifest_filename.c_str(), "w"));
+    if (fp) {
+        bool stored = (fwrite(filtered, 1, strlen(filtered), fp) == strlen(filtered));
+        if (!fclose(fp) && stored) {
+            file_uri = g_filename_to_uri(yt_web_manifest_filename.c_str(), NULL, NULL);
+        }
+    }
+    free(filtered);
+    if (file_uri) {
+        LOGD("filtered YouTube web manifest will be played from %s", file_uri);
+        filtered_uri = file_uri;
+        g_free(file_uri);
+    } else {
+        LOGI("failed to store filtered YouTube web manifest: it will be played unchanged");
+    }
+    return filtered_uri;
+}
+
 extern "C" void on_video_scrub(void *cls, const float position) {
     LOGI("on_video_scrub: position = %7.5f\n", position);
     video_renderer_seek(position);
@@ -3681,12 +3763,19 @@ int main (int argc, char *argv[]) {
             audio_renderer_stop();
         }
         if (use_video && (close_window || preserve_connections || full_video_reset)) {
+            /* a YouTube web manifest is replaced by a filtered copy with the preferred audio language */
+            const std::string location = (preserve_connections ? url : "");
+            const std::string filtered_uri = filter_yt_web_manifest_url(location);
             video_renderer_destroy();
             if (!preserve_connections) {
                 url.erase();
                 raop_remove_known_connections(raop);
             }
             const char *uri = (url.empty() ? NULL : url.c_str());
+            if (uri && !filtered_uri.empty() && url == location) {
+                /* (the url is unchanged since the manifest was fetched) */
+                uri = filtered_uri.c_str();
+            }
             video_renderer_init(render_logger, server_name.c_str(), videoflip, video_parser.c_str(),rtp_pipeline.c_str(),
                                 video_decoder.c_str(), video_converter.c_str(), videosink.c_str(),
                                 videosink_options.c_str(), fullscreen, video_sync, h265_support,
@@ -3735,6 +3824,9 @@ static void cleanup() {
     }
     if (ble_filename.length()) {
         remove (ble_filename.c_str());
+    }
+    if (yt_web_manifest_filename.length()) {
+        remove (yt_web_manifest_filename.c_str());
     }
 #ifdef DBUS
     if (dbus_connection) {

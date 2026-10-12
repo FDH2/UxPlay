@@ -1257,6 +1257,11 @@ the preference order by a colon-separated list: e.g.,  `fr:en-US:en`, for French
 choice, any variant), English (second choice, US regional variant), English (third choice, any variant).
 All blank characters in the string are removed before processing; if option `-lang` is not
 followed by a list, any previous language selection is removed. 
+The same preferences are used for videos streamed from a YouTube web page (e.g., with the AirPlay button in
+Safari).  These arrive as a plain URL of a HLS manifest in which each audio language (the original, and its AI-dubbed
+versions) is a separate set of video streams, with nothing that a standard HLS player can use to choose between
+them.  UxPlay fetches such a manifest and plays a copy that only has the preferred language, or the original
+language if no preferred language is available.
 
 **-slang \[list\]**. Similar to `-lang`, but specifies language preferences for subtitle languages.
 (If not present, preferences specified by  `-lang ...` will be used.)
