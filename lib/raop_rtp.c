@@ -410,7 +410,7 @@ raop_rtp_thread_udp(void *arg)
 {
     raop_rtp_t *raop_rtp = arg;
     unsigned char packet[RAOP_PACKET_LEN];
-    unsigned int packetlen = 0;
+    int packetlen = 0;
     struct sockaddr_storage saddr = {0};
     socklen_t saddrlen = 0;
     bool got_remote_control_saddr = false;
@@ -493,6 +493,11 @@ raop_rtp_thread_udp(void *arg)
                                                           NULL, NULL, &recv_time_kernel, &recv_time_clock);
             }
 
+            if (packetlen <= 0) {
+                int e = SOCKET_GET_ERROR();
+                logger_log(raop_rtp->logger, LOGGER_DEBUG, "raop_rtp control recv failed: %d %s", e, SOCKET_ERROR_STRING(e));
+                goto check_data_socket;
+            }
             int type_c = packet[1] & ~0x80;
             logger_log(raop_rtp->logger, LOGGER_DEBUG, "\nraop_rtp type_c 0x%02x, packetlen = %d", type_c, packetlen);
 
@@ -536,7 +541,7 @@ raop_rtp_thread_udp(void *arg)
                 uint64_t sync_ntp_raw = raop_ntp_adjust_remote_timestamp_offset(raop_rtp->ntp, byteutils_get_long_be(packet, 8), false);
                 raop_rtp->client_ntp_sync = raop_ntp_timestamp_to_nano_seconds(raop_rtp->ntp, sync_ntp_raw);
  
-                if (logger_debug) {
+                if (logger_debug && packetlen >= 0) {
                     double offset_change = ((double) raop_rtp->client_ntp_sync) - raop_rtp->rtp_clock_rate * raop_rtp->rtp_sync;
                     offset_change -= ((double) client_ntp_sync_prev) - raop_rtp->rtp_clock_rate * rtp_sync_prev;
                     uint64_t sync_ntp_local = raop_ntp_convert_remote_time(raop_rtp->ntp,  raop_rtp->rtp_sync);
@@ -590,6 +595,7 @@ raop_rtp_thread_udp(void *arg)
          * so its dequeuing should be delayed until the first rtp sync has occurred */
 
 
+    check_data_socket:
         if (FD_ISSET(raop_rtp->dsock, &rfds)) {
             if (!raop_rtp->initial_sync && !video_arrival_offset) {
                 video_arrival_offset = raop_ntp_get_video_arrival_offset(raop_rtp->ntp);
@@ -606,7 +612,7 @@ raop_rtp_thread_udp(void *arg)
                                                       NULL, NULL, &recv_time_kernel, &recv_time_clock);
 
             if (packetlen < 12)  {
-                if (logger_debug) {
+                if (logger_debug && packetlen >= 0) {
                     char *str = utils_data_to_string(packet, packetlen, 16);
                     logger_log(raop_rtp->logger, LOGGER_DEBUG, "Received short type_d = 0x%2x  packet with length %d:\n%s",
                                packet[1] & ~0x80, packetlen, str);

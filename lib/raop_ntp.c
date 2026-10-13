@@ -356,9 +356,9 @@ ssize_t kernel_timestamp_session_recv(kernel_timestamp_session_t *session, char 
     }
     //Fallback path if kernel timestamp could not be extracted; also used on MINGW64 systems or if recv_time_kernel == NULL
 #ifdef _WIN32
-    int n = recvfrom(session->sock_fd, buf, (int) buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) &addrlen);
+    int n = recvfrom(session->sock_fd, buf, (int) buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) addrlen);
 #else
-    ssize_t n = recvfrom(session->sock_fd, buf, buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) &addrlen);
+    ssize_t n = recvfrom(session->sock_fd, buf, buf_len, 0, (struct sockaddr*) src_addr, (socklen_t *) addrlen);
 #endif
     if (recv_time_clock) {
         *recv_time_clock = 0;

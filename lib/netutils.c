@@ -132,6 +132,14 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
         goto cleanup;
     }
 
+#ifdef _WIN32
+    if (use_udp) {
+        /* don't report ICMP port-unreachable as WSAECONNRESET on later recv calls */
+        BOOL connreset = FALSE;
+        DWORD bytes = 0;
+        WSAIoctl(server_fd, SIO_UDP_CONNRESET, &connreset, sizeof(connreset), NULL, 0, &bytes, NULL, NULL);
+    }
+#endif
     int ret = setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof (reuseaddr));
     if (ret == -1) {
         goto cleanup;
