@@ -91,6 +91,10 @@ if (DBUS_FOUND)
       target_link_libraries( uxplay ${DBUS_LIBRARY})
 endif()
 
+# test of YouTube web manifest language selection (not built by default, not installed)
+add_executable( test_yt_web_manifest EXCLUDE_FROM_ALL tests/test_yt_web_manifest.c )
+target_link_libraries( test_yt_web_manifest airplay playfair m )
+
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} ) 

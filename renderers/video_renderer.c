@@ -22,6 +22,7 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <gst/app/gstappsink.h>
 #include "video_renderer.h"
 #include <gst/video/videooverlay.h>
 
@@ -1224,6 +1225,65 @@ void video_renderer_hls_set_volume(double volume) {
     if (renderer && !strcmp(renderer->codec, hls)) {
         g_object_set(renderer->pipeline, "volume", volume, NULL);
     }
+}
+
+#define MAX_FETCH_SIZE (4 * 1024 * 1024)
+/* fetch a small text file (such as a HLS master playlist) from a uri, with the source element that
+   playbin would use for it.   This blocks until all the text has been received, but for no longer than
+   timeout_msecs.   Returns the text (which must be freed with g_free), or NULL if the fetch failed. */
+char *video_renderer_fetch_text(const char *uri, unsigned int timeout_msecs) {
+    GstElement *pipeline = gst_pipeline_new("fetch-pipeline");
+    GstElement *src = gst_element_make_from_uri(GST_URI_SRC, uri, "fetch-src", NULL);
+    GstElement *sink = gst_element_factory_make("appsink", "fetch-sink");
+    if (!pipeline || !src || !sink) {
+        if (pipeline) gst_object_unref(pipeline);
+        if (src) gst_object_unref(src);
+        if (sink) gst_object_unref(sink);
+        return NULL;
+    }
+    g_object_set(G_OBJECT(sink), "sync", FALSE, NULL);
+    gst_bin_add_many(GST_BIN(pipeline), src, sink, NULL);
+
+    GString *text = g_string_new(NULL);
+    gboolean complete = FALSE;
+    gint64 end_time = g_get_monotonic_time() + ((gint64) timeout_msecs) * 1000;
+    if (gst_element_link(src, sink)) {
+        gst_element_set_state(pipeline, GST_STATE_PLAYING);
+        while (text->len <= MAX_FETCH_SIZE) {
+            gint64 remaining = end_time - g_get_monotonic_time();
+            if (remaining <= 0) {
+                break;
+            }
+            GstSample *sample = gst_app_sink_try_pull_sample(GST_APP_SINK(sink), remaining * GST_USECOND);
+            if (!sample) {
+                complete = gst_app_sink_is_eos(GST_APP_SINK(sink));
+                break;
+            }
+            GstBuffer *buffer = gst_sample_get_buffer(sample);
+            GstMapInfo map;
+            if (buffer && gst_buffer_map(buffer, &map, GST_MAP_READ)) {
+                g_string_append_len(text, (const gchar *) map.data, map.size);
+                gst_buffer_unmap(buffer, &map);
+            }
+            gst_sample_unref(sample);
+        }
+        /* a source element that fails (e.g., HTTP status 403) posts an error, and also sends EOS */
+        GstBus *bus = gst_element_get_bus(pipeline);
+        GstMessage *message = gst_bus_pop_filtered(bus, GST_MESSAGE_ERROR);
+        if (message) {
+            complete = FALSE;
+            gst_message_unref(message);
+        }
+        gst_object_unref(bus);
+        gst_element_set_state(pipeline, GST_STATE_NULL);
+    }
+    gst_object_unref(pipeline);
+    /* text with an embedded null character is not a playlist */
+    if (!complete || !text->len || strlen(text->str) != text->len) {
+        g_string_free(text, TRUE);
+        return NULL;
+    }
+    return g_string_free(text, FALSE);
 }
 
 bool gstreamer_decoder_check(const char *decoder) {

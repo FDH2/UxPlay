@@ -830,6 +830,14 @@ raop_set_lang(raop_t *raop, const char *lang, const char *lang_subtitles, const 
     raop->lang_system = lang_system;
 }
 
+/* returns a copy (which must be freed) of a YouTube web manifest with only the variant streams
+   that have the preferred audio language, or NULL if the manifest should be played unchanged */
+char *
+raop_select_yt_web_manifest_language(raop_t *raop, const char *master_playlist) {
+    assert(raop);
+    return select_yt_web_manifest_language(master_playlist, raop->lang, raop->lang_system, raop->logger);
+}
+
 int
 raop_start_httpd(raop_t *raop, unsigned short *port) {
     assert(raop);
