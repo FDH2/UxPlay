@@ -312,6 +312,7 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
     GstBuffer *buffer = NULL;
 
     if (!render_audio) return;    /* do nothing unless render_audio == TRUE */
+    if (*data_len == 0 || renderer == NULL) return;   /* paused for a video: the receiver keeps running */
 
     GstClockTime pts = (GstClockTime) *ntp_time ;    /* now in nsecs */
     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
@@ -324,8 +325,6 @@ void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned s
             return;
         }
     }
-    if (data_len == 0 || renderer == NULL) return;
-
     /* all audio received seems to be either ct = 8 (AAC_ELD 44100/2 spf 460 ) AirPlay Mirror protocol *
      * or ct = 2 (ALAC 44100/16/2 spf 352) AirPlay protocol.                                           *
      * first byte data[0] of ALAC frame is 0x20,                                                       *
