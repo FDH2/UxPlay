@@ -94,8 +94,15 @@ mirror_buffer_init(logger_t *logger, const unsigned char *aeskey)
 void mirror_buffer_decrypt(mirror_buffer_t *mirror_buffer, unsigned char* input, unsigned char* output, int inputLen) {
     // Start decrypting
     if (mirror_buffer->nextDecryptCount > 0) {//mirror_buffer->nextDecryptCount = 10
-        for (int i = 0; i < mirror_buffer->nextDecryptCount; i++) {
+        int n = mirror_buffer->nextDecryptCount < inputLen ? mirror_buffer->nextDecryptCount : inputLen;
+        for (int i = 0; i < n; i++) {
             output[i] = (input[i] ^ mirror_buffer->og[(16 - mirror_buffer->nextDecryptCount) + i]);
+        }
+        if (n < mirror_buffer->nextDecryptCount) {
+            /* The packet is shorter than the cached keystream: keep the rest for the
+             * next packet, as a continuous CTR stream would. */
+            mirror_buffer->nextDecryptCount -= n;
+            return;
         }
     }
     // Handling encrypted bytes
