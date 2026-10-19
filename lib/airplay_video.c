@@ -294,7 +294,7 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
             continue;
         }
         lang = strstr(slice[i].first, "LANGUAGE=\"");
-        char * autoselect_no = NULL;
+        const char * autoselect_no = NULL;
         if (autoselect) {
             /* eliminate AUTOSELECT=NO entries when autoselect = true */
             autoselect_no = strstr(slice[i].first, "AUTOSELECT=NO");
@@ -303,7 +303,7 @@ static char * list_languages(const char *master_playlist, int n_slice, slice_t *
         if (autoselect_no) {
             continue;
         }
-        char *default_choice = strstr(slice[i].first, "DEFAULT=YES");
+        const char *default_choice = strstr(slice[i].first, "DEFAULT=YES");
         default_choice = default_choice < slice[i].last ? default_choice : NULL;
         if (lang && lang < slice[i].last) {
             lang = strchr(lang, '"');
