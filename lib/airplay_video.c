@@ -871,6 +871,333 @@ char * select_master_playlist_language(airplay_video_t *airplay_video, char *mas
     return new_master_playlist;
 }
 
+/* Language selection for YouTube web manifests.
+
+   A YouTube web page (as opposed to the YouTube app) AirPlays a plain https url of a HLS master
+   playlist that has no EXT-X-MEDIA AUDIO renditions: each EXT-X-STREAM-INF variant stream is instead
+   listed once per audio language (the original, and its AI-dubbed versions), identified only by the
+   YouTube-private attributes YT-EXT-AUDIO-CONTENT-ID="fr-FR.10" (language tag + "." + number) and
+   YT-EXT-XTAGS="[base64]".  A HLS player ignores these, and just plays the variant stream
+   with the highest BANDWIDTH, in whatever language that happens to have. */
+
+/* find str in the line [first, last): returns a pointer to what follows it, or NULL */
+static const char *find_in_line(const char *first, const char *last, const char *str) {
+    size_t len = strlen(str);
+    for (const char *ptr = first; ptr + len <= last; ptr++) {
+        if (!strncmp(ptr, str, len)) {
+            return ptr + len;
+        }
+    }
+    return NULL;
+}
+
+/* get the value of a quoted attribute (name="value") in the line [first, last) */
+static const char *get_quoted_attribute(const char *first, const char *last, const char *name, size_t *len) {
+    const char *value = find_in_line(first, last, name);
+    const char *end = value;
+    while (end && end < last && *end != '"') {
+        end++;
+    }
+    if (!value || end == last) {
+        return NULL;
+    }
+    *len = end - value;
+    return value;
+}
+
+/* decode base64 (standard or URL-safe alphabet, padding is optional): returns the number
+   of bytes written to out, which must have space for 3 * len / 4 bytes */
+static size_t base64_decode(const char *in, size_t len, unsigned char *out) {
+    size_t count = 0;
+    unsigned int bits = 0;
+    int nbits = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = in[i];
+        unsigned int val;
+        if (c >= 'A' && c <= 'Z') {
+            val = c - 'A';
+        } else if (c >= 'a' && c <= 'z') {
+            val = c - 'a' + 26;
+        } else if (c >= '0' && c <= '9') {
+            val = c - '0' + 52;
+        } else if (c == '+' || c == '-') {
+            val = 62;
+        } else if (c == '/' || c == '_') {
+            val = 63;
+        } else {
+            break;  /* padding, or not base64 */
+        }
+        bits = (bits << 6) | val;
+        nbits += 6;
+        if (nbits >= 8) {
+            nbits -= 8;
+            out[count++] = (unsigned char) (bits >> nbits);
+        }
+    }
+    return count;
+}
+
+/* YT-EXT-XTAGS is a base64-encoded protobuf: a list (field 1) of pairs of strings key (field 1),
+   value (field 2), e.g. {"acont", "original"}, {"lang", "en-US"}  or {"acont", "dubbed-auto"},
+   {"lang", "fr-FR"}.  Returns true if the list has the pair {key, value}. */
+static bool yt_xtags_has_pair(const char *xtags, size_t len, const char *key, const char *value) {
+    bool found = false;
+    unsigned char *data = (unsigned char *) malloc(len + 1);
+    if (!data) {
+        return false;
+    }
+    size_t datalen = base64_decode(xtags, len, data);
+    size_t pos = 0;
+    /* all lengths are < 128, so they are single-byte protobuf varints */
+    while (!found && pos + 2 <= datalen && data[pos] == 0x0a && data[pos + 1] < 0x80) {
+        const unsigned char *pair = data + pos + 2;
+        size_t pair_len = data[pos + 1];
+        pos += 2 + pair_len;
+        if (pos > datalen || pair_len < 4 || pair[0] != 0x0a) {
+            continue;
+        }
+        size_t key_len = pair[1];
+        if (key_len + 4 > pair_len || pair[2 + key_len] != 0x12) {
+            continue;
+        }
+        size_t value_len = pair[3 + key_len];
+        if (key_len + value_len + 4 > pair_len) {
+            continue;
+        }
+        found = (key_len == strlen(key) && !memcmp(pair + 2, key, key_len) &&
+                 value_len == strlen(value) && !memcmp(pair + 4 + key_len, value, value_len));
+    }
+    free(data);
+    return found;
+}
+
+/* get the language tag of a variant stream ("fr-FR", from YT-EXT-AUDIO-CONTENT-ID="fr-FR.10"):
+   len is the length of the language tag, id_len is the length of the whole content id */
+static const char *get_yt_variant_language(const char *first, const char *last, size_t *len, size_t *id_len) {
+    const char *lang = get_quoted_attribute(first, last, "YT-EXT-AUDIO-CONTENT-ID=\"", id_len);
+    if (!lang) {
+        return NULL;
+    }
+    *len = *id_len;
+    for (size_t i = *id_len; i > 0; i--) {
+        if (lang[i - 1] == '.') {
+            *len = i - 1;
+            break;
+        }
+    }
+    return (*len ? lang : NULL);
+}
+
+/* true if the list "aa,bb,cc," has the item [item, item + len) */
+static bool list_has_item(const char *list, const char *item, size_t len) {
+    while (list && *list) {
+        const char *end = strchr(list, ',');
+        if ((size_t) (end - list) == len && !strncmp(list, item, len)) {
+            return true;
+        }
+        list = end + 1;
+    }
+    return false;
+}
+
+/* a line [first, last) of a playlist that is not empty, and is not a tag or a comment, is a uri */
+static bool is_uri_line(const char *first, const char *last) {
+    return (first < last && *first != '#' && *first != '\r');
+}
+
+static bool is_absolute_uri(const char *uri) {
+    return (!strncmp(uri, "http://", strlen("http://")) || !strncmp(uri, "https://", strlen("https://")));
+}
+
+/* a manifest with more languages than this (or with a longer language tag) is not from YouTube */
+#define MAX_YT_LANGUAGES 64
+#define MAX_YT_LANGUAGE_LEN 64
+
+/* Returns a copy (which must be freed) of a YouTube web manifest that keeps only the variant streams
+   with one audio language, chosen in the same way as for the AUDIO renditions in YouTube app playlists
+   (see master_playlist_slicer()): the first of the requested languages "lang" (may be NULL) that is
+   available, otherwise the best match to the system languages "lang_system", otherwise the original
+   (undubbed) language.  Variant streams without a language (which have the original audio) are kept
+   only when the original language is chosen (they are all that is kept if nothing else identifies
+   the original language).  If the original language has more than one content id (e.g., it also has
+   an audio description), only the original one is kept.
+
+   Returns NULL if the playlist should be played unchanged: it is not a (well-formed) YouTube web
+   manifest, there is nothing to remove, or the copy could not be played from another location
+   (it has relative uri's). */
+
+char *select_yt_web_manifest_language(const char *master_playlist, const char *lang,
+                                      const char *lang_system, logger_t *logger) {
+    const char variant_tag[] = "#EXT-X-STREAM-INF:";
+    const char *first, *last, *next;
+    char *available = NULL;      /* list "aa,bb,cc," of the available languages */
+    const char *original = NULL; /* content id of the variant streams with the original audio */
+    size_t original_len = 0, original_id_len = 0;
+    size_t available_len = 0;
+    size_t len, id_len;
+    int n_languages = 0, n_untagged = 0;
+    bool need_uri = false;       /* true between a variant stream tag and its uri line */
+
+    for (first = master_playlist; *first; first = next) {
+        last = strchr(first, '\n');
+        next = last ? last + 1 : first + strlen(first);
+        last = last ? last : next;
+        if (is_uri_line(first, last)) {
+            need_uri = false;
+            continue;
+        }
+        if (strncmp(first, variant_tag, strlen(variant_tag))) {
+            continue;
+        }
+        if (need_uri) {
+            break;     /* the previous variant stream has no uri */
+        }
+        need_uri = true;
+        const char *language = get_yt_variant_language(first, last, &len, &id_len);
+        if (!language) {
+            n_untagged++;
+            continue;
+        }
+        if (!list_has_item(available, language, len)) {
+            char *list = NULL;
+            if (++n_languages <= MAX_YT_LANGUAGES && len <= MAX_YT_LANGUAGE_LEN) {
+                list = (char *) realloc(available, available_len + len + 2);
+            }
+            if (!list) {
+                free(available);
+                return NULL;
+            }
+            available = list;
+            memcpy(available + available_len, language, len);
+            available_len += len;
+            available[available_len++] = ',';
+            available[available_len] = '\0';
+        }
+        if (!original) {
+            size_t xtags_len;
+            const char *xtags = get_quoted_attribute(first, last, "YT-EXT-XTAGS=\"", &xtags_len);
+            if (xtags && yt_xtags_has_pair(xtags, xtags_len, "acont", "original")) {
+                original = language;
+                original_len = len;
+                original_id_len = id_len;
+            }
+        }
+    }
+    if (need_uri || !available) {
+        free(available);
+        return NULL;
+    }
+
+    /* unpack_list overwrites the separators in the lists, so work with copies */
+    int n_available = 0, n_lang = 0, n_lang_system = 0;
+    char *available_copy = (char *) calloc(available_len + 1, sizeof(char));
+    char *lang_copy = (char *) calloc((lang ? strlen(lang) : 0) + 1, sizeof(char));
+    char *lang_system_copy = (char *) calloc((lang_system ? strlen(lang_system) : 0) + 1, sizeof(char));
+    char *filtered = (char *) calloc(strlen(master_playlist) + 1, sizeof(char));
+    const char **available_list = NULL, **lang_list = NULL, **lang_system_list = NULL;
+    const char *selected = NULL;
+    int kept = 0, removed = 0;
+    if (!available_copy || !lang_copy || !lang_system_copy || !filtered) {
+        goto finish;
+    }
+    memcpy(available_copy, available, available_len);
+    available_list = unpack_list(available_copy, ',', &n_available);
+    if (lang && strlen(lang)) {
+        memcpy(lang_copy, lang, strlen(lang));
+        lang_list = unpack_list(lang_copy, ':', &n_lang);
+    }
+    if (lang_system && strlen(lang_system)) {
+        memcpy(lang_system_copy, lang_system, strlen(lang_system));
+        lang_system_list = unpack_list(lang_system_copy, ':', &n_lang_system);
+    }
+
+    const char *original_lang = NULL;
+    for (int i = 0; i < n_available; i++) {
+        if (original && strlen(available_list[i]) == original_len &&
+            !strncmp(available_list[i], original, original_len)) {
+            original_lang = available_list[i];
+        }
+    }
+
+    /* requested languages need a strict match, system languages may also match after
+       removal of subtags ("en-GB" -> "en"), and the fallback is the original language */
+    if (n_lang) {
+        selected = strict_match_language(lang_list, n_lang, available_list, n_available);
+    }
+    if (!selected) {
+        selected = match_language(lang_system_list, n_lang_system, available_list, n_available, original_lang);
+    }
+    /* if no variant stream is marked as the original, the ones without a language are the original */
+    bool only_untagged = (!selected && n_untagged);
+    available[available_len - 1] = '\0';   /* remove the final separator, for the log entry */
+    logger_log(logger, LOGGER_INFO, "YouTube web manifest: available audio languages %s (original: %s), selected: %s",
+               available, original_lang ? original_lang : (n_untagged ? "has no language" : "unknown"),
+               selected ? selected : (only_untagged ? "original" : "none"));
+    if (!selected && !only_untagged) {
+        goto finish;
+    }
+
+    /* remove the unwanted variant streams (a EXT-X-STREAM-INF line and the uri line that follows it) */
+    bool keep_untagged = (only_untagged || selected == original_lang);
+    bool remove_uri = false, keep_uri = false, relative_uri = false;
+    char *out = filtered;
+    for (first = master_playlist; *first; first = next) {
+        last = strchr(first, '\n');
+        next = last ? last + 1 : first + strlen(first);
+        last = last ? last : next;
+        if (!strncmp(first, variant_tag, strlen(variant_tag))) {
+            const char *language = get_yt_variant_language(first, last, &len, &id_len);
+            bool keep = keep_untagged;
+            if (language) {
+                keep = (selected && len == strlen(selected) && !strncmp(language, selected, len));
+                if (keep && selected == original_lang) {
+                    /* of the content ids with the original language, only keep the original one */
+                    keep = (id_len == original_id_len && !strncmp(language, original, id_len));
+                }
+            }
+            if (!keep) {
+                removed++;
+                remove_uri = true;
+                continue;
+            }
+            keep_uri = true;
+        } else if (is_uri_line(first, last)) {
+            if (remove_uri) {
+                remove_uri = false;
+                continue;
+            }
+            if (keep_uri) {
+                kept++;
+                keep_uri = false;
+            }
+            relative_uri = (relative_uri || !is_absolute_uri(first));
+        } else {
+            const char *uri = find_in_line(first, last, "URI=\"");
+            relative_uri = (relative_uri || (uri && !is_absolute_uri(uri)));
+        }
+        memcpy(out, first, next - first);
+        out += next - first;
+    }
+    if (relative_uri) {
+        logger_log(logger, LOGGER_INFO, "YouTube web manifest has relative uri's: will not select language");
+        kept = 0;
+    }
+
+ finish:
+    free(available);
+    free(available_copy);
+    free(lang_copy);
+    free(lang_system_copy);
+    free(available_list);
+    free(lang_list);
+    free(lang_system_list);
+    if (!kept || !removed) {
+        free(filtered);
+        filtered = NULL;
+    }
+    return filtered;
+}
+
 char *get_master_playlist(airplay_video_t *airplay_video) {
     return  airplay_video->master_playlist;
 }
