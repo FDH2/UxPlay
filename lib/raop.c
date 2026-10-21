@@ -849,7 +849,7 @@ void raop_remove_known_connections(raop_t * raop) {
 
 void raop_remove_hls_connections(raop_t * raop) {
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_HLS);
-    httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_PTTH);
+    httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_EVENT);
     httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_AIRPLAY);
 }
 

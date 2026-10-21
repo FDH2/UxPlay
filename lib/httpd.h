@@ -25,7 +25,7 @@ typedef enum connectype_type_e {
     CONNECTION_TYPE_UNKNOWN,
     CONNECTION_TYPE_RAOP,
     CONNECTION_TYPE_AIRPLAY,
-    CONNECTION_TYPE_PTTH,
+    CONNECTION_TYPE_EVENT,
     CONNECTION_TYPE_HLS
 } connection_type_t;
 

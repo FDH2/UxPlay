@@ -74,7 +74,7 @@ int fcup_request(void *conn_opaque, const char *media_url, const char *client_se
     int datalen = 0;
     int requestlen = 0;
 
-    int socket_fd = httpd_get_connection_socket_by_type(raop->httpd, CONNECTION_TYPE_PTTH, 1);
+    int socket_fd = httpd_get_connection_socket_by_type(raop->httpd, CONNECTION_TYPE_EVENT, 1);
     
     logger_log(raop->logger, LOGGER_DEBUG, "fcup_request send socket = %d", socket_fd);
     

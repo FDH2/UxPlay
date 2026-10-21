@@ -23,10 +23,11 @@
 #include "http_request.h"
 #include "llhttp/llhttp.h"
 
+#define MAX_EVENT_DATA 4096
+
 struct http_request_s {
     llhttp_t parser;
     llhttp_settings_t parser_settings;
-
     bool is_reverse;  // if true, this is a reverse-response from client
     const char *method;
     char *url;
@@ -39,8 +40,7 @@ struct http_request_s {
     int headers_index;
 
     char *data;
-    int datalen;
-
+    size_t datalen;
     int complete;
 };
 
@@ -226,20 +226,9 @@ http_request_init(void)
 
     llhttp_init(&request->parser, HTTP_REQUEST, &request->parser_settings);
     request->parser.data = request;
-	request->url = NULL;
-	request->url_len = 0;
-	request->protocol_len = 0;
-	request->version_len = 0;
-	request->headers = NULL;
-	request->headers_index = 0;
-	request->headers_size = 0;
-	request->data = NULL;
-	request->datalen = 0;
-	request->complete = 0;
-    request->is_reverse = false;
     assert(sizeof(request->protocol) > 8);
-    memset(request->protocol, '\0', sizeof(request->protocol)); 
     request->protocol[4] = '/';
+    request->data = NULL;
     return request;
 }
 
@@ -262,19 +251,136 @@ http_request_destroy(http_request_t *request)
     }
 }
 
-int
-http_request_add_data(http_request_t *request, const char *data, int datalen)
+static size_t
+parse_ptth(const char *data, const size_t datalen, size_t *header_len, size_t *body_len)
 {
-    if (!request) {
-        return -1;
+    *header_len = 0;
+    *body_len = 0;
+
+    //  Fast-forward past any leading junk or whitespace at the front of the pipe
+    size_t junk_offset = 0;
+    while (junk_offset < datalen && (data[junk_offset] <= 32 || data[junk_offset] == '\x7f')) {
+        junk_offset++;
     }
 
+    // Adjust parsing frame past the junk
+    const char *actual_data = data + junk_offset;
+    size_t actual_datalen = datalen - junk_offset;
+
+    const char *header_end = strstr(actual_data, "\r\n\r\n");
+    if (!header_end) {
+        return 0; // incomplete headers
+    }
+
+    size_t hl = (header_end - actual_data) + 4;
+    size_t bl = 0;
+
+    const char *cl_ptr = NULL;
+    for (size_t i = 0; i < hl - 15; i++) {
+        if (strncasecmp(actual_data + i, "Content-Length:", 15) == 0) {
+            cl_ptr = actual_data + i;
+            break;
+        }
+    }
+
+    if (cl_ptr) {
+        bl = (size_t) strtoul(cl_ptr + 15, NULL, 10);
+    }
+
+    size_t total_msg_len = hl + bl;
+    if (actual_datalen < total_msg_len) {
+        return 0; // incomplete body
+    }
+    
+    *header_len = hl;
+    *body_len = bl;
+
+    //  (downstream memmove flushes both message + junk)
+    return total_msg_len + junk_offset;
+}
+
+int
+http_request_add_data(http_request_t *request, const char *data, size_t datalen)
+{
     int ret = llhttp_execute(&request->parser, data, datalen);
     if (ret == HPE_PAUSED_UPGRADE) {
         /* support for "Upgrade" to reverse http ("PTTH/1.0") protocol */
         llhttp_resume_after_upgrade(&request->parser);
     }
     return ret;
+}
+
+int
+http_request_add_event_data(http_request_t *request, const char *data, size_t datalen)
+{
+    if (request->datalen + datalen >= MAX_EVENT_DATA) {
+        return -1;
+    }
+    memcpy(request->data + request->datalen, data, datalen);
+    request->datalen += datalen;
+    request->data[request->datalen] = '\0';
+    return 0;
+}
+
+// any message returned by parse_event_data must be free'd
+bool http_request_parse_event_data(http_request_t *request, char **header_ptr, size_t *header_len, char **body_ptr, size_t *body_len) {
+    *header_len = 0;
+    *body_len = 0;
+    *header_ptr = NULL;
+    *body_ptr = NULL;
+
+    /* now attempt to parse the reverse-HTTP response, or EVENT message */
+    size_t message_len = parse_ptth(request->data, request->datalen, header_len, body_len);
+    if (!message_len) {
+        return false;
+    }
+    assert (request->datalen >= message_len);
+    assert (message_len == *header_len + *body_len);
+
+    char *local_header = (char *) malloc(*header_len + 1);
+    if (!local_header) return false;
+    
+    memcpy(local_header, request->data, *header_len);
+    local_header[*header_len] = '\0';
+
+    char *local_body = NULL;
+    if (*body_len) {
+        local_body = (char *) malloc(*body_len + 1);
+        if (!local_body) {
+            free(local_header);
+            return false;
+        }
+        memcpy(local_body, request->data + *header_len, *body_len);
+        local_body[*body_len] = '\0';
+    }
+
+    size_t remaining_len = request->datalen - message_len;    
+    if (remaining_len) {
+        memmove(request->data, request->data + message_len, remaining_len);
+    }
+    request->datalen = remaining_len;
+    request->data[request->datalen] = '\0'; 
+
+    *header_ptr = local_header;
+    *body_ptr = local_body;
+
+    return true;
+}
+
+int http_request_upgrade_data(http_request_t *request)
+{
+    if (request->data) {
+        free(request->data);
+        request->data = NULL;
+    }
+    size_t max_event_data = MAX_EVENT_DATA;
+    request->data = (char *) malloc (max_event_data);
+    if (!request->data) {
+        return -1;
+    }
+    request->data[0] = '\0';
+    request->datalen = 0;
+    return 0;
 }
 
 int
