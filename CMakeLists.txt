@@ -2,6 +2,9 @@ cmake_minimum_required( VERSION 3.13 )
 
 project( uxplay )
 
+option(ENABLE_ASAN "Enable AddressSanitizer for memory debugging" OFF)
+
+
 message( STATUS "Project name: " ${PROJECT_NAME} )
 
 include(GNUInstallDirs)
@@ -91,6 +94,38 @@ if (DBUS_FOUND)
       target_link_libraries( uxplay ${DBUS_LIBRARY})
 endif()
 
+
+if (ENABLE_ASAN)
+    message(STATUS ">>> FORCING SYSTEM-WIDE UNOPTIMIZED (-O0) ADDRESS SANITIZER BLOCKS <<<")
+
+    # 1. Force the global CMake build configuration profile to Debug
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Forced Debug mode for ASan safety" FORCE)
+
+    # 2. Clean out project-level internal logging or display variables if they exist
+    if(CMAKE_CFLAGS)
+        string(REPLACE "-O3" "-O0" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        string(REPLACE "-O2" "-O0" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        string(REPLACE "-march=native" "" CMAKE_CFLAGS "${CMAKE_CFLAGS}")
+        set(CMAKE_CFLAGS "${CMAKE_CFLAGS} -fsanitize=address -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+    endif()
+
+    # 3. Override standard global flag variables to ensure -O0 takes precedence
+    set(CMAKE_C_FLAGS "-O0 -fsanitize=address -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+    set(CMAKE_CXX_FLAGS "-O0 -fsanitize=address -fno-omit-frame-pointer -g" CACHE STRING "" FORCE)
+
+    # 4. Force the global linker toolchain to link the runtime ASan engine library
+    set(CMAKE_EXE_LINKER_FLAGS "-fsanitize=address" CACHE STRING "" FORCE)
+    set(CMAKE_SHARED_LINKER_FLAGS "-fsanitize=address" CACHE STRING "" FORCE)
+
+    # 5. Intercept and override compilation variables directly on all sub-targets
+    foreach(target playfair dnssd llhttp airplay renderers uxplay)
+        if(TARGET ${target})
+            target_compile_options(${target} PRIVATE -O0 -fsanitize=address -fno-omit-frame-pointer -g)
+            target_link_options(${target} PRIVATE -fsanitize=address)
+        endif()
+    endforeach()
+endif()
+
 install( TARGETS  uxplay RUNTIME DESTINATION bin )
 install( FILES uxplay.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1 )
 install( FILES README.md README.txt README.html LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR} ) 
@@ -133,3 +168,5 @@ if(NOT TARGET uninstall)
   add_custom_target(uninstall
     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake)
 endif()
+
+
