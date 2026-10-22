@@ -179,9 +179,8 @@ raop_rtp_mirror_thread(void *arg)
 
     int stream_fd = -1;
     unsigned char packet[128] = {0};
-    unsigned char* sps_pps = NULL;
-    bool prepend_sps_pps = false;
-    int sps_pps_len = 0;
+    unsigned char sps_pps[1024] = {0};
+    size_t sps_pps_len = 0;
     unsigned char* payload = NULL;
     unsigned int readstart = 0;
     bool conn_reset = false;
@@ -419,21 +418,18 @@ raop_rtp_mirror_thread(void *arg)
                  * and now the first  encrypted packet after the  unencrypted SPS+PPS packet may also contain a SEI (type 6) NAL 
                  * prepended to its VCL NAL.
                  *
-                 * The flag prepend_sps_pps = true will signal that the  previous packet contained a SPS NAL + a PPS NAL, 
-                 * that has not yet been sent.   This will trigger prepending it to the current NAL, and the prepend_sps_pps 
-                 * flag will be set to false after it has been prepended.  */
+                 * A non-zero value of sps_pps_len will signal that the  previous packet contained a SPS NAL + a PPS NAL, 
+                 * that has not yet been sent.   This will trigger prepending it to the current NAL, and sps_pps_len 
+                 * will be set to 0 after the sps_pps-prepended packet is finalized.  */
 
-                if (prepend_sps_pps & (ntp_timestamp_raw != ntp_timestamp_nal)) {
+                if (sps_pps_len & (ntp_timestamp_raw != ntp_timestamp_nal)) {
                         logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
                                    "raop_rtp_mirror: prepended sps_pps timestamp does not match timestamp of "
                                    "video payload\n%llu\n%llu , discarding", ntp_timestamp_raw, ntp_timestamp_nal);
-                        free (sps_pps);
-                        sps_pps = NULL;
-                        prepend_sps_pps = false;
+                        sps_pps_len = 0;
                 }
 		
-                if (prepend_sps_pps) {
-                    assert(sps_pps);
+                if (sps_pps_len) {
                     payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
                     if (!payload_out) {
                         logger_log(raop_rtp_mirror->logger, LOGGER_ERR,"raop_rtp_mirror: Memory allocation failed (payload_out)");
@@ -441,8 +437,6 @@ raop_rtp_mirror_thread(void *arg)
                     }
                     payload_decrypted = payload_out + sps_pps_len;
                     memcpy(payload_out, sps_pps, sps_pps_len);
-                    free (sps_pps);
-                    sps_pps = NULL;
                 } else {
                     payload_out = (unsigned char*)  malloc(payload_size);
                     payload_decrypted = payload_out;
@@ -544,13 +538,13 @@ raop_rtp_mirror_thread(void *arg)
                 video_data.nal_count = nalus_count;   /*nal_count will be the number of nal units in the packet */
                 video_data.data_len = payload_size;
                 video_data.data = payload_out;
-                if (prepend_sps_pps) {
+                if (sps_pps_len) {
                     video_data.data_len += sps_pps_len;
                     video_data.nal_count += 2;
                     if (h265_video) {
                         video_data.nal_count++;
                     }
-                    prepend_sps_pps =  false;
+                    sps_pps_len = 0;
                 }
 
                 raop_rtp_mirror->callbacks.video_process(raop_rtp_mirror->callbacks.cls, raop_rtp_mirror->ntp, &video_data);
@@ -615,10 +609,6 @@ raop_rtp_mirror_thread(void *arg)
                                "use startup option \"-h265\" to set this bit and support h265 (4K) video");
                     unsupported_codec = true;
                     break;
-                }
-                if (sps_pps) {
-                    free(sps_pps);
-                    sps_pps = NULL;
                 }
                 /* test for a H265 VPS/SPS/PPS */
                 unsigned char hvc1[] = { 0x68, 0x76, 0x63, 0x31 };
@@ -690,21 +680,28 @@ raop_rtp_mirror_thread(void *arg)
                         logger_log(raop_rtp_mirror->logger, LOGGER_INFO, "h265 pps size %d\n%s",pps_size, str);
                         free(str);
                     }
-
                     sps_pps_len = vps_size + sps_size + pps_size + 12;
-                    sps_pps = (unsigned char*) malloc(sps_pps_len);
-                    assert(sps_pps);
+                    if (sps_pps_len > sizeof(sps_pps)) {
+                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "\nInvalid SPS+PPS length %zu exceeds limit %zu, aborting",
+                                   sps_pps_len, sizeof(sps_pps));
+                        break;
+                    }
                     ptr = sps_pps;
                     memcpy(ptr, nal_start_code, 4);
                     ptr += 4;
+			   
                     memcpy(ptr, vps, vps_size);
                     ptr += vps_size;
+			   
                     memcpy(ptr, nal_start_code, 4);
-                    ptr += 4;
+                    ptr += 4
+			   ;
                     memcpy(ptr, sps, sps_size);
                     ptr += sps_size;
+			   
                     memcpy(ptr, nal_start_code, 4);
                     ptr += 4;
+			   
                     memcpy(ptr, pps, pps_size);
                 } else {
                     if (codec == VIDEO_CODEC_UNKNOWN) {
@@ -756,14 +753,23 @@ raop_rtp_mirror_thread(void *arg)
 
                     // Copy the sps and pps into a buffer to prepend to the next NAL unit.
                     sps_pps_len = sps_size + pps_size + 8;
-                    sps_pps = (unsigned char*) malloc(sps_pps_len);
-                    assert(sps_pps);
-                    memcpy(sps_pps, nal_start_code, 4);
-                    memcpy(sps_pps + 4, sequence_parameter_set, sps_size);
-                    memcpy(sps_pps + sps_size + 4, nal_start_code, 4); 
-                    memcpy(sps_pps + sps_size + 8, payload + sps_size + 11, pps_size);
+                    if (sps_pps_len > sizeof(sps_pps)) {
+                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "\nInvalid SPS+PPS length %zu exceeds limit %zu, aborting",
+                                   sps_pps_len, sizeof(sps_pps));
+                        break;
+                    }
+                    unsigned char *ptr = sps_pps;
+                    memcpy(ptr, nal_start_code, 4);
+                    ptr += 4;
+
+                    memcpy(ptr, sequence_parameter_set, sps_size);
+                    ptr += sps_size;
+
+                    memcpy(ptr, nal_start_code, 4);
+                    ptr += 4;
+
+                    memcpy(ptr, picture_parameter_set, pps_size);
                 }
-                prepend_sps_pps = true;
                 // h264codec_t h264;
                 // h264.version = payload[0];
                 // h264.profile_high = payload[1];
