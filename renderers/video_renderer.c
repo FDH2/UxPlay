@@ -61,7 +61,6 @@ static logger_t *logger = NULL;
 static unsigned short width, height, width_source, height_source;  /* not currently used */
 static bool first_packet = false;
 static bool sync = false;
-static bool auto_videosink = true;
 static bool hls_video = false;
 #ifdef X_DISPLAY_FIX
 static bool use_x11 = false;
@@ -100,10 +99,12 @@ typedef enum {
 #define NCODECS  3   /* renderers for h264,h265, and jpeg images */
 
 struct video_renderer_s {
-    GstElement *appsrc, *pipeline, *textsrc;
+    GstElement *appsrc;
+    GstElement *pipeline;
+    GstElement *textsrc;
+    GstElement *videosink;
     GstBus *bus;
     const char *codec;
-    bool autovideo;
     int id;
     char *uri;
     gboolean eos;
@@ -280,7 +281,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     bool rtp = (bool) strlen(rtp_pipeline);
     hls_video = (uri != NULL);
     /* videosink choices that are auto */
-    auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
+    bool auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
 
     logger = render_logger;
     logger_debug = (logger_get_level(logger) >= LOGGER_DEBUG);
@@ -324,10 +325,10 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         g_assert (i < 3);
         renderer_type[i] = (video_renderer_t *) calloc(1, sizeof(video_renderer_t));
         g_assert(renderer_type[i]);
-        renderer_type[i]->autovideo = auto_videosink;
         renderer_type[i]->id = i;
         renderer_type[i]->bus = NULL;
         renderer_type[i]->appsrc = NULL;
+        renderer_type[i]->videosink = NULL;
         renderer_type[i]->textsrc = NULL;
         renderer_type[i]->uri = NULL;
         renderer_type[i]->eos = FALSE;
@@ -770,6 +771,10 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
             gst_object_unref (renderer->appsrc);
             renderer->appsrc = NULL;
         }
+        if (renderer->videosink) {
+            gst_object_unref (renderer->videosink);
+            renderer->videosink = NULL;
+        }
         if (renderer->textsrc) {
             gst_object_unref (renderer->textsrc);
             renderer->textsrc = NULL;
@@ -1014,18 +1019,22 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
             }
 
         }
-        if (renderer->autovideo) {
-            char *sink = strstr(GST_MESSAGE_SRC_NAME(message), "-actual-sink-");
-            if (sink) {
-                sink += strlen("-actual-sink-");
-                if (strstr(GST_MESSAGE_SRC_NAME(message), renderer->codec)) {
-                    logger_log(logger, LOGGER_DEBUG, "GStreamer: automatically-selected videosink"
-                               " (renderer %d: %s) is \"%ssink\"", renderer->id + 1,
-                               renderer->codec, sink);
+        if (!renderer->videosink) {
+            const gchar *src_name = GST_MESSAGE_SRC_NAME(message);
+            if (src_name && strstr(src_name, renderer->codec)) {
+                if (strstr(src_name, "sink")) {
+                    GstState old_state, new_state;
+                    gst_message_parse_state_changed(message, &old_state, &new_state, NULL);                   
+                    // Element is safe to capture once it hits or finishes its READY transition
+                    if (new_state >= GST_STATE_READY) {
+                        renderer->videosink = GST_ELEMENT(gst_object_ref(message->src));
+                        logger_log(logger, LOGGER_DEBUG, 
+                                   "videosink element (renderer %d: %s)  identified as: %s",
+                                    renderer->id + 1, renderer->codec, src_name);
 #ifdef X_DISPLAY_FIX
-                    renderer->use_x11 = (strstr(sink, "ximage") || strstr(sink, "xvimage"));
+                        renderer->use_x11 = (strstr(src_name, "ximage") || strstr(src_name, "xvimage"));
 #endif
-                    renderer->autovideo = false;
+                    }
                 }
             }
         }
