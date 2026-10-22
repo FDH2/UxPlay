@@ -3032,7 +3032,9 @@ extern "C" float on_video_playlist_remove (void *cls) {
 
  extern "C" void on_video_stop(void *cls) {
     LOGI("**************************on_video_stop\n");
-    video_renderer_hls_ready();
+    /* the client may start mirroring immediately after /stop: rebuild the (non-HLS) video
+     * renderer now, as at HLS EOS, instead of waiting for main_loop to do it */
+    video_reset(cls, RESET_TYPE_HLS_EOS);
  }
 
 extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *playback_info) {
