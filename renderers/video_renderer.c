@@ -25,15 +25,142 @@
 #include "video_renderer.h"
 #include <gst/video/videooverlay.h>
 
+#define DEFAULT_VIDEO_WIDTH 1280
+#define DEFAULT_VIDEO_HEIGHT 720
+
 static uintptr_t external_window_handle = 0;
+static unsigned short width = DEFAULT_VIDEO_WIDTH;
+static unsigned short height = DEFAULT_VIDEO_HEIGHT;
+static unsigned short width_source = DEFAULT_VIDEO_WIDTH;
+static unsigned short height_source =  DEFAULT_VIDEO_HEIGHT;
+
+
+
+static GstPadProbeReturn
+uxplay_videosink_key_probe(GstPad *pad, GstPadProbeInfo *info, gpointer user_data)
+{
+    // 1. Only intercept upstream events                                                                                                                                                                                                                                                                                                                                        
+    if (!(info->type & GST_PAD_PROBE_TYPE_EVENT_UPSTREAM))
+        return GST_PAD_PROBE_OK;
+
+
+    GstEvent *event = GST_PAD_PROBE_INFO_EVENT(info);
+    if (event) g_print("key_probe event\n");
+    // 2. Filter for GstNavigation events                                                                                                                                                                                                                                                                                                                                       
+    if (GST_EVENT_TYPE(event) == GST_EVENT_NAVIGATION) {
+          g_print("key_probe navigation event\n");
+        const GstStructure *structure = gst_event_get_structure(event);
+
+        // Check if it is a key-press event                                                                                                                                                                                                                                                                                                                                     
+        if (g_strcmp0(gst_structure_get_string(structure, "event"), "key-press") == 0) {
+            const gchar *key = gst_structure_get_string(structure, "key");
+
+            // Check for key modifiers (like Alt, Control, Shift)                                                                                                                                                                                                                                                                                                               
+            guint modifier_state = 0;
+            gst_structure_get_uint(structure, "state", &modifier_state);
+
+            /*                                                                                                                                                                                                                                                                                                                                                                  
+             * GStreamer navigation modifier flags generally match X11/GDK:                                                                                                                                                                                                                                                                                                     
+             * Mod1Mask (Alt key) is typically 1 << 3 (value 8).                                                                                                                                                                                                                                                                                                                
+             * We check if the Alt modifier bit is flipped.                                                                                                                                                                                                                                                                                                                     
+             */
+            gboolean alt_pressed = (modifier_state & (1 << 3)) != 0;
+
+            if (key != NULL) {
+                gboolean toggle_triggered = FALSE;
+
+                // Match: Alt + Return OR F11 (Standard system fullscreen shortcut)                                                                                                                                                                                                                                                                                             
+                if ((alt_pressed && (g_strcmp0(key, "Return") == 0 || g_strcmp0(key, "Enter") == 0)) ||
+                    g_strcmp0(key, "F11") == 0) {
+                    toggle_triggered = TRUE;
+                }
+
+                if (toggle_triggered) {
+                    // user_data is the video_sink element passed during registration                                                                                                                                                                                                                                                                                           
+                    GstElement *video_sink = GST_ELEMENT(user_data);
+
+                    // Verify the specific sink actually supports a "fullscreen" property                                                                                                                                                                                                                                                                                       
+                    if (g_object_class_find_property(G_OBJECT_GET_CLASS(video_sink), "fullscreen")) {
+                        gboolean is_fullscreen = FALSE;
+
+                        // Get current state, flip it, and apply it back                                                                                                                                                                                                                                                                                                        
+                        g_object_get(video_sink, "fullscreen", &is_fullscreen, NULL);
+                        g_object_set(video_sink, "fullscreen", !is_fullscreen, NULL);
+
+                        g_print("\nUxPlay: Fullscreen toggled via shortcut (%s).\n", key);
+                    }
+
+                    // Drop the event so the rest of the pipeline doesn't parse it                                                                                                                                                                                                                                                                                              
+                    return GST_PAD_PROBE_DROP;
+                }
+            }
+        }
+    }
+
+    return GST_PAD_PROBE_OK;
+}
+
 
 static GstBusSyncReply
 window_handle_bus_sync_handler(GstBus *bus, GstMessage *message, gpointer user_data) {
     if (gst_is_video_overlay_prepare_window_handle_message(message)) {
+        GstElement *sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
+
         if (external_window_handle) {
-            GstElement *sink = GST_ELEMENT(GST_MESSAGE_SRC(message));
-            gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), (guintptr) external_window_handle);
+            // an externally-supppied with will be used                                                                                                                                                                                                                           gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(sink), (guintptr) external_window_handle);
+        } else if (sink) {
+            // GStreamer will create its own private window                                                                                                                                                                                                                                                                                                                     
+            const gchar *sink_class = G_OBJECT_TYPE_NAME(sink);
+            gboolean use_x11 = FALSE;
+
+            #ifdef X_DISPLAY_FIX
+            use_x11 = (g_strrstr(sink_class, "XImage") || g_strrstr(sink_class, "XvImage"));
+            #endif
+
+            // Apply fixes only to modern, non-X11 sinks (Wayland, Win32, Cocoa)                                                                                                                                                                                                                                                                                                
+            if (!use_x11) {
+
+                // Fix 1: Force GStreamer's internal window thread to capture keyboard focus                                                                                                                                                                                                                                                                                    
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "handle-events")) {
+                    g_object_set(G_OBJECT(sink), "handle-events", TRUE, NULL);
+                }
+
+                // Fix 2: Stop glimagesink from collapsing to 1x1 pixels under Wayland + NVIDIA                                                                                                                                                                                                                                                                                 
+                if (g_object_class_find_property(G_OBJECT_GET_CLASS(sink), "render-rectangle")) {
+                    GValue value = G_VALUE_INIT;
+                    g_value_init(&value, GST_TYPE_ARRAY);
+
+                    GValue val_x = G_VALUE_INIT; g_value_init(&val_x, G_TYPE_INT); g_value_set_int(&val_x, 0);
+                    GValue val_y = G_VALUE_INIT; g_value_init(&val_y, G_TYPE_INT); g_value_set_int(&val_y, 0);
+                    GValue val_w = G_VALUE_INIT; g_value_init(&val_w, G_TYPE_INT); g_value_set_int(&val_w, (int) width_source);
+                    GValue val_h = G_VALUE_INIT; g_value_init(&val_h, G_TYPE_INT); g_value_set_int(&val_h, (int) height_source);
+
+                    gst_value_array_append_value(&value, &val_x);
+                    gst_value_array_append_value(&value, &val_y);
+                    gst_value_array_append_value(&value, &val_w);
+                    gst_value_array_append_value(&value, &val_h);
+
+                    g_object_set_property(G_OBJECT(sink), "render-rectangle", &value);
+                    g_value_unset(&value);
+                }
+
+                // Fix 3: Intercept upstream keyboard events (Alt+Enter / F11)                                                                                                                                                                                                                                                                                                  
+                GstPad *sink_pad = gst_element_get_static_pad(sink, "sink");
+                if (sink_pad) {
+                    gst_pad_add_probe(sink_pad,
+                                      GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
+                                      uxplay_videosink_key_probe,
+                                      sink, // Pass element reference to toggle fullscreen property                                                                                                                                                                                                                                                                             
+                                      NULL);
+                    gst_object_unref(sink_pad);
+                }
+            }
+            width         = DEFAULT_VIDEO_WIDTH;
+            height        = DEFAULT_VIDEO_HEIGHT;
+            width_source  = DEFAULT_VIDEO_WIDTH;
+            height_source = DEFAULT_VIDEO_HEIGHT;
         }
+
         gst_message_unref(message);
         return GST_BUS_DROP;
     }
