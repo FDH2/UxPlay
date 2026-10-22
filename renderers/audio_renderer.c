@@ -52,6 +52,7 @@ typedef struct audio_renderer_s {
 } audio_renderer_t ;
 static audio_renderer_t *renderer_type[NFORMATS];
 static audio_renderer_t *renderer = NULL;
+static gboolean audio_off = FALSE;  /* set if the audio sink failed during the current connection */
 
 /* GStreamer Caps strings for Airplay-defined audio compression types (ct) */
 
@@ -243,6 +244,7 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
 }
 
 void audio_renderer_stop() {
+    audio_off = FALSE;
     if (renderer) {
         gst_app_src_end_of_stream(GST_APP_SRC(renderer->appsrc));
         gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
@@ -288,6 +290,7 @@ static void get_renderer_type(unsigned char *ct, int *id) {
 
 void  audio_renderer_start(unsigned char *ct) {
     int id = -1;
+    if (audio_off) return;
     get_renderer_type(ct, &id);
     if (id >= 0 && renderer) {
         if(*ct != renderer->ct) {
@@ -311,7 +314,7 @@ void  audio_renderer_start(unsigned char *ct) {
 void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
     GstBuffer *buffer = NULL;
 
-    if (!render_audio) return;    /* do nothing unless render_audio == TRUE */
+    if (audio_off || !render_audio) return;    /* do nothing unless render_audio == TRUE */
 
     GstClockTime pts = (GstClockTime) *ntp_time ;    /* now in nsecs */
     //GstClockTimeDiff latency = GST_CLOCK_DIFF(gst_element_get_current_clock_time (renderer->appsrc), pts);
@@ -421,7 +424,15 @@ static gboolean gstreamer_audio_pipeline_bus_callback(GstBus *bus, GstMessage *m
         }
         gst_bus_set_flushing(bus, TRUE);
         gst_element_set_state (renderer->pipeline, GST_STATE_READY);
-        g_main_loop_quit( (GMainLoop *) loop);
+        if (renderer->ct == 8) {
+            /* AirPlay mirror-mode audio (AAC-ELD): the video stream is independent
+             * of the audio sink, so keep the session alive with sound turned off. */
+            logger_log(logger, LOGGER_INFO,
+                       "*** audio pipeline failed: mirroring continues without sound for this connection");
+            audio_off = TRUE;
+        } else {
+            g_main_loop_quit( (GMainLoop *) loop);
+        }
 	break;
     }
     case GST_MESSAGE_EOS:
