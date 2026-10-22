@@ -89,12 +89,12 @@ struct raop_callbacks_s {
     void  (*conn_feedback) (void *cls);
     void  (*conn_reset) (void *cls, int reason);
     void  (*video_reset) (void *cls, reset_type_t reset_type);
-  
-  
+    int   (*video_set_codec_and_size) (void *cls, video_codec_t codec, unsigned short width_source,
+                                       unsigned short height_source, unsigned short x_offset,
+                                       unsigned short y_offset, unsigned short width, unsigned short height);
     /* Optional but recommended callback functions (probably not optional, check this)*/
     void  (*conn_init)(void *cls);
     void  (*conn_destroy)(void *cls);
-  //void  (*conn_teardown)(void *cls, bool *teardown_96, bool *teardown_110 ); /*not used */
     void  (*audio_flush)(void *cls);
     void  (*video_flush)(void *cls);
     double (*audio_set_client_volume)(void *cls);
@@ -105,7 +105,6 @@ struct raop_callbacks_s {
     void  (*audio_remote_control_id)(void *cls, const char *dacp_id, const char *active_remote_header);
     void  (*audio_set_progress)(void *cls, uint32_t *start, uint32_t *curr, uint32_t *end);
     void  (*audio_get_format)(void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat);
-    void  (*video_report_size)(void *cls, float *width_source, float *height_source, float *width, float *height);
     void  (*mirror_video_running)(void *cls, bool is_running);
     void  (*report_client_request) (void *cls, char *deviceid, char *model, char *name, bool *admit);
     void  (*display_pin) (void *cls, char * pin);
@@ -113,7 +112,6 @@ struct raop_callbacks_s {
     bool  (*check_register) (void *cls, const char *pk_str);
     const char*  (*passwd) (void *cls, int *len);
     void  (*export_dacp) (void *cls, const char *active_remote, const char *dacp_id);
-    int   (*video_set_codec)(void *cls, video_codec_t codec);
     /* for HLS video player controls */
     void  (*on_video_play) (void *cls, const char *location, const float start_position);
     void  (*on_video_scrub) (void *cls, const float position);

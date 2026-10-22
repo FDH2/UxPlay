@@ -2574,7 +2574,9 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
     reset_loop = true;
 }
 
-extern "C" int video_set_codec(void *cls, video_codec_t codec) {
+extern "C" int video_set_codec_and_size(void *cls, video_codec_t codec, unsigned short width_source,
+                                        unsigned short height_source, unsigned short x_offset,
+                                        unsigned short y_offset, unsigned short width, unsigned short height) {
     bool video_is_h265 = (codec == VIDEO_CODEC_H265);
     if (mux_to_file) {
         mux_renderer_choose_video_codec(video_is_h265);
@@ -2582,7 +2584,14 @@ extern "C" int video_set_codec(void *cls, video_codec_t codec) {
     if (!use_video) {
         return 0;
     }
-    return video_renderer_choose_codec(false, video_is_h265);
+    video_geometry_t geom;
+    geom.width_source = (int) width_source;
+    geom.height_source = (int) height_source;
+    geom.x_offset = (int) x_offset;
+    geom.y_offset = (int) y_offset;
+    geom.width = (int) width;
+    geom.height = (int) height;
+    return video_renderer_choose_codec_and_size(false, video_is_h265, &geom);
 }
 
 extern "C" void display_pin(void *cls, char *pin) {
@@ -2876,18 +2885,13 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
     }
 }
 
-extern "C" void video_report_size(void *cls, float *width_source, float *height_source, float *width, float *height) {
-    if (use_video) {
-        video_renderer_size(width_source, height_source, width, height);
-    }
-}
-
 extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
     if (buffer && coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), buffer, buflen);
         LOGI("coverart size %d written to %s", buflen,  coverart_filename.c_str());
     } else if (buffer && render_coverart) {
-        video_renderer_choose_codec(true, false);  /* video_is_jpeg = true */
+        video_geometry_t geom = {0};
+        video_renderer_choose_codec_and_size(true, false, &geom);  /* video_is_jpeg = true */
         video_renderer_display_jpeg(buffer, &buflen);
         coverart_artist = "_pending_";
     }
@@ -3101,7 +3105,6 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.audio_set_client_volume = audio_set_client_volume;
     raop_cbs.audio_set_volume = audio_set_volume;
     raop_cbs.audio_get_format = audio_get_format;
-    raop_cbs.video_report_size = video_report_size;
     raop_cbs.audio_set_metadata = audio_set_metadata;
     raop_cbs.audio_set_coverart = audio_set_coverart;
     raop_cbs.audio_stop_coverart_rendering = audio_stop_coverart_rendering;
@@ -3113,7 +3116,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.passwd = passwd;
     raop_cbs.export_dacp = export_dacp;
     raop_cbs.video_reset = video_reset;
-    raop_cbs.video_set_codec = video_set_codec;
+    raop_cbs.video_set_codec_and_size = video_set_codec_and_size;
 #ifdef DBUS
     raop_cbs.mirror_video_running = mirror_video_running;
 #endif

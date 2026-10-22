@@ -58,7 +58,6 @@ static unsigned char X11_search_attempts = 0;
 
 static GstClockTime gst_video_pipeline_base_time = GST_CLOCK_TIME_NONE;
 static logger_t *logger = NULL;
-static unsigned short width, height, width_source, height_source;  /* not currently used */
 static bool first_packet = false;
 static bool sync = false;
 static bool hls_video = false;
@@ -195,14 +194,6 @@ static void append_videoflip (GString *launch, const videoflip_t *flip, const vi
 static const char jpeg_caps[]="image/jpeg";
 static const char h264_caps[]="video/x-h264,stream-format=(string)byte-stream,alignment=(string)au";
 static const char h265_caps[]="video/x-h265,stream-format=(string)byte-stream,alignment=(string)au";
-
-void video_renderer_size(float *f_width_source, float *f_height_source, float *f_width, float *f_height) {
-    width_source = (unsigned short) *f_width_source;
-    height_source = (unsigned short) *f_height_source;
-    width = (unsigned short) *f_width;
-    height = (unsigned short) *f_height;
-    logger_log(logger, LOGGER_DEBUG, "begin video stream wxh = %dx%d; source %dx%d", width, height, width_source, height_source);
-}
 
 GstElement *make_video_sink(const char *videosink, const char *videosink_options) {
     /* used to build a videosink for playbin, using the user-specified string "videosink" */ 
@@ -1083,13 +1074,18 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
     return TRUE;
 }
 
-int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
+int video_renderer_choose_codec_and_size (bool video_is_jpeg, bool video_is_h265, video_geometry_t *video_geometry) {
     video_renderer_t *renderer_used = NULL;
     g_assert(!hls_video);
     if (video_is_jpeg) {
         g_assert(type_jpeg != -1);
         renderer_used = renderer_type[type_jpeg];
     } else {
+        logger_log(logger, LOGGER_INFO,"*** codec is %s: geometry is (w,h)=(%d,%d) (source); (x,y)=(%d,%d); (w,h)=(%d,%d)\n",
+                   video_is_h265 ? "h265" : "h264",
+                   video_geometry->width_source,video_geometry->height_source,
+                   video_geometry->x_offset,video_geometry->y_offset,
+                   video_geometry->width,video_geometry->height);
         if (video_is_h265) {
             if (type_265 == -1) {
                 logger_log(logger, LOGGER_ERR, "video is h265 but the -h265 option was not used");
@@ -1118,9 +1114,7 @@ int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265) {
     logger_log(logger, LOGGER_DEBUG, "video_pipeline state change from %s to %s\n",
                gst_element_state_get_name (old_state),gst_element_state_get_name (new_state));
     gst_video_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
-    if (strstr(renderer->codec, h265)) {
-        logger_log(logger, LOGGER_INFO, "*** video format is h265 high definition (HD/4K) video %dx%d", width, height);
-    }
+
     /* destroy unused renderers */
     for (int i = 0; i < n_renderers; i++) {
         if (renderer_type[i] == renderer) {

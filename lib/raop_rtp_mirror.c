@@ -436,7 +436,7 @@ raop_rtp_mirror_thread(void *arg)
                     assert(sps_pps);
                     payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
                     if (!payload_out) {
-                        printf("Memory allocation failed (payload_out)\n");
+                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR,"raop_rtp_mirror: Memory allocation failed (payload_out)");
                         exit(1);
                     }
                     payload_decrypted = payload_out + sps_pps_len;
@@ -564,10 +564,10 @@ raop_rtp_mirror_thread(void *arg)
                    bytes 24-39 all  0x0
                    bytes 40-43 float width_source   (value is x.0000, x = unsigned short)
                    bytes 44-47 float height_source  (value is x.0000, x = unsigned short)
-                   bytes 48-51 ??? float "other_w"  (value seems to be x.0000, x = unsigned short)
-                   bytes 48-51 ??? float "other_h"  (value seems to be x.0000, x = unsigned short)
-                   bytes 56-59 width 
-                   bytes 60-63 height 
+                   bytes 48-51 float x_offset       (value is x.0000, x = unsigned short)
+                   bytes 48-51 float y_ofset        (value is x.0000, x = unsigned short)
+                   bytes 56-59 float width 
+                   bytes 60-63 float height 
                    bytes 64-127 all 0x0 
                 */
 	      
@@ -588,7 +588,7 @@ raop_rtp_mirror_thread(void *arg)
                     video_stream_suspended = false;
                 }
 
-                assert (raop_rtp_mirror->callbacks.video_set_codec);
+                assert (raop_rtp_mirror->callbacks.video_set_codec_and_size);
                 ntp_timestamp_nal = ntp_timestamp_raw;
 
                 /* these "floats" are in fact integers that fit into unsigned shorts */
@@ -596,8 +596,8 @@ raop_rtp_mirror_thread(void *arg)
                 float height_0 = byteutils_get_float(packet, 20);
                 float width_source = byteutils_get_float(packet, 40);    // duplication of width_0
                 float height_source = byteutils_get_float(packet, 44);   // duplication of height_0
-                float unknown_w = byteutils_get_float(packet, 48);
-                float unknown_h = byteutils_get_float(packet, 52);
+                float x_offset = byteutils_get_float(packet, 48);
+                float y_offset = byteutils_get_float(packet, 52);
                 float width = byteutils_get_float(packet, 56);
                 float height = byteutils_get_float(packet, 60);
 
@@ -605,12 +605,9 @@ raop_rtp_mirror_thread(void *arg)
                 logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror: Unexpected : data  %f,"
                            " %f != width_source = %f, height_source = %f", width_0, height_0, width_source, height_source);
                 }
-                logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror: unidentified extra header data  %f, %f", unknown_w, unknown_h);
-                if (raop_rtp_mirror->callbacks.video_report_size) {
-                    raop_rtp_mirror->callbacks.video_report_size(raop_rtp_mirror->callbacks.cls, &width_source, &height_source, &width, &height);
-                }
-                logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG, "raop_rtp_mirror width_source = %f height_source = %f width = %f height = %f",
-                           width_source, height_source, width, height);
+                logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
+                           "raop_rtp_mirror width_source = %f height_source = %f x_offset = %f y_offset = %f width = %f height = %f",
+                           width_source, height_source, x_offset, y_offset, width, height);
 
                 if (payload_size == 0) {
                     logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "raop_rtp_mirror: received type 0x01 packet with no payload:\n"
@@ -631,7 +628,10 @@ raop_rtp_mirror_thread(void *arg)
                     if (codec == VIDEO_CODEC_UNKNOWN) {
                         codec = VIDEO_CODEC_H265;
                         h265_video = true;
-                        if (raop_rtp_mirror->callbacks.video_set_codec(raop_rtp_mirror->callbacks.cls, codec) < 0) {
+                        if (raop_rtp_mirror->callbacks.video_set_codec_and_size(raop_rtp_mirror->callbacks.cls, codec,
+                                                                                (unsigned short) width_source, (unsigned short) height_source,
+                                                                                (unsigned short) x_offset, (unsigned short) y_offset,
+                                                                                (unsigned short) width, (unsigned short) height)  < 0) {
                             logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "failed to set video codec as H265 ");
                             /* drop connection */
                             conn_reset = true;
@@ -710,7 +710,10 @@ raop_rtp_mirror_thread(void *arg)
                     if (codec == VIDEO_CODEC_UNKNOWN) {
                         codec = VIDEO_CODEC_H264;
                         h265_video = false;
-                        if (raop_rtp_mirror->callbacks.video_set_codec(raop_rtp_mirror->callbacks.cls, codec) < 0) {
+                        if (raop_rtp_mirror->callbacks.video_set_codec_and_size(raop_rtp_mirror->callbacks.cls, codec,
+                                                                                (unsigned short) width_source, (unsigned short) height_source,
+                                                                                (unsigned short) x_offset, (unsigned short) y_offset,
+                                                                                (unsigned short) width, (unsigned short) height)  < 0) {
                             logger_log(raop_rtp_mirror->logger, LOGGER_ERR, "failed to set video codec as H264 ");
                             /* drop connection */
                             conn_reset = true;

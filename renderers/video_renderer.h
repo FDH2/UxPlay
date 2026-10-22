@@ -45,6 +45,15 @@ typedef enum videoflip_e {
     HFLIP,
 } videoflip_t;
 
+typedef struct video_geometry_s {
+  int width_source;
+  int height_source;
+  int x_offset;
+  int y_offset;
+  int width;
+  int height;
+} video_geometry_t;
+
 typedef struct video_renderer_s video_renderer_t;
 
 void video_renderer_init (logger_t *logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char *rtp_pipeline,
@@ -68,10 +77,9 @@ void video_renderer_display_jpeg(const void *data, int *data_len);
 void video_renderer_flush ();
 unsigned int video_renderer_listen(void *loop, int id);
 void video_renderer_destroy ();
-void video_renderer_size(float *width_source, float *height_source, float *width, float *height);
 bool waiting_for_x11_window();
 bool video_get_playback_info(double *duration, double *position, double *seek_start, double *seek_duration, float *rate, bool *buffer_empty, bool *buffer_full);
-int video_renderer_choose_codec (bool video_is_jpeg, bool video_is_h265);
+int video_renderer_choose_codec_and_size (bool video_is_jpeg, bool video_is_h265, video_geometry_t *video_geometry);
 unsigned int video_renderer_listen(void *loop, int id);
 bool video_renderer_eos_watch();
 void video_renderer_hls_set_volume(double volume);
