@@ -499,7 +499,7 @@ random_pin() {
 
 int
 srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_id, const char *pin,
-             const char **salt, int *len_salt, const char **pk, int *len_pk) {
+             const char **salt, int *len_salt,  char **pk, int *len_pk) {
     if (strlen(device_id) > SRP_USERNAME_SIZE) {
         return -1;
     }
@@ -548,6 +548,9 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
 
     *pk = (char *) srp_B;
     *len_pk = len_B;
+
+    free(srp_s);
+    free(srp_v);
 
     return 0;
 }

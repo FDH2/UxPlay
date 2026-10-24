@@ -619,8 +619,7 @@ void pk_to_base64(const unsigned char *pk, int pk_len, char *pk_base64, int len)
     BIO_flush(bio);
 
     BIO_get_mem_ptr(bio, &bufferPtr);
-    BIO_set_close(bio, BIO_NOCLOSE);
-    BIO_free_all(bio);
     memcpy(pk_base64,(*bufferPtr).data, len64);
+    BIO_free_all(bio);
 }
   

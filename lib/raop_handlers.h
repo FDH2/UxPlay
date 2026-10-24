@@ -311,7 +311,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         /* this is the initial pair-setup-pin request */
         const char *salt = NULL;
         char pin[6] = { '\0' };
-        const char *pk = NULL;
+        char *pk = NULL;
         int len_pk = 0, len_salt = 0;
         char *method = NULL;
         char *user = NULL;
@@ -342,6 +342,7 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         plist_t res_root_node = plist_new_dict();
         plist_t res_salt_node = plist_new_data(salt, len_salt);
         plist_t res_pk_node = plist_new_data(pk, len_pk);
+        free(pk);
         plist_dict_set_item(res_root_node, "pk", res_pk_node);	
         plist_dict_set_item(res_root_node, "salt", res_salt_node);
         plist_to_bin(res_root_node, response_data, (uint32_t*) response_datalen);
@@ -352,34 +353,36 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         /* this is the second part of pair-setup-pin request */
         char *client_pk = NULL;
         char *client_proof = NULL;
-        unsigned char proof[64] = { '\0' };
-        memset(proof, 0, sizeof(proof));
+        unsigned char proof[SRP_PROOF_SIZE] = { '\0' };
         uint64_t client_pk_len = 0;
         uint64_t client_proof_len = 0;
         plist_get_data_val(req_pk_node, &client_pk, &client_pk_len); 
         plist_get_data_val(req_proof_node, &client_proof, &client_proof_len);
         if (logger_debug) {
-            char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, 20);
+            char *str = utils_data_to_string((const unsigned char *) client_proof, client_proof_len, SRP_PROOF_SIZE);
             logger_log(raop->logger, LOGGER_DEBUG, "client SRP6a proof <M> :\n%s", str);	    
             free (str);
         }
-        memcpy(proof, client_proof, sizeof(proof));
-        free (client_proof);
-        int ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
+        int ret = -1;
+        if (client_proof_len == SRP_PROOF_SIZE) {
+            memcpy(proof, client_proof, sizeof(proof));
+            ret = srp_validate_proof(conn->session, raop->pairing, (const unsigned char *) client_pk,
                                      (int) client_pk_len, proof, (int) sizeof(proof));
-        free (client_pk);
+        }   
+        plist_mem_free (client_proof);
+        plist_mem_free (client_pk);
         plist_free(req_root_node);
         if (ret < 0) {
             logger_log(raop->logger, LOGGER_ERR, "Client Authentication Failure (client proof not validated)");
             goto authentication_failed;
         }
         if (logger_debug) {
-	    char *str = utils_data_to_string((const unsigned char *) proof, sizeof(proof), 20);
+            char *str = utils_data_to_string((const unsigned char *) proof, sizeof(proof), SRP_PROOF_SIZE);
             logger_log(raop->logger, LOGGER_DEBUG, "server SRP6a proof <M1> :\n%s", str);
             free (str);
         }
         plist_t res_root_node = plist_new_dict();
-        plist_t res_proof_node = plist_new_data((const char *) proof, 20);
+        plist_t res_proof_node = plist_new_data((const char *) proof, SRP_PROOF_SIZE);
         plist_dict_set_item(res_root_node, "proof", res_proof_node);	
         plist_to_bin(res_root_node, response_data, (uint32_t*) response_datalen);
         plist_free(res_root_node);
@@ -393,24 +396,26 @@ raop_handler_pairsetup_pin(raop_conn_t *conn,
         uint64_t client_authtag_len = 0;
         unsigned char epk[ED25519_KEY_SIZE];
         unsigned char authtag[GCM_AUTHTAG_SIZE];
-        int ret = 0;
+        int ret = -1;
         plist_get_data_val(req_epk_node, &client_epk, &client_epk_len); 
         plist_get_data_val(req_authtag_node, &client_authtag, &client_authtag_len);
 
         if (logger_debug) {
             char *str = utils_data_to_string((const unsigned char *) client_epk, client_epk_len, 16);
             logger_log(raop->logger, LOGGER_DEBUG, "client_epk %d:\n%s\n", (int) client_epk_len, str);
+            free (str);
             str = utils_data_to_string((const unsigned char *) client_authtag, client_authtag_len, 16);
             logger_log(raop->logger, LOGGER_DEBUG, "client_authtag  %d:\n%s\n", (int) client_authtag_len, str);
             free (str);
         }
-
-        memcpy(epk, client_epk, ED25519_KEY_SIZE);
-        memcpy(authtag, client_authtag, GCM_AUTHTAG_SIZE);
-        free (client_authtag);
-        free (client_epk);
+        if (client_epk_len == ED25519_KEY_SIZE && client_authtag_len == GCM_AUTHTAG_SIZE) { 
+            memcpy(epk, client_epk, ED25519_KEY_SIZE);
+            memcpy(authtag, client_authtag, GCM_AUTHTAG_SIZE);
+            ret = srp_confirm_pair_setup(conn->session, raop->pairing, epk, authtag);
+        }
+        plist_mem_free(client_authtag);
+        plist_mem_free(client_epk);
         plist_free(req_root_node);
-        ret = srp_confirm_pair_setup(conn->session, raop->pairing, epk, authtag);
         if (ret < 0) {
             logger_log(raop->logger, LOGGER_ERR, "pair-pin-setup (step 3): client authentication failed\n");
             goto authentication_failed;
@@ -596,11 +601,19 @@ raop_handler_options(raop_conn_t *conn,
     http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
 }
 
+#define AES_IV_SIZE 16
+#define EKEY_SIZE 72
+#define AES_KEY_SIZE 16
+
 static void
 raop_handler_setup(raop_conn_t *conn,
                    http_request_t *request, http_response_t *response,
                    char **response_data, int *response_datalen)
 {
+    unsigned char aesiv[AES_IV_SIZE] = { 0 };
+    unsigned char eaeskey[EKEY_SIZE] = { 0 };
+    unsigned char aeskey[AES_KEY_SIZE] = { 0 };	
+
     raop_t *raop = conn->raop;
     const char *dacp_id = NULL;
     const char *active_remote_header = NULL;
@@ -632,10 +645,6 @@ raop_handler_setup(raop_conn_t *conn,
 
     if (PLIST_IS_DATA(req_eiv_node) && PLIST_IS_DATA(req_ekey_node)) {
         // The first SETUP call that initializes keys and timing
-
-        unsigned char aesiv[16] = { 0 };
-        unsigned char aeskey[16] = { 0 };
-        unsigned char eaeskey[72] = { 0 };
 
         logger_log(raop->logger, LOGGER_DEBUG, "SETUP 1");
 
@@ -691,7 +700,7 @@ raop_handler_setup(raop_conn_t *conn,
                 logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
                 raop->auth_fail_count++;
             }
-	    if (len && !conn->authenticated) {
+            if (len && !conn->authenticated) {
  	        if (len == -1) {
                     password = (const char *) raop->random_pw;
                 }
@@ -702,7 +711,7 @@ raop_handler_setup(raop_conn_t *conn,
                     strncpy(nonce_string, ptr, 32);
                     const char *method = http_request_get_method(request);
                     conn->authenticated = pairing_digest_verify(method, authorization, password);
-		    if (!conn->authenticated) {
+                    if (!conn->authenticated) {
                         // if random_pw is used, the auth_fail_count will be the number of times it is displayed after creation
                         if (len != -1) {
                             raop->auth_fail_count++;
@@ -748,8 +757,6 @@ raop_handler_setup(raop_conn_t *conn,
             }
         }
 	
-        char* eiv = NULL;
-        uint64_t eiv_len = 0;
         char *model = NULL;
         char *name = NULL;
         bool admit_client = true;
@@ -779,15 +786,16 @@ raop_handler_setup(raop_conn_t *conn,
             /* client is not authorized to connect */
             plist_free(res_root_node);
             plist_free(req_root_node);
+            http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
             return;
         }
 
+        char* eiv = NULL;
+        uint64_t eiv_len = 0;	
         plist_get_data_val(req_eiv_node, &eiv, &eiv_len);
-        memcpy(aesiv, eiv, 16);
-        free(eiv);	
         logger_log(raop->logger, LOGGER_DEBUG, "eiv_len = %llu", eiv_len);
         if (logger_debug) {
-            char* str = utils_data_to_string(aesiv, 16, 16);
+            char* str = utils_data_to_string((unsigned char *) eiv, eiv_len, 16);
             logger_log(raop->logger, LOGGER_DEBUG, "16 byte aesiv (needed for AES-CBC audio decryption iv):\n%s", str);
             free(str);
         }
@@ -795,16 +803,29 @@ raop_handler_setup(raop_conn_t *conn,
         char* ekey = NULL;
         uint64_t ekey_len = 0;
         plist_get_data_val(req_ekey_node, &ekey, &ekey_len);
-        memcpy(eaeskey,ekey,72);
-        free(ekey);
-        logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", ekey_len);
-        // eaeskey is 72 bytes, aeskey is 16 bytes
+        logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", 16);
+        // ekey is 72 bytes, aeskey is 16 bytes
         if (logger_debug) {
-            char *str = utils_data_to_string((unsigned char *) eaeskey, ekey_len, 16);
-            logger_log(raop->logger, LOGGER_DEBUG, "ekey:\n%s", str);
+            char *str = utils_data_to_string((unsigned char *) ekey, ekey_len, EKEY_SIZE);
+            logger_log(raop->logger, LOGGER_DEBUG, "72 byte ekey:\n%s", str);
             free (str);
         }
-        int ret = fairplay_decrypt(conn->fairplay, (unsigned char*) eaeskey, aeskey);
+	
+        int ret = -1;
+        if (eiv_len == AES_IV_SIZE && ekey_len == EKEY_SIZE) {
+            memcpy(aesiv, eiv, AES_IV_SIZE);
+            memcpy(eaeskey,ekey, EKEY_SIZE);
+            ret = 0;
+        }
+        free(eiv);	
+        free(ekey);
+        if (ret < 0) {
+            logger_log(raop->logger, LOGGER_ERR, "SETUP 1: invalid EIV and/or EKEY: sizes (&d,%d) != (16,72)", eiv, ekey);
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+            return;
+        }
+
+        ret = fairplay_decrypt(conn->fairplay, (unsigned char*) eaeskey, aeskey);
         logger_log(raop->logger, LOGGER_DEBUG, "fairplay_decrypt ret = %d", ret);
         if (logger_debug) {
             char *str = utils_data_to_string(aeskey, 16, 16);

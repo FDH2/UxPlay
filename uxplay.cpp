@@ -500,6 +500,7 @@ static char *create_pin_display(char *pin_str, int margin, int gap) {
         snprintf(pos, 2, "\n");
         pos++;
     }
+    free(pin);
     snprintf(pos, 2, "\n");
     return pin_image;
 }

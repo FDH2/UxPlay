@@ -257,9 +257,9 @@ parse_ptth(const char *data, const size_t datalen, size_t *header_len, size_t *b
     *header_len = 0;
     *body_len = 0;
 
-    //  Fast-forward past any leading junk or whitespace at the front of the pipe
+    //  skip any leading junk (non-printable ASCII) or whitespace in front of next message
     size_t junk_offset = 0;
-    while (junk_offset < datalen && (data[junk_offset] <= 32 || data[junk_offset] == '\x7f')) {
+    while (junk_offset < datalen && (data[junk_offset] <= 0x20 || data[junk_offset] == 0x7f)) {
         junk_offset++;
     }
 
