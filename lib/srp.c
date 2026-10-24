@@ -680,7 +680,7 @@ void srp_create_salted_verification_key( SRP_HashAlgorithm alg,
 
 /* Out: bytes_B, len_B, bytes_b, len_b 
  * On failure, bytes_B and bytes_b  will be set to NULL 
- * len_B  and len_will be set to 0
+ * len_B  and len_b will be set to 0
  */
 void srp_create_server_ephemeral_key( SRP_HashAlgorithm alg, SRP_NGType ng_type,
                                       const unsigned char * bytes_v, int len_v,  
@@ -703,7 +703,7 @@ void srp_create_server_ephemeral_key( SRP_HashAlgorithm alg, SRP_NGType ng_type,
   if( !v || !B || !b || !tmp1 || !tmp2 || !ctx || !ng )
     goto cleanup_and_exit;
 
-  b = BN_bin2bn(bytes_b, len_b, NULL);
+  BN_bin2bn(bytes_b, len_b, b);
   
   if (rfc5054_compat)
     k = H_nn_rfc5054(alg, ng->N, ng->N, ng->g);
@@ -732,6 +732,7 @@ void srp_create_server_ephemeral_key( SRP_HashAlgorithm alg, SRP_NGType ng_type,
    BN_bn2bin( B, (unsigned char *) *bytes_B );  
 
  cleanup_and_exit:
+   delete_ng( ng );
    BN_free(v);
    if (k) BN_free(k);
    BN_free(B);
@@ -811,7 +812,7 @@ struct SRPVerifier *  srp_verifier_new( SRP_HashAlgorithm alg, SRP_NGType ng_typ
        BN_rand(b, 256, -1, 0);
 #ifdef APPLE_VARIANT
        } else {
-           b = BN_bin2bn(bytes_b, len_b, NULL);
+          BN_bin2bn(bytes_b, len_b, b);
        }
 #endif
 
