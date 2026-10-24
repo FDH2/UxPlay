@@ -1,0 +1,9 @@
+[Unit]
+Description=Timer that initially starts uxplay.service
+
+[Timer]
+OnStartupSec=30
+Unit=uxplay.service
+
+[Install]
+WantedBy=default.target

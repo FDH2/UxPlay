@@ -1,0 +1,16 @@
+[Unit]
+Description=AirPlay Unix mirroring server
+
+Upholds=uxplay-beacon.service
+PropagatesStopTo=uxplay-beacon.service
+
+
+[Service]
+Type=simple
+ExecStart=uxplay
+
+Restart=always
+#Restart=on-failure
+
+#StandardOutput=file:%h/uxplay.log
+
