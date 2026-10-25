@@ -741,16 +741,16 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         GstState state;
         GstStateChangeReturn ret;
         gst_element_get_state(renderer->pipeline, &state, NULL, 100 * GST_MSECOND);
-        logger_log(logger, LOGGER_DEBUG,"pipeline state is %s", gst_element_state_get_name(state));
+        logger_log(logger, LOGGER_DEBUG, "pipeline state is %s", gst_element_state_get_name(state));
         if (state != GST_STATE_NULL) {
             if (!hls_video) {
                 gst_app_src_end_of_stream (GST_APP_SRC(renderer->appsrc));
             }
             ret = gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-            logger_log(logger, LOGGER_DEBUG,"pipeline_state_change_return: %s",
+            logger_log(logger, LOGGER_DEBUG, "pipeline_state_change_return: %s",
                        gst_element_state_change_return_get_name(ret));
             gst_element_get_state(renderer->pipeline, &state, NULL, 1000 * GST_MSECOND);
-            logger_log(logger, LOGGER_DEBUG,"pipeline state is %s", gst_element_state_get_name(state));
+            logger_log(logger, LOGGER_DEBUG, "pipeline state is %s", gst_element_state_get_name(state));
         }
         if (renderer->appsrc) {
             gst_object_unref (renderer->appsrc);
@@ -766,9 +766,10 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         }	
         gst_object_unref(renderer->bus);
         gst_object_unref(renderer->pipeline);
+
 #ifdef X_DISPLAY_FIX
-        if (renderer->gst_window){
-	  // free_X11_Display(renderer->gst_window);   without this, a memory leak; with it, a coredump
+        if (renderer->gst_window) {
+            close_X11_display(renderer->gst_window);
             free(renderer->gst_window);
             renderer->gst_window = NULL;
         }
@@ -778,7 +779,7 @@ static void video_renderer_destroy_instance(video_renderer_t *renderer) {
         }
         free (renderer);
         renderer = NULL;
-        logger_log(logger, LOGGER_DEBUG,"renderer destroyed\n");	
+        logger_log(logger, LOGGER_DEBUG, "renderer destroyed\n");	
     }
 }
 
