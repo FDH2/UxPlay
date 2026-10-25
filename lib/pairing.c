@@ -198,16 +198,18 @@ pairing_session_get_public_key(pairing_session_t *session, unsigned char ecdh_ke
 int
 pairing_session_make_nonce(pairing_session_t *session, uint64_t *local_time, const char *client_data, unsigned char *nonce, int len)  {
     unsigned char hash[SHA512_DIGEST_LENGTH];
+    unsigned char ed_ours[ED25519_KEY_SIZE];
     if (len > (int) sizeof(hash)) {
       return -1;
     }
     if (!client_data || !local_time || !session || !nonce || len <= 0) {
       return -2;
     }
+    ed25519_key_get_raw(ed_ours, session->ed_ours);
     sha_ctx_t *ctx = sha_init();
     sha_update(ctx, (const unsigned char *) local_time, sizeof(uint64_t));
     sha_update(ctx, (const unsigned char *) client_data, strlen(client_data));
-    sha_update(ctx, (const unsigned char *) session->ed_ours, ED25519_KEY_SIZE);
+    sha_update(ctx, (const unsigned char *) ed_ours, ED25519_KEY_SIZE);
     sha_final(ctx, hash, NULL);
     sha_destroy(ctx);
     memcpy(nonce, hash, len);
