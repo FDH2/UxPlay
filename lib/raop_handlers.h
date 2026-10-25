@@ -752,6 +752,15 @@ raop_handler_setup(raop_conn_t *conn,
                     strncat(response_text, "\"", 80 - strlen(response_text) - 1);
                     http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
                     http_response_add_header(response, "WWW-Authenticate", response_text);
+                    if (req_root_node) {
+                        plist_free(req_root_node);
+                    }
+                    if (res_root_node) {
+                        plist_free(res_root_node);
+                    }
+                    if (deviceID) {
+                        plist_mem_free(deviceID);
+                    }
                     return;
                 }
             }
@@ -803,7 +812,7 @@ raop_handler_setup(raop_conn_t *conn,
         char* ekey = NULL;
         uint64_t ekey_len = 0;
         plist_get_data_val(req_ekey_node, &ekey, &ekey_len);
-        logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", ekey_len);
+        logger_log(raop->logger, LOGGER_DEBUG, "ekey_len = %llu", 16);
         // ekey is 72 bytes, aeskey is 16 bytes
         if (logger_debug) {
             char *str = utils_data_to_string((unsigned char *) ekey, ekey_len, EKEY_SIZE);
