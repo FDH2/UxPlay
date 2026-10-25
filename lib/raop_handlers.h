@@ -752,6 +752,15 @@ raop_handler_setup(raop_conn_t *conn,
                     strncat(response_text, "\"", 80 - strlen(response_text) - 1);
                     http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
                     http_response_add_header(response, "WWW-Authenticate", response_text);
+                    if (req_root_node) {
+                        plist_free(req_root_node);
+                    }
+                    if (res_root_node) {
+                        plist_free(res_root_node);
+                    }
+                    if (deviceID) {
+                        plist_mem_free(deviceID);
+                    }
                     return;
                 }
             }
