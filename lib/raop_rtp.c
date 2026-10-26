@@ -107,6 +107,7 @@ struct raop_rtp_s {
     /* Initialized after the first control packet */
     struct sockaddr_storage control_saddr;
     socklen_t control_saddr_len;
+    bool got_remote_control_saddr;
     unsigned short control_seqnum;
 
     /* audio compression type: ct = 2 (ALAC), ct = 8 (AAC_ELD) (ct = 4 would be AAC-MAIN) */
@@ -207,6 +208,13 @@ raop_rtp_resend_callback(void *opaque, unsigned short seqnum, unsigned short cou
     struct sockaddr *addr = NULL;
     socklen_t addrlen = 0;
     int ret = 0;
+
+    if (!raop_rtp->got_remote_control_saddr) {
+        /* We don't know where to send resend requests yet (no control
+         * packet received from the client so far) - sending now would
+         * hit an all-zero sockaddr and fail (WSAEFAULT on Windows). */
+        return 0;
+    }
 
     addr = (struct sockaddr *)&raop_rtp->control_saddr;
     addrlen = raop_rtp->control_saddr_len;
@@ -403,7 +411,6 @@ raop_rtp_thread_udp(void *arg)
     unsigned int packetlen = 0;
     struct sockaddr_storage saddr = {0};
     socklen_t saddrlen = 0;
-    bool got_remote_control_saddr = false;
     uint64_t video_arrival_offset = 0;
     uint64_t recv_time_kernel = 0;
     uint64_t recv_time_clock = 0;
@@ -468,14 +475,14 @@ raop_rtp_thread_udp(void *arg)
         }
 
         if (FD_ISSET(raop_rtp->csock, &rfds)) {
-            if (got_remote_control_saddr== false) {
+            if (raop_rtp->got_remote_control_saddr == false) {
                 saddrlen = sizeof(saddr);
                 packetlen = recvfrom(raop_rtp->csock, (char *) packet, sizeof(packet), 0,
                                       (struct sockaddr *) &saddr, &saddrlen);
                 if (packetlen > 0) {
                     memcpy(&raop_rtp->control_saddr, &saddr, saddrlen);
                     raop_rtp->control_saddr_len = saddrlen;
-                    got_remote_control_saddr = true;
+                    raop_rtp->got_remote_control_saddr = true;
                 }
             } else {
                 packetlen = recvfrom(raop_rtp->csock, (char *) packet, sizeof(packet), 0, NULL, NULL);

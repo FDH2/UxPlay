@@ -132,6 +132,34 @@ netutils_init_socket(unsigned short *port, int use_ipv6, int use_udp)
         goto cleanup;
     }
 
+#ifdef _WIN32
+    if (use_udp) {
+        /* On Windows, a UDP socket that gets an ICMP "port unreachable"
+         * reply to something it sent will have WSAECONNRESET (10054)
+         * returned on its *next* recvfrom() call, and keep reporting it
+         * on every call after that - even though UDP is connectionless
+         * and this is not a real error. Unlike POSIX systems, Windows
+         * does not ignore this by default, which can silently stall an
+         * AirPlay mirror/audio session. Disable that behaviour. */
+        BOOL bNewBehavior = FALSE;
+        DWORD dwBytesReturned = 0;
+        if (WSAIoctl(server_fd, SIO_UDP_CONNRESET, &bNewBehavior, sizeof(bNewBehavior),
+                     NULL, 0, &dwBytesReturned, NULL, NULL) == SOCKET_ERROR) {
+            /* Non-fatal: just means we may see spurious WSAECONNRESET later */
+        }
+    }
+#endif
+
+    if (use_udp) {
+        /* The default UDP receive buffer on Windows is only ~64 KB (about a
+         * second of audio).  If the receiving thread stalls briefly (console
+         * output, GStreamer, scheduling) the OS silently drops datagrams, and
+         * the client cannot resend audio that has aged out.  Ask for 2 MB;
+         * failure is non-fatal. */
+        int rcvbuf_size = 2 * 1024 * 1024;
+        setsockopt(server_fd, SOL_SOCKET, SO_RCVBUF, (const char *) &rcvbuf_size, sizeof(rcvbuf_size));
+    }
+
     int ret = setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof (reuseaddr));
     if (ret == -1) {
         goto cleanup;
