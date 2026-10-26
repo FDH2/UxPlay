@@ -44,6 +44,9 @@
 #include <unordered_map>
 #include <winsock2.h>
 #include <iphlpapi.h>
+#include <sddl.h>
+#include <io.h>
+#include <fcntl.h>
 #include <pthread.h>   //for pthreads in MSYS2 UCRT
 #else
 #include <csignal>
@@ -369,26 +372,57 @@ FILE* fopen600(const char* filename, const char* mode) {
     if (!filename || !mode) return NULL;
 
 #if defined(_WIN32)
+    DWORD desiredAccess = 0;
+    DWORD creationDisposition = 0;
     int openFlags = 0;
-    
+
     if (mode[0] == 'r') {
+        desiredAccess = GENERIC_READ;
+        creationDisposition = OPEN_EXISTING;
         openFlags = _O_RDONLY;
     } else if (mode[0] == 'w') {
-        openFlags = _O_WRONLY | _O_CREAT | _O_TRUNC;
+        desiredAccess = GENERIC_WRITE;
+        creationDisposition = CREATE_ALWAYS;
+        openFlags = _O_WRONLY;
     } else if (mode[0] == 'a') {
-        openFlags = _O_WRONLY | _O_CREAT | _O_APPEND;
+        desiredAccess = FILE_APPEND_DATA;
+        creationDisposition = OPEN_ALWAYS;
+        openFlags = _O_WRONLY | _O_APPEND;
     } else {
         return NULL;
     }
-    
-    if (mode[1] == 'b' || (mode[1] != '\0' && mode[2] == 'b')) {
-        openFlags |= _O_BINARY;
-    } else {
-        openFlags |= _O_TEXT;
+
+    // "D:P" breaks inheritance from parent folder.
+    // "(A;;GA;;;OW)" grants GENERIC_ALL (GA) to the Owner (OW).
+    // This gives the owner full control (Read, Write, and DELETE) while blocking others.
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:P(A;;GA;;;OW)", 
+            SDDL_REVISION_1, 
+            &sa.lpSecurityDescriptor, 
+            NULL)) {
+        return NULL;
     }
 
-    int fd = _open(filename, openFlags, _S_IREAD | _S_IWRITE);
-    if (fd == -1) return NULL;
+    HANDLE hFile = CreateFileA(
+        filename, 
+        desiredAccess, 
+        0, // Exclusive lock while file handle is open
+        &sa, 
+        creationDisposition, 
+        FILE_ATTRIBUTE_NORMAL, 
+        NULL
+    );
+
+    LocalFree(sa.lpSecurityDescriptor);
+
+    if (hFile == INVALID_HANDLE_VALUE) return NULL;
+
+    int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), openFlags);
+    if (fd == -1) {
+        CloseHandle(hFile);
+        return NULL;
+    }
 
     FILE* f = _fdopen(fd, mode);
     if (!f) _close(fd);
