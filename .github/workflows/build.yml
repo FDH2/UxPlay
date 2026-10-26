@@ -100,9 +100,11 @@ jobs:
           - msystem: UCRT64
             pkg_prefix: mingw-w64-ucrt-x86_64
             path_prefix: ucrt64
+            extra_pkgs: mingw-w64-ucrt-x86_64-gst-plugins-good
           - msystem: MINGW64
             pkg_prefix: mingw-w64-x86_64
             path_prefix: mingw64
+            extra_pkgs: "" # Bundled inside base packages in old repository mappings
     defaults:
       run:
         shell: msys2 {0}
@@ -122,8 +124,8 @@ jobs:
             ${{ matrix.pkg_prefix }}-libplist
             ${{ matrix.pkg_prefix }}-gstreamer
             ${{ matrix.pkg_prefix }}-gst-plugins-base
-            ${{ matrix.pkg_prefix }}-gst-plugins-good
             ${{ matrix.pkg_prefix }}-pkg-config
+            ${{ matrix.extra_pkgs }}
             base-devel
 
       - name: Configure CMake
@@ -140,7 +142,6 @@ jobs:
         run: |
           test -f build/uxplay.exe
           ls -la build/uxplay.exe
-
 
   build-windows-arm64:
     runs-on: windows-11-arm
@@ -170,7 +171,6 @@ jobs:
             ${{ matrix.pkg_prefix }}-libplist
             ${{ matrix.pkg_prefix }}-gstreamer
             ${{ matrix.pkg_prefix }}-gst-plugins-base
-            ${{ matrix.pkg_prefix }}-gst-plugins-good
             ${{ matrix.pkg_prefix }}-pkg-config
             base-devel
 
@@ -188,4 +188,5 @@ jobs:
         run: |
           test -f build/uxplay.exe
           ls -la build/uxplay.exe
+
 
