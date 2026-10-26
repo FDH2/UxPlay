@@ -362,6 +362,86 @@ static void dbus_screensaver_inhibiter(bool inhibit) {
 }
 #endif
 
+
+/* helper function for writing user-only accesible files (unix permisions 600) */
+
+FILE* fopen600(const char* filename, const char* mode) {
+    if (!filename || !mode) return NULL;
+
+#if defined(_WIN32)
+    DWORD desiredAccess = 0;
+    DWORD creationDisposition = 0;
+    int openFlags = 0;
+
+    // We only care about writing or appending here
+    if (mode[0] == 'w') {
+        desiredAccess = GENERIC_WRITE;
+        creationDisposition = CREATE_ALWAYS; // Wipes if exists, creates if missing
+        openFlags = _O_WRONLY;
+    } else if (mode[0] == 'a') {
+        desiredAccess = FILE_APPEND_DATA;
+        creationDisposition = OPEN_ALWAYS;   // Appends if exists, creates if missing
+        openFlags = _O_WRONLY | _O_APPEND;
+    } else if (mode[0] == 'r') {
+        desiredAccess = GENERIC_READ;
+        creationDisposition = OPEN_EXISTING;
+        openFlags = _O_RDONLY;
+    } else {
+        return NULL;
+    }
+
+    // "D:P" severs parent folder permission inheritance immediately.
+    // "(A;;GRGW;;;OW)" grants Read (GR) and Write (GW) to the Owner (OW) only.
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:P(A;;GRGW;;;OW)", 
+            SDDL_REVISION_1, 
+            &sa.lpSecurityDescriptor, 
+            NULL)) {
+        return NULL;
+    }
+
+    HANDLE hFile = CreateFileA(
+        filename, 
+        desiredAccess, 
+        0, // 0 = Exclusive access, locking out other local users during the I/O pass
+        &sa, 
+        creationDisposition, 
+        FILE_ATTRIBUTE_NORMAL, 
+        NULL
+    );
+
+    LocalFree(sa.lpSecurityDescriptor);
+
+    if (hFile == INVALID_HANDLE_VALUE) return NULL;
+
+    int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), openFlags);
+    if (fd == -1) {
+        CloseHandle(hFile);
+        return NULL;
+    }
+
+    FILE* f = _fdopen(fd, mode);
+    if (!f) _close(fd);
+    return f;
+
+#else
+    int posixFlags = 0;
+    if (mode[0] == 'w')      posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
+    else if (mode[0] == 'a') posixFlags = O_WRONLY | O_CREAT | O_APPEND;
+    else if (mode[0] == 'r') posixFlags = O_RDONLY;
+    else return NULL;
+
+    // Unix open() enforces strict user-only creation bits (0600) atomically
+    int fd = open(filename, posixFlags, S_IRUSR | S_IWUSR);
+    if (fd == -1) return NULL;
+
+    FILE* f = fdopen(fd, mode);
+    if (!f) close(fd);
+    return f;
+#endif
+}
+
 static bool file_has_write_access (const char * filename) {
     bool exists = false;
     bool write = false;
@@ -2971,7 +3051,7 @@ extern "C" void register_client(void *cls, const char *device_id, const char *cl
     LOGI("registered new client: %s DeviceID = %s PK = \n%s", client_name, device_id, client_pk);
     registered_keys.push_back(client_pk);
     if (strlen(pairing_register.c_str())) {
-        FILE *fp = fopen(pairing_register.c_str(), "a");
+        FILE *fp = fopen600(pairing_register.c_str(), "a");
         if (fp) {
             fprintf(fp, "%s,%s,%s\n", client_pk, device_id, client_name);
             fclose(fp);
