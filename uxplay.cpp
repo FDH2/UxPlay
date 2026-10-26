@@ -44,6 +44,9 @@
 #include <unordered_map>
 #include <winsock2.h>
 #include <iphlpapi.h>
+#include <sddl.h>
+#include <io.h>
+#include <fcntl.h>
 #include <pthread.h>   //for pthreads in MSYS2 UCRT
 #else
 #include <csignal>
@@ -361,6 +364,86 @@ static void dbus_screensaver_inhibiter(bool inhibit) {
     dbus_last_message = inhibit;
 }
 #endif
+
+
+/* helper function for writing user-only accesible files (unix permisions 600) */
+
+FILE* fopen600(const char* filename, const char* mode) {
+    if (!filename || !mode) return NULL;
+
+#if defined(_WIN32)
+    DWORD desiredAccess = 0;
+    DWORD creationDisposition = 0;
+    int openFlags = 0;
+
+    if (mode[0] == 'r') {
+        desiredAccess = GENERIC_READ;
+        creationDisposition = OPEN_EXISTING;
+        openFlags = _O_RDONLY;
+    } else if (mode[0] == 'w') {
+        desiredAccess = GENERIC_WRITE;
+        creationDisposition = CREATE_ALWAYS;
+        openFlags = _O_WRONLY;
+    } else if (mode[0] == 'a') {
+        desiredAccess = FILE_APPEND_DATA;
+        creationDisposition = OPEN_ALWAYS;
+        openFlags = _O_WRONLY | _O_APPEND;
+    } else {
+        return NULL;
+    }
+
+    // "D:P" breaks inheritance from parent folder.
+    // "(A;;GA;;;OW)" grants GENERIC_ALL (GA) to the Owner (OW).
+    // This gives the owner full control (Read, Write, and DELETE) while blocking others.
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), NULL, FALSE };
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorA(
+            "D:P(A;;GA;;;OW)", 
+            SDDL_REVISION_1, 
+            &sa.lpSecurityDescriptor, 
+            NULL)) {
+        return NULL;
+    }
+
+    HANDLE hFile = CreateFileA(
+        filename, 
+        desiredAccess, 
+        0, // Exclusive lock while file handle is open
+        &sa, 
+        creationDisposition, 
+        FILE_ATTRIBUTE_NORMAL, 
+        NULL
+    );
+
+    LocalFree(sa.lpSecurityDescriptor);
+
+    if (hFile == INVALID_HANDLE_VALUE) return NULL;
+
+    int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), openFlags);
+    if (fd == -1) {
+        CloseHandle(hFile);
+        return NULL;
+    }
+
+    FILE* f = _fdopen(fd, mode);
+    if (!f) _close(fd);
+    return f;
+
+#else
+    int posixFlags = 0;
+    if (mode[0] == 'r')      posixFlags = O_RDONLY;
+    else if (mode[0] == 'w') posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
+    else if (mode[0] == 'a') posixFlags = O_WRONLY | O_CREAT | O_APPEND;
+    else return NULL;
+
+    int fd = open(filename, posixFlags, S_IRUSR | S_IWUSR);
+    if (fd == -1) return NULL;
+
+    FILE* f = fdopen(fd, mode);
+    if (!f) close(fd);
+    return f;
+#endif
+}
+
 
 static bool file_has_write_access (const char * filename) {
     bool exists = false;
@@ -2971,7 +3054,7 @@ extern "C" void register_client(void *cls, const char *device_id, const char *cl
     LOGI("registered new client: %s DeviceID = %s PK = \n%s", client_name, device_id, client_pk);
     registered_keys.push_back(client_pk);
     if (strlen(pairing_register.c_str())) {
-        FILE *fp = fopen(pairing_register.c_str(), "a");
+        FILE *fp = fopen600(pairing_register.c_str(), "a");
         if (fp) {
             fprintf(fp, "%s,%s,%s\n", client_pk, device_id, client_name);
             fclose(fp);
