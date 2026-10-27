@@ -532,12 +532,23 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
                                        (const unsigned char **) &srp_s, &len_s,
                                        (const unsigned char **) &srp_v, &len_v,
                                        NULL, NULL);
-    if (len_s != SRP_SALT_SIZE || len_v != SRP_VERIFIER_SIZE) {
+
+    /* srp_create_salted_verification_key does not return leading zeros of srp_s and srp_v */
+    int s_offset = SRP_SALT_SIZE - len_s;
+    int v_offset = SRP_VERIFIER_SIZE - len_v;
+    
+    if (s_offset < 0 || v_offset < 0) {
         return -3;
     }
 
-    memcpy(session->srp->salt, srp_s, SRP_SALT_SIZE);
-    memcpy(session->srp->verifier, srp_v, SRP_VERIFIER_SIZE);
+    memcpy(session->srp->salt + s_offset, srp_s, len_s);
+    memcpy(session->srp->verifier + v_offset, srp_v, len_v);
+    if (s_offset) {
+        memset(session->srp->salt, 0, s_offset);
+    }
+    if (v_offset) {
+        memset(session->srp->verifier, 0, v_offset);
+    }
 
     *salt = (char *) session->srp->salt;
     *len_salt = len_s;
