@@ -3056,7 +3056,11 @@ extern "C" void register_client(void *cls, const char *device_id, const char *cl
     if (strlen(pairing_register.c_str())) {
         FILE *fp = fopen600(pairing_register.c_str(), "a");
         if (fp) {
-            fprintf(fp, "%s,%s,%s\n", client_pk, device_id, client_name);
+            time_t raw_time = time(NULL);
+            struct tm *tm_info = localtime(&raw_time);
+            char time_str[20];
+            strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
+            fprintf(fp, "%s,%s,%s,%s\n", client_pk, time_str, device_id, client_name);
             fclose(fp);
         }
     }
