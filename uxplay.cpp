@@ -143,6 +143,8 @@ static int audio_dumpfile_count = 0;
 static int audio_dump_count = 0;
 static bool dump_audio = false;
 static unsigned char audio_type = 0x00;
+static unsigned char last_audio_ct = 0;   /* codec of the audio SETUP, to restart the renderer after a video */
+static bool keep_audio = false;            /* the HLS->mirror relaunch must not stop the renderer just restarted */
 static unsigned char previous_audio_type = 0x00;
 static bool fullscreen = false;
 static bool render_coverart = false;
@@ -2619,6 +2621,12 @@ extern "C" void video_reset(void *cls, reset_type_t type) {
             video_renderer_start();
             close_window = false;  // we already closed the window
         }
+        if (type == RESET_TYPE_HLS_EOS && use_audio && last_audio_ct) {
+            /* the audio receiver kept running through the video; the relaunch at its
+             * start paused the renderer, and the client sends no new audio SETUP */
+            audio_renderer_start(&last_audio_ct);
+            keep_audio = true;
+        }
         preserve_connections = false; //we already closed all other connections
         remote_clock_offset = 0;
         relaunch_video = true;
@@ -2952,6 +2960,7 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
         audio_dumpfile = NULL;
     }
     audio_type = type;
+    last_audio_ct = *ct;
     
     if (use_audio) {
       audio_renderer_start(ct);
@@ -3768,9 +3777,10 @@ int main (int argc, char *argv[]) {
         if (reset_httpd) {
             raop_stop_httpd(raop);
         }
-        if (use_audio) {
+        if (use_audio && !keep_audio) {
             audio_renderer_stop();
         }
+        keep_audio = false;
         if (use_video && (close_window || preserve_connections || full_video_reset)) {
             video_renderer_destroy();
             if (!preserve_connections) {
