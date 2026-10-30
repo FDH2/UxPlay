@@ -422,7 +422,7 @@ raop_rtp_mirror_thread(void *arg)
                  * that has not yet been sent.   This will trigger prepending it to the current NAL, and sps_pps_len 
                  * will be set to 0 after the sps_pps-prepended packet is finalized.  */
 
-                if (sps_pps_len & (ntp_timestamp_raw != ntp_timestamp_nal)) {
+                if (sps_pps_len && ntp_timestamp_raw != ntp_timestamp_nal) {
                         logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
                                    "raop_rtp_mirror: prepended sps_pps timestamp does not match timestamp of "
                                    "video payload\n%llu\n%llu , discarding", ntp_timestamp_raw, ntp_timestamp_nal);
@@ -841,6 +841,8 @@ raop_rtp_mirror_thread(void *arg)
             }
         }
     }
+    /* recv errors can leave the loop with a partially read payload */
+    free(payload);
     /* Close the stream file descriptor */
     if (stream_fd != -1) {
         CLOSESOCKET(stream_fd);
@@ -860,8 +862,7 @@ raop_rtp_mirror_thread(void *arg)
     }
 
     if (unsupported_codec) {
-        CLOSESOCKET(raop_rtp_mirror->mirror_data_sock);
-        raop_rtp_mirror_stop(raop_rtp_mirror);
+        /* the owner joins this thread and closes mirror_data_sock in raop_rtp_mirror_stop() */
         raop_rtp_mirror->callbacks.video_reset(raop_rtp_mirror->callbacks.cls, RESET_TYPE_RTP_SHUTDOWN);
     }
 
@@ -942,10 +943,10 @@ raop_rtp_mirror_start(raop_rtp_mirror_t *raop_rtp_mirror, unsigned short *mirror
 void raop_rtp_mirror_stop(raop_rtp_mirror_t *raop_rtp_mirror) {
     assert(raop_rtp_mirror);
 
-    /* Check that we are running and thread is not
-     * joined (should never be while still running) */
+    /* The thread may already have exited by itself (client closed the
+     * connection, unsupported codec): it must still be joined. */
     MUTEX_LOCK(raop_rtp_mirror->run_mutex);
-    if (!raop_rtp_mirror->running || raop_rtp_mirror->joined) {
+    if (raop_rtp_mirror->joined) {
         MUTEX_UNLOCK(raop_rtp_mirror->run_mutex);
         return;
     }
