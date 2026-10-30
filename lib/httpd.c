@@ -192,6 +192,7 @@ httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
     /* Initial status joined */
     httpd->running = 0;
     httpd->joined = 1;
+    MUTEX_CREATE(httpd->run_mutex);
 
     return httpd;
 }
@@ -201,6 +202,7 @@ httpd_destroy(httpd_t *httpd)
 {
     if (httpd) {
         httpd_stop(httpd);
+        MUTEX_DESTROY(httpd->run_mutex);
         free(httpd->connections);
         free(httpd);
     }
