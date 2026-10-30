@@ -3127,6 +3127,11 @@ extern "C" float on_video_playlist_remove (void *cls) {
     video_renderer_hls_ready();
  }
 
+extern "C" void get_custom_profile (void *cls, const char **custom_profile) {
+    /* HLS master playlist filter set by -custom or -rpi (NULL: no filtering) */
+    *custom_profile = (custom_profile_string.empty() ? NULL : custom_profile_string.c_str());
+}
+
 extern "C" void on_video_acquire_playback_info (void *cls, playback_info_t *playback_info) {
     int buffering_level;
     bool still_playing = video_get_playback_info(&playback_info->duration, &playback_info->position,
@@ -3214,6 +3219,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.on_video_stop = on_video_stop;
     raop_cbs.on_video_playlist_remove = on_video_playlist_remove;
     raop_cbs.on_video_acquire_playback_info = on_video_acquire_playback_info;
+    raop_cbs.get_custom_profile = get_custom_profile;
 
     raop = raop_init(&raop_cbs);
     if (raop == NULL) {
