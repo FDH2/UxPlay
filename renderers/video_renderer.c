@@ -357,6 +357,19 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
             g_object_set(renderer_type[i]->pipeline, "volume", hls_volume_level, NULL);
+            /* a fixed sample rate in front of the audio sink: pulsesink recreates its PulseAudio stream when the
+               rate changes during playback (e.g. HE-AAC 24 -> 48 kHz, or a switch to a 44.1 kHz variant),
+               and the new stream came up muted (volume 0%), leaving the HLS video silent */
+            GstElement *playbin_audiosink = gst_parse_bin_from_description("audioconvert ! audioresample ! "
+                                                                           "audio/x-raw,rate=48000 ! autoaudiosink",
+                                                                           TRUE, &error);
+            if (!playbin_audiosink) {
+                logger_log(logger, LOGGER_ERR, "video_renderer_init: failed to create playbin_audiosink: %s",
+                           error ? error->message : "");
+                g_clear_error(&error);
+            } else {
+                g_object_set(G_OBJECT (renderer_type[i]->pipeline), "audio-sink", playbin_audiosink, NULL);
+            }
             //g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
         } else {
             bool jpeg_pipeline = false;
