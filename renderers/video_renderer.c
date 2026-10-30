@@ -264,6 +264,15 @@ g_string_replace (GString     *string,
 }
 #endif
 
+/* some CDNs answer HTTP 400 to the GStreamer default User-Agent: present the player as an Apple TV does */
+#define HLS_USER_AGENT "AppleCoreMedia/1.0.0.21L569 (Apple TV; U; CPU OS 17_4 like Mac OS X; en_us)"
+
+static void hls_source_setup(GstElement *playbin, GstElement *source, gpointer user_data) {
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(source), "user-agent")) {
+        g_object_set(source, "user-agent", HLS_USER_AGENT, NULL);
+    }
+}
+
 void video_renderer_init(logger_t *render_logger, const char *server_name, videoflip_t videoflip[2], const char *parser, const char * rtp_pipeline,
                           const char *decoder, const char *converter, const char *videosink, const char *videosink_options, 
                           bool initial_fullscreen, bool video_sync, bool h265_support, bool coverart_support, guint playbin_version, const char *uri) {
@@ -357,6 +366,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
             flags |= GST_PLAY_FLAG_BUFFERING;    // set by default in playbin3, but not in playbin2; is it needed?
             g_object_set(renderer_type[i]->pipeline, "flags", flags, NULL);
             g_object_set(renderer_type[i]->pipeline, "volume", hls_volume_level, NULL);
+            g_signal_connect(renderer_type[i]->pipeline, "source-setup", G_CALLBACK(hls_source_setup), NULL);
             //g_object_set (G_OBJECT (renderer_type[i]->pipeline), "uri", uri, NULL);
         } else {
             bool jpeg_pipeline = false;
