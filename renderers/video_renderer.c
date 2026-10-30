@@ -1188,6 +1188,12 @@ void video_renderer_set_start(float position) {
 
 void video_renderer_seek(float position) {
      gint64 seek_position = (gint64) ((double) position * GST_SECOND);
+    if (renderer && hls_video && hls_duration < 2000) {
+        /* the duration is not yet known: seek once seeking is enabled (like a start position) */
+        hls_requested_start_position = (seek_position < 1000 ? 1000 : seek_position);
+        logger_log(logger, LOGGER_DEBUG, "scrub to %f secs before duration is known: deferred", position);
+        return;
+    }
     /* don't seek to within 1  microsecond  of beginning or end of video */
     if (!renderer || hls_duration < 2000) return;
     seek_position =  seek_position < 1000 ? 1000 : seek_position;
