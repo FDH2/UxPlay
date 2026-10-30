@@ -422,7 +422,7 @@ raop_rtp_mirror_thread(void *arg)
                  * that has not yet been sent.   This will trigger prepending it to the current NAL, and sps_pps_len 
                  * will be set to 0 after the sps_pps-prepended packet is finalized.  */
 
-                if (sps_pps_len & (ntp_timestamp_raw != ntp_timestamp_nal)) {
+                if (sps_pps_len && ntp_timestamp_raw != ntp_timestamp_nal) {
                         logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
                                    "raop_rtp_mirror: prepended sps_pps timestamp does not match timestamp of "
                                    "video payload\n%llu\n%llu , discarding", ntp_timestamp_raw, ntp_timestamp_nal);
