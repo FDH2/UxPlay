@@ -25,7 +25,9 @@
 #include <iphlpapi.h>
 #include <mswsock.h>
 #include <windows.h>
-#ifndef snprintf
+/* Only MSVC before Visual Studio 2015 lacks snprintf. MinGW and modern MSVC
+ * have a C99 snprintf; _snprintf does not terminate a truncated string. */
+#if defined(_MSC_VER) && _MSC_VER < 1900 && !defined(snprintf)
 #define snprintf _snprintf
 #endif
 #else
