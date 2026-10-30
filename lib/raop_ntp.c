@@ -823,6 +823,7 @@ raop_ntp_thread(void *arg) {
                         }
                         uint64_t root_distance_nsec = (uint64_t) (root_distance *1e9);
                         MUTEX_LOCK(raop_ntp->sync_params_mutex);
+                        raop_ntp->client_time_received = true;
                         raop_ntp->is_synced = is_synced;
                         raop_ntp->sync_offset = sync_offset;
                         raop_ntp->root_distance = root_distance_nsec;
@@ -980,10 +981,11 @@ uint64_t raop_ntp_get_local_time() {
  * Returns the current time in nano seconds according to the remote wall clock.
  */
 uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp) {
+    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     if  (!raop_ntp->client_time_received) {
+        MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
         return 0;
     }
-    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
     return (uint64_t) (((int64_t) raop_ntp_get_local_time()) + offset);
@@ -993,10 +995,11 @@ uint64_t raop_ntp_get_remote_time(raop_ntp_t *raop_ntp) {
  * Returns the local wall clock time in nano seconds for the given point in remote clock time
  */
 uint64_t raop_ntp_convert_remote_time(raop_ntp_t *raop_ntp, uint64_t remote_time) {
+    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     if  (!raop_ntp->client_time_received) {
+        MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
         return 0;
     }
-    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
     return (uint64_t) (((int64_t) remote_time) - offset);
@@ -1006,10 +1009,11 @@ uint64_t raop_ntp_convert_remote_time(raop_ntp_t *raop_ntp, uint64_t remote_time
  * Returns the remote wall clock time in nano seconds for the given point in local clock time
  */
 uint64_t raop_ntp_convert_local_time(raop_ntp_t *raop_ntp, uint64_t local_time) {
+    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     if  (!raop_ntp->client_time_received) {
+        MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
         return 0;
     }
-    MUTEX_LOCK(raop_ntp->sync_params_mutex);
     int64_t offset = raop_ntp->sync_offset;
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
     return (uint64_t) (((int64_t) local_time) + offset);
