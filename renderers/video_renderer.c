@@ -271,6 +271,11 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     GstCaps *caps = NULL;
     bool rtp = (bool) strlen(rtp_pipeline);
     hls_video = (uri != NULL);
+#ifdef X_DISPLAY_FIX
+    /* libX11 < 1.8 does not make Xlib thread-safe by itself: the X11 window search here and the
+       X11 videosinks use Xlib from different threads.  Must precede the first Xlib call (later calls do nothing) */
+    XInitThreads();
+#endif
     /* videosink choices that are auto */
     bool auto_videosink = (strstr(videosink, "autovideosink") || strstr(videosink, "fpsdisplaysink"));
 
