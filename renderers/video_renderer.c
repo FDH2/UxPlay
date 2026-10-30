@@ -908,6 +908,13 @@ static gboolean gstreamer_video_pipeline_bus_callback(GstBus *bus, GstMessage *m
     }
 
     switch (GST_MESSAGE_TYPE (message)) {
+    case GST_MESSAGE_LATENCY:
+        if (hls_video) {
+            /* an element (e.g. a new decoder after an adaptive bitrate switch) changed its latency:
+               redistribute it, as the application is expected to do */
+            gst_bin_recalculate_latency(GST_BIN(renderer->pipeline));
+        }
+        break;
     case GST_MESSAGE_DURATION:
         hls_duration = GST_CLOCK_TIME_NONE;
         break;
