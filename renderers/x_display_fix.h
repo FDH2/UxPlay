@@ -65,7 +65,11 @@ static Window enum_windows(const char * str, Display * display, Window window, i
     char* name = NULL;
     XFetchName(display, window, &name);
     if (name) {
-        if (strcmp(str, name) == 0) {
+        /* if the stream has a title tag, the videosink names its window "<title> : <application name>" */
+        size_t name_len = strlen(name), str_len = strlen(str);
+        if (strcmp(str, name) == 0 ||
+            (name_len > str_len + 3 && strcmp(name + name_len - str_len, str) == 0 &&
+             strncmp(name + name_len - str_len - 3, " : ", 3) == 0)) {
             XFree(name);
             return window;
         }
