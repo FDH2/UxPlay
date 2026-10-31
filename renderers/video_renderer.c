@@ -461,22 +461,20 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
         /* setting char *x11_display_name to NULL means the value is taken from $DISPLAY in the environment 
          * (a uxplay option to specify a different value is possible)  */
         char *x11_display_name = NULL;
-        if (use_x11) {
-            if (i == 0) {
-                renderer_type[0]->gst_window = (X11_Window_t *) calloc(1, sizeof(X11_Window_t));
-                g_assert(renderer_type[0]->gst_window);
-                get_X11_Display(renderer_type[0]->gst_window, x11_display_name);
-                if (renderer_type[0]->gst_window->display) {
-                    renderer_type[0]->use_x11 = true;
-                } else {
-                    free(renderer_type[0]->gst_window);
-                    renderer_type[0]->gst_window = NULL;
-                }
-            } else if (renderer_type[0]->use_x11) {
-                renderer_type[i]->gst_window = (X11_Window_t *) calloc(1, sizeof(X11_Window_t));
-                g_assert(renderer_type[i]->gst_window);
-                memcpy(renderer_type[i]->gst_window, renderer_type[0]->gst_window, sizeof(X11_Window_t));
+        /* each renderer opens its own X11 Display connection: unused renderers are destroyed
+         * (closing their Display) once the codec is chosen, so the connection cannot be shared */
+        if (use_x11 && (i == 0 || renderer_type[0]->use_x11)) {
+            if (!init_X11_threads()) {
+                logger_log(logger, LOGGER_WARNING, "XInitThreads() failed: Xlib thread support is not available");
+            }
+            renderer_type[i]->gst_window = (X11_Window_t *) calloc(1, sizeof(X11_Window_t));
+            g_assert(renderer_type[i]->gst_window);
+            get_X11_Display(renderer_type[i]->gst_window, x11_display_name);
+            if (renderer_type[i]->gst_window->display) {
                 renderer_type[i]->use_x11 = true;
+            } else {
+                free(renderer_type[i]->gst_window);
+                renderer_type[i]->gst_window = NULL;
             }
         }
 #endif
