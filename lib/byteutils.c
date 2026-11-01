@@ -19,6 +19,7 @@
 #define SECOND_IN_NSECS 1000000000UL
 
 #include <time.h>
+#include <string.h>
 #ifdef _WIN32
 # include <winsock2.h>
 #else
@@ -28,7 +29,7 @@
 #include "byteutils.h"
 
 #ifdef _WIN32
-# ifndef ntonll
+# ifndef ntohll
 #  define ntohll(x) ((1==ntohl(1)) ? (x) : (((uint64_t)ntohl((x) & 0xFFFFFFFFUL)) << 32) | ntohl((uint32_t)((x) >> 32)))
 # endif
 #ifndef htonll
@@ -52,21 +53,27 @@
  * Reads a little endian unsigned 16 bit integer from the buffer at position offset
  */
 uint16_t byteutils_get_short(unsigned char* b, int offset) {
-    return *((uint16_t*)(b + offset));
+    uint16_t value;
+    memcpy(&value, b + offset, sizeof(value));
+    return value;
 }
 
 /**
  * Reads a little endian unsigned 32 bit integer from the buffer at position offset
  */
 uint32_t byteutils_get_int(unsigned char* b, int offset) {
-    return *((uint32_t*)(b + offset));
+    uint32_t value;
+    memcpy(&value, b + offset, sizeof(value));
+    return value;
 }
 
 /**
  * Reads a little endian unsigned 64 bit integer from the buffer at position offset
  */
 uint64_t byteutils_get_long(unsigned char* b, int offset) {
-    return *((uint64_t*)(b + offset));
+    uint64_t value;
+    memcpy(&value, b + offset, sizeof(value));
+    return value;
 }
 
 /**
@@ -93,21 +100,24 @@ uint64_t byteutils_get_long_be(unsigned char* b, int offset) {
  * Writes a big endian unsigned 64 bit integer to the buffer at position offset
  */
 void byteutils_put_long_be(unsigned char* b, int offset, uint64_t value) {
-    *((uint64_t*)(b + offset)) = htonll(value);
+    uint64_t be_value = htonll(value);
+    memcpy(b + offset, &be_value, sizeof(be_value));
 }
 
 /**
  * Reads a float from the buffer at position offset
  */
 float byteutils_get_float(unsigned char* b, int offset) {
-    return *((float*)(b + offset));
+    float value;
+    memcpy(&value, b + offset, sizeof(value));
+    return value;
 }
 
 /**
- * Writes a little endian unsigned 32 bit integer to the buffer at position offset
+ * Writes an unsigned 32 bit integer in host byte order to the buffer at position offset
  */
-void byteutils_put_int(unsigned char* b, int offset, uint32_t value) {
-    *((uint32_t*)(b + offset)) = value;
+static void byteutils_put_int(unsigned char* b, int offset, uint32_t value) {
+    memcpy(b + offset, &value, sizeof(value));
 }
 
 /**
