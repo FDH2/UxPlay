@@ -23,7 +23,7 @@
 #include <stdint.h>
 #include <limits.h>
 
-#define SECOND_IN_NSECS 1000000000UL
+#define SECOND_IN_NSECS 1000000000ULL
 
 char *
 utils_strsep(char **stringp, const char *delim)
@@ -239,7 +239,7 @@ void ntp_timestamp_to_time(uint64_t ntp_timestamp, char *timestamp, size_t maxsi
 #else
     strftime(timestamp, 20, "%F %T", &ts);
 #endif
-    snprintf(timestamp + 19, 11,".%9.9lu", (unsigned long) ntp_timestamp % SECOND_IN_NSECS);
+    snprintf(timestamp + 19, 11,".%9.9llu", (unsigned long long) ntp_timestamp % SECOND_IN_NSECS);
 }
 
 void ntp_timestamp_to_seconds(uint64_t ntp_timestamp, char *timestamp, size_t maxsize) {
@@ -247,7 +247,7 @@ void ntp_timestamp_to_seconds(uint64_t ntp_timestamp, char *timestamp, size_t ma
     struct tm ts = *localtime(&rawtime);
     assert(maxsize > 12);
     strftime(timestamp, 3, "%S", &ts);
-    snprintf(timestamp + 2, 11,".%9.9lu", (unsigned long) ntp_timestamp % SECOND_IN_NSECS);
+    snprintf(timestamp + 2, 11,".%9.9llu", (unsigned long long) ntp_timestamp % SECOND_IN_NSECS);
 }
 
 int utils_ipaddress_to_string(int addresslen, const unsigned char *address, unsigned int zone_id, char *string, int sizeof_string) {

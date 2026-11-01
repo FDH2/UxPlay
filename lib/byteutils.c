@@ -16,7 +16,7 @@
  */
  
 
-#define SECOND_IN_NSECS 1000000000UL
+#define SECOND_IN_NSECS 1000000000ULL
 
 #include <time.h>
 #include <string.h>

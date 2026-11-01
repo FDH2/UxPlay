@@ -21,7 +21,7 @@
 #include <gst/app/gstappsrc.h>
 #include "mux_renderer.h"
 
-#define SECOND_IN_NSECS 1000000000UL
+#define SECOND_IN_NSECS 1000000000ULL
 
 static logger_t *logger = NULL;
 static const char *output_filename = NULL;

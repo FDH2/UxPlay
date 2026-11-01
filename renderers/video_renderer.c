@@ -47,7 +47,7 @@ void video_renderer_set_window_handle(uintptr_t handle) {
     external_window_handle = handle;
 }
 
-#define SECOND_IN_NSECS 1000000000UL
+#define SECOND_IN_NSECS 1000000000ULL
 #ifdef X_DISPLAY_FIX
 #include <gst/video/navigation.h>
 #include "x_display_fix.h"

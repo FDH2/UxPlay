@@ -46,7 +46,7 @@
 #define CAST
 #endif
 
-#define SECOND_IN_NSECS 1000000000UL
+#define SECOND_IN_NSECS 1000000000ULL
 #define SEC SECOND_IN_NSECS
 
 /* for MacOS, where SOL_TCP and TCP_KEEPIDLE are not defined */
