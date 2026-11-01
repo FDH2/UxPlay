@@ -363,6 +363,11 @@ raop_rtp_mirror_thread(void *arg)
 
             if (payload == NULL) {
                 payload = malloc(payload_size);
+                if (!payload) {
+                    logger_log(raop_rtp_mirror->logger, LOGGER_ERR,"raop_rtp_mirror: Memory allocation failed (payload_out)");
+                    exit(1);
+                }
+		
                 readstart = 0;
             }
 
@@ -422,25 +427,21 @@ raop_rtp_mirror_thread(void *arg)
                  * that has not yet been sent.   This will trigger prepending it to the current NAL, and sps_pps_len 
                  * will be set to 0 after the sps_pps-prepended packet is finalized.  */
 
-                if (sps_pps_len & (ntp_timestamp_raw != ntp_timestamp_nal)) {
+                if (sps_pps_len && (ntp_timestamp_raw != ntp_timestamp_nal)) {
                         logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG,
                                    "raop_rtp_mirror: prepended sps_pps timestamp does not match timestamp of "
                                    "video payload\n%llu\n%llu , discarding", ntp_timestamp_raw, ntp_timestamp_nal);
                         sps_pps_len = 0;
                 }
-		
-                if (sps_pps_len) {
-                    payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
-                    if (!payload_out) {
-                        logger_log(raop_rtp_mirror->logger, LOGGER_ERR,"raop_rtp_mirror: Memory allocation failed (payload_out)");
-                        exit(1);
-                    }
-                    payload_decrypted = payload_out + sps_pps_len;
-                    memcpy(payload_out, sps_pps, sps_pps_len);
-                } else {
-                    payload_out = (unsigned char*)  malloc(payload_size);
-                    payload_decrypted = payload_out;
+                payload_out = (unsigned char*) malloc(payload_size + sps_pps_len);
+                if (!payload_out) {
+                    logger_log(raop_rtp_mirror->logger, LOGGER_ERR,"raop_rtp_mirror: Memory allocation failed (payload_out)");
+                    exit(1);
                 }
+                if (sps_pps_len) {
+                    memcpy(payload_out, sps_pps, sps_pps_len);
+                }
+                payload_decrypted = payload_out + sps_pps_len;
                 // Decrypt data: AES-CTR encryption/decryption  does not change the size of the data
                 mirror_buffer_decrypt(raop_rtp_mirror->buffer, payload, payload_decrypted, payload_size);
 
@@ -840,6 +841,9 @@ raop_rtp_mirror_thread(void *arg)
                 break;
             }
         }
+    }
+    if (payload) {
+        free(payload);
     }
     /* Close the stream file descriptor */
     if (stream_fd != -1) {
