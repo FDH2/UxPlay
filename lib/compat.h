@@ -25,9 +25,6 @@
 #include <iphlpapi.h>
 #include <mswsock.h>
 #include <windows.h>
-#ifndef snprintf
-#define snprintf _snprintf
-#endif
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
