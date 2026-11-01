@@ -168,10 +168,10 @@ void dnssd_set_airplay_features(dnssd_t *dnssd, int bit, int val) {
     if (bit < 0 || bit > 63) return;
     if (val < 0 || val > 1) return;
     if (bit >= 32) {
-        mask = 0x1 << (bit - 32);
+        mask = 0x1U << (bit - 32);
         features = &(dnssd->features2);
     } else {
-        mask = 0x1 << bit;
+        mask = 0x1U << bit;
         features = &(dnssd->features1);
     }
     if (val) {

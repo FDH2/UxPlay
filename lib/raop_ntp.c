@@ -665,7 +665,7 @@ raop_ntp_thread(void *arg) {
 
                 // Local timestamp of the client when the response message left the client  (should not equal t3_prev)
                 t3_raw = (q32_32_t) byteutils_get_long_be(response, 24);
-                byteutils_put_long_be(request, 8, (uint32_t) t3_raw);   //this is returned to client as client_ref
+                byteutils_put_long_be(request, 8, t3_raw);   //this is returned to client as client_ref
                 /* now adjust t3 to reset client epoch : don't include SECONDS_1900_TO_1970 */
                 t3 = raop_ntp_adjust_remote_timestamp_offset(raop_ntp, t3_raw, false);
 
@@ -1023,7 +1023,7 @@ uint64_t raop_ntp_convert_local_time(raop_ntp_t *raop_ntp, uint64_t local_time) 
 q32_32_t raop_ntp_adjust_remote_timestamp_offset(raop_ntp_t *raop_ntp, q32_32_t ntp_timestamp_raw, bool add_secs_1900_to_1970) {
     int64_t timestamp = (int64_t) ntp_timestamp_raw;
     if (add_secs_1900_to_1970) {
-        timestamp += ((int64_t) 2208988800ULL) << 32;
+        timestamp += (int64_t) (2208988800ULL << 32);
     }
     bool set_fixed_offset = false;
     if (!raop_ntp->have_fixed_offset) {
