@@ -859,6 +859,7 @@ raop_rtp_stop(raop_rtp_t *raop_rtp)
 
     if (raop_rtp->rtp_session_dsock) {
         kernel_timestamp_session_destroy(raop_rtp->rtp_session_dsock);
+        raop_rtp->rtp_session_dsock = NULL;
         raop_rtp->dsock = -1;
     } else if (raop_rtp->dsock != -1) {
         CLOSESOCKET(raop_rtp->dsock);
