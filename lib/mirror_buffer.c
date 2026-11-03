@@ -94,8 +94,18 @@ mirror_buffer_init(logger_t *logger, const unsigned char *aeskey)
 void mirror_buffer_decrypt(mirror_buffer_t *mirror_buffer, unsigned char* input, unsigned char* output, int inputLen) {
     // Start decrypting
     if (mirror_buffer->nextDecryptCount > 0) {//mirror_buffer->nextDecryptCount = 10
+        int n = mirror_buffer->nextDecryptCount;
+        int m = (n < inputLen ? n :inputLen);
         for (int i = 0; i < mirror_buffer->nextDecryptCount; i++) {
-            output[i] = (input[i] ^ mirror_buffer->og[(16 - mirror_buffer->nextDecryptCount) + i]);
+            output[i] = (input[i] ^ mirror_buffer->og[(16 - n) + i]);
+            // if less than one full frame has arrived, place data in buffer, and wait
+            // for rest to come without starting decryption.
+            // not usual with real Apple clients, but needed for
+            // some third-party clients. 
+            if (m < n) {
+                mirror_buffer->nextDecryptCount = n - m;
+                return;
+            }
         }
     }
     // Handling encrypted bytes
