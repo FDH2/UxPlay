@@ -1,0 +1,16 @@
+[Unit]
+Description=BLE Advertising Beacon script for AirPlay Unix mirroring server uxplay (uxplay.service)
+
+Requisite=uxplay.service
+After=uxplay.service
+
+[Service]
+Type=simple
+ExecStart=uxplay-beacon.py
+
+## consider switching to -u ExecStart if you wish to see the output from the script
+#ExecStart=python -u /usr/local/bin/uxplay-beacon.py
+
+
+
+
