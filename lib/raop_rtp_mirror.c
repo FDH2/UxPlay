@@ -462,14 +462,14 @@ raop_rtp_mirror_thread(void *arg)
                     memcpy(payload_decrypted + nalu_size, nal_start_code, 4);
                     nalu_size += 4;
                     nalus_count++;
-                    /* first bit of h264 nalu MUST be 0 ("forbidden_zero_bit") */
+                    /* first bit of h264/h265  nalu MUST be 0 ("forbidden_zero_bit") */
                     if (payload_decrypted[nalu_size] & 0x80) {
                         valid_data = false;
                         break;
                     }
                     int nalu_type = 0;
                     if (h265_video) {
-                        nalu_type = payload_decrypted[nalu_size] & 0x7e >> 1;;
+                        nalu_type = (payload_decrypted[nalu_size] >> 1) & 0x3f;   //bits 1-6 give h265 nalu-type
                         //logger_log(raop_rtp_mirror->logger, LOGGER_DEBUG," h265 video, NALU type %d, size %d", nalu_type, nc_len);
                     } else {
                         nalu_type = payload_decrypted[nalu_size] & 0x1f;
