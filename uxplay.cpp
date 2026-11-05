@@ -1391,7 +1391,6 @@ void set_rpi_profile_string() {
     std::string v4l2slh265dec = "v4l2slh265dec";
     bool hw264 = gstreamer_decoder_check(v4l2h264dec.c_str());
     bool hw265 = gstreamer_decoder_check(v4l2slh265dec.c_str());
-
     /* AVC/H.264 */
     if (hw264) {
         switch (pi_model) {
@@ -1659,6 +1658,7 @@ static void parse_arguments (int argc, char *argv[]) {
                 fprintf(stderr,"invalid Raspberry Pi model code %s:\n%s\n", argv[i], error_text.c_str());
                 exit(1);
             }
+            set_rpi_profile_string();
         } else if (arg == "-custom") {
 #define MAX_PROFILE_STRING_LENGTH "64"
             std::string text =
@@ -3081,7 +3081,11 @@ extern "C" bool check_register(void *cls, const char *client_pk) {
         return false;
     }
 }
-/* control  callbacks for video player (unimplemented) */
+
+extern "C" void get_custom_profile(void *cls, const char **custom_profile) {
+    /* fetches a pointer to  std::string custom_profile_string.c_str()  */
+    *custom_profile = (custom_profile_string.empty() ? NULL : custom_profile_string.c_str());
+}
 
 extern "C" void on_video_play(void *cls, const char* location, const float start_position) {
     /* start_position needs to be implemented */
@@ -3205,6 +3209,7 @@ static int start_raop_server (unsigned short display[5], unsigned short tcp[3], 
     raop_cbs.export_dacp = export_dacp;
     raop_cbs.video_reset = video_reset;
     raop_cbs.video_set_codec_and_size = video_set_codec_and_size;
+    raop_cbs.get_custom_profile = get_custom_profile;
 #ifdef DBUS
     raop_cbs.mirror_video_running = mirror_video_running;
 #endif
