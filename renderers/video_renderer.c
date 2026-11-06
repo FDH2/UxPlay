@@ -282,7 +282,7 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
     hls_seek_end = -1;
     hls_duration = -1;
     hls_buffer_empty = TRUE;
-    hls_buffer_empty = FALSE;
+    hls_buffer_full = FALSE;
     type_hls = -1;
     type_264 = -1;
     type_265 = -1;
