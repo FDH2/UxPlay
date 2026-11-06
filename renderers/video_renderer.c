@@ -437,7 +437,9 @@ void video_renderer_init(logger_t *render_logger, const char *server_name, video
                 g_clear_error (&error);
             }
             g_assert (renderer_type[i]->pipeline);
-            GstClock *clock = gst_system_clock_obtain();
+            /* a private realtime clock, not the shared system clock (see audio_renderer.c) */
+            GstClock *clock = g_object_new(GST_TYPE_SYSTEM_CLOCK, NULL);
+            gst_object_ref_sink(clock);
             g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
             gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
             renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "video_source");
