@@ -106,7 +106,7 @@ httpd_count_connection_type (httpd_t *httpd, connection_type_t type) {
     int count = 0;
     for (int i = 0; i < httpd->max_connections; i++) {
         http_connection_t *connection = &httpd->connections[i];
-        if (!connection->connected) {
+        if (!connection->connected || connection->pending_remove) {
             continue;
         }
         if (connection->type == type) {
@@ -121,7 +121,7 @@ httpd_get_connection_socket_by_type (httpd_t *httpd, connection_type_t type, int
     int count = 0;
     for (int i = 0; i < httpd->max_connections; i++) {
         http_connection_t *connection = &httpd->connections[i];
-        if (!connection->connected) {
+        if (!connection->connected || connection->pending_remove) {
             continue;
         }
         if (connection->type == type) {
@@ -139,7 +139,7 @@ httpd_get_connection_by_type (httpd_t *httpd, connection_type_t type, int instan
     int count = 0;
     for (int i = 0; i < httpd->max_connections; i++) {
         http_connection_t *connection = &httpd->connections[i];
-        if (!connection->connected) {
+        if (!connection->connected || connection->pending_remove) {
             continue;
         }
         if (connection->type == type) {
