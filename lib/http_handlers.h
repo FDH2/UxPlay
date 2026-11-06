@@ -156,6 +156,15 @@ http_handler_stop(raop_conn_t *conn, http_request_t *request, http_response_t *r
     raop_t *raop = conn->raop;
     logger_log(raop->logger, LOGGER_INFO, "client HTTP request POST stop");
 
+    /* a /stop from an older (or parallel) session must not stop the video that a newer /play started */
+    const char *session_id = http_request_get_header(request, "X-Apple-Session-ID");
+    airplay_video_t *airplay_video = (raop->current_video >= 0 ? raop->airplay_video[raop->current_video] : NULL);
+    const char *apple_session_id = (airplay_video ? get_apple_session_id(airplay_video) : NULL);
+    if (session_id && apple_session_id && strcmp(session_id, apple_session_id)) {
+        logger_log(raop->logger, LOGGER_INFO, "POST /stop from session %s ignored: current video belongs to session %s",
+                   session_id, apple_session_id);
+        return;
+    }
     raop->callbacks.on_video_stop(raop->callbacks.cls);
 }
 
