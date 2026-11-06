@@ -478,6 +478,11 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
     }
 
     if (handler != NULL) {
+        /* while it plays a video, the client may send its HTTP requests (e.g. GET /playback-info)
+           without RTSP POST /feedback: count them as feedback (but not the HLS requests of our own player) */
+        if (!hls_request && conn->connection_type == CONNECTION_TYPE_AIRPLAY && raop->callbacks.conn_feedback) {
+            raop->callbacks.conn_feedback(raop->callbacks.cls);
+        }
         handler(conn, request, *response, &response_data, &response_datalen);
     } else {
         logger_log(raop->logger, LOGGER_INFO,
