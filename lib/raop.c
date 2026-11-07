@@ -307,19 +307,9 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
                     raop_rtp_mirror_stop(raop_rtp_mirror);
                 }
 
-                raop_rtp_t *raop_rtp = raop_conn->raop_rtp;
-                if (raop_rtp) {
-                    logger_log(raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping RAOP audio"
-                               " service on RAOP connection %p", raop_conn);
-                    raop_rtp_stop(raop_rtp);
-                }
-
-                raop_ntp_t *raop_ntp = raop_conn->raop_ntp;
-                if (raop_rtp) {
-                    logger_log(raop->logger, LOGGER_DEBUG, "New AirPlay connection: stopping NTP time"
-                               " service on RAOP connection %p", raop_conn);
-                    raop_ntp_stop(raop_ntp);
-                }
+                /* The audio receiver and timing keep running: the client streams audio through
+                 * the video and returns to mirroring with a mirror SETUP alone, which would not
+                 * restart them. Only the audio renderer pauses (uxplay.cpp). */
             }
         } else if (host) {
             logger_log(raop->logger, LOGGER_DEBUG, "New connection %p identified as Connection type HLS", ptr);            
