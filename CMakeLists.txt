@@ -80,6 +80,7 @@ endif()
 
 add_subdirectory( lib/llhttp )
 add_subdirectory( lib/playfair )
+add_subdirectory( lib/fairplay_v2 )
 add_subdirectory( lib )
 add_subdirectory( renderers )
 
@@ -118,7 +119,7 @@ if (ENABLE_ASAN)
     set(CMAKE_SHARED_LINKER_FLAGS "-fsanitize=address,undefined" CACHE STRING "" FORCE)
 
     # 5. Intercept and override compilation variables directly on all sub-targets
-    foreach(target playfair dnssd llhttp airplay renderers uxplay)
+    foreach(target playfair fairplay_v2 dnssd llhttp airplay renderers uxplay)
         if(TARGET ${target})
             target_compile_options(${target} PRIVATE -O0 -fsanitize=address,undefined -fno-omit-frame-pointer -g)
             target_link_options(${target} PRIVATE -fsanitize=address,undefined)

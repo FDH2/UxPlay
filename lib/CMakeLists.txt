@@ -1,4 +1,4 @@
-include_directories( playfair llhttp )
+include_directories( playfair fairplay_v2 llhttp )
 
 message( STATUS "*** CFLAGS \"" ${CMAKE_C_FLAGS} "\" from build environment will be postpended to CMAKE_CFLAGS" )
 
@@ -64,12 +64,14 @@ if ( APPLE )
   target_link_libraries( airplay 
                          pthread
                          playfair
+			 fairplay_v2
                          dnssd
                          llhttp )
 elseif( WIN32 )
   target_link_libraries( airplay 
                          pthread
                          playfair
+			 fairplay_v2
                          dnssd
                          llhttp
                          wsock32
@@ -79,6 +81,7 @@ else()
   target_link_libraries( airplay PUBLIC
           pthread
           playfair
+	  fairplay_v2
           dnssd
           llhttp )
 endif()

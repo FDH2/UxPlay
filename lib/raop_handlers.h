@@ -556,41 +556,38 @@ raop_handler_fpsetup(raop_conn_t *conn,
     int datalen = 0;
 
     data = (unsigned char *) http_request_get_data(request, &datalen);
-    if (datalen == 16) {
-        if (data[4] != 0x03) {
-            logger_log(raop->logger, LOGGER_ERR, " Client sent an unsupported type 0x%02x FairPlay challenge:\n"
-            "Only type 0x03 can be handled using publically-available information", data[4]);
-            http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
-            return;
-        }  
-
-        *response_data = calloc(142, sizeof(char));
-        if (*response_data) {
-            http_response_add_header(response, "Content-Type", "application/octet-stream");
-            if (!fairplay_setup(conn->fairplay, data, (unsigned char *) *response_data)) {
-                *response_datalen = 142;
-            } else {
-                // Handle error?
-                free(*response_data);
-                *response_data = NULL;
-            }
-        }
-    } else if (datalen == 164) {
-        *response_data = calloc(32, sizeof(char));
-        if (*response_data) {
-            http_response_add_header(response, "Content-Type", "application/octet-stream");
-            if (!fairplay_handshake(conn->fairplay, data, (unsigned char *) *response_data)) {
-                *response_datalen = 32;
-            } else {
-                // Handle error?
-                free(*response_data);
-                *response_data = NULL;
-            }
-        }
-    } else {
+    if (!data || (datalen != 16 && datalen != 164)) {
         logger_log(raop->logger, LOGGER_ERR, "Invalid fp-setup data length");
+        http_response_init(response, "RTSP/1.0", 400, "Bad Request");
         return;
     }
+    if (data[4] != 0x02 && data[4] != 0x03) {
+        logger_log(raop->logger, LOGGER_ERR, "Unsupported FairPlay version 0x%02x", data[4]);
+        http_response_init(response, "RTSP/1.0", 501, "Not Implemented");
+        return;
+    }
+
+    int reply_len = datalen == 16 ? 142 : 32;
+    char *reply = calloc(reply_len, sizeof(char));
+    if (!reply) {
+        http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+        return;
+    }
+    int ret = datalen == 16 ? fairplay_setup(conn->fairplay, data, (unsigned char *) reply) :
+                             fairplay_handshake(conn->fairplay, data, (unsigned char *) reply);
+    if (ret != 0) {
+        logger_log(raop->logger, LOGGER_ERR, "FairPlay v%d setup failed (%d)", data[4], ret);
+        free(reply);
+        if (ret == -1) {
+            http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+        } else {
+            http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+        }
+        return;
+    }
+    http_response_add_header(response, "Content-Type", "application/octet-stream");
+    *response_data = reply;
+    *response_datalen = reply_len;
 }
 
 static void
