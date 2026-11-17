@@ -597,6 +597,125 @@ raop_handler_options(raop_conn_t *conn,
 {
     http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
 }
+	
+static bool
+raop_handler_authorize(raop_conn_t *conn, http_request_t *request,
+                       http_response_t *response, const char *deviceID)
+{
+    raop_t *raop = conn->raop;
+    if (!deviceID) {
+        deviceID = "";
+    }
+
+    /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
+    if (!conn->authenticated && raop->callbacks.passwd) {
+        size_t pin_len = 4;
+        const char *authorization = NULL;
+        authorization = http_request_get_header(request, "Authorization");
+        if (!authorization) {
+            // if random_pw is set, but client has changed, unset it 
+            if (raop->random_pw && strncmp(raop->random_pw + pin_len + 1,  deviceID, 17)) {
+                free(raop->random_pw);
+                raop->random_pw = NULL;
+            }
+        }
+        int len = 0;
+        const char *password = raop->callbacks.passwd(raop->callbacks.cls, &len);
+        // len = -1 means use a random password for this connection; len = 0 means no password
+        if (len == -1 && raop->random_pw && raop->auth_fail_count >= MAX_PW_ATTEMPTS) {
+            // change random_pw after MAX_PW_ATTEMPTS  failed authentication attempts
+            logger_log(raop->logger, LOGGER_INFO, "Too many authentication failures: generate new random password");
+            free(raop->random_pw);
+            raop->random_pw = NULL;
+        }
+        if (len == -1 && !raop->random_pw) {
+            // get and store 4 random digits
+            int pin_4  = random_pin();
+            if (pin_4 < 0) {
+                logger_log(raop->logger, LOGGER_ERR, "Failed to generate random pin");
+                pin_4 = 1234;
+            }
+            if ((raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char)))) {
+                char *pin = raop->random_pw;
+                snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
+                pin[pin_len] = '\0';
+                snprintf(pin + pin_len + 1, 18, "%s", deviceID);
+            } else {
+                logger_log(raop->logger, LOGGER_ERR, "Failed to allocate raop->random_pw");
+            }
+            raop->auth_fail_count = 0;
+        }
+        if (len == -1 && !authorization && raop->random_pw) {
+            if (raop->callbacks.display_pin) {
+                raop->callbacks.display_pin(raop->callbacks.cls, raop->random_pw);
+            }
+            logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
+            raop->auth_fail_count++;
+        }
+        if (len && !conn->authenticated) {
+            if (len == -1) {
+                password = (const char *) raop->random_pw;
+            }
+            char nonce_string[33] = { '\0' };
+            //bool stale = false;  //not implemented
+            if (len && authorization) {
+                const char *nonce = strstr(authorization, "nonce=\"");
+                nonce = nonce ? nonce + strlen("nonce=\"") : NULL;
+                if (nonce) {
+                    const char *end = strchr(nonce, '\"');
+                    if (end && end == nonce + 32) {
+                        strncpy(nonce_string, nonce, 32);
+                    }
+                }
+                const char *method = http_request_get_method(request);
+                conn->authenticated = pairing_digest_verify(method, authorization, password);
+                if (!conn->authenticated) {
+                    // if random_pw is used, the auth_fail_count will be the number of times it is displayed after creation
+                    if (len != -1) {
+                        raop->auth_fail_count++;
+                    }
+                    logger_log(raop->logger, LOGGER_INFO, "*** authentication failure: count = %u", raop->auth_fail_count);
+                }
+                if (conn->authenticated) {
+                    //printf("initial authenticatication OK\n");
+                    conn->authenticated = conn->authenticated && !strcmp(nonce_string, raop->nonce);
+                    if (!conn->authenticated) {
+                        logger_log(raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
+                                   nonce_string, raop->nonce);
+                    }			
+                }
+                if (conn->authenticated && raop->random_pw) {
+                    free (raop->random_pw);
+                    raop->random_pw = NULL;
+                }
+                if (raop->nonce) {
+                    free(raop->nonce);
+                    raop->nonce = NULL;
+                }
+                logger_log(raop->logger, LOGGER_INFO, "Client authentication %s", (conn->authenticated ? "success" : "failure"));
+            }
+            if (!conn->authenticated) {
+                /* create a nonce */
+                const char *url = http_request_get_url(request);
+                unsigned char nonce[16] = { '\0' };
+                int len = 16;
+                uint64_t now = raop_ntp_get_local_time();
+                pairing_session_make_nonce(conn->session, &now, url, nonce, len);
+                if (raop->nonce) {
+                     free(raop->nonce);
+                }
+                raop->nonce = utils_hex_to_string(nonce, len);
+                char response_text[80] = "Digest realm=\"raop\", nonce=\"";
+                strncat(response_text, raop->nonce, 80 - strlen(response_text) - 1);
+                strncat(response_text, "\"", 80 - strlen(response_text) - 1);
+                http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
+                http_response_add_header(response, "WWW-Authenticate", response_text);
+                return false;
+            }
+        }
+    }
+    return true;
+}
 
 #define AES_IV_SIZE 16
 #define EKEY_SIZE 72
@@ -651,124 +770,12 @@ raop_handler_setup(raop_conn_t *conn,
         plist_t req_deviceid_node = plist_dict_get_item(req_root_node, "deviceID");
         plist_get_string_val(req_deviceid_node, &deviceID);  
 
-
-        /* RFC2617 Digest authentication (md5 hash) of uxplay client-access password, if set */
-        if (!conn->authenticated && raop->callbacks.passwd) {
-            size_t pin_len = 4;
-            const char *authorization = NULL;
-            authorization = http_request_get_header(request, "Authorization");
-            if (!authorization) {
-                // if random_pw is set, but client has changed, unset it 
-                if (raop->random_pw && strncmp(raop->random_pw + pin_len + 1,  deviceID, 17)) {
-                    free(raop->random_pw);
-                    raop->random_pw = NULL;
-                }
-            }
-            int len = 0;
-            const char *password = raop->callbacks.passwd(raop->callbacks.cls, &len);
-            // len = -1 means use a random password for this connection; len = 0 means no password
-            if (len == -1 && raop->random_pw && raop->auth_fail_count >= MAX_PW_ATTEMPTS) {
-                // change random_pw after MAX_PW_ATTEMPTS  failed authentication attempts
-                logger_log(raop->logger, LOGGER_INFO, "Too many authentication failures: generate new random password");
-                free(raop->random_pw);
-                raop->random_pw = NULL;
-            }
-            if (len == -1 && !raop->random_pw) {
-                // get and store 4 random digits
-                int pin_4  = random_pin();
-                if (pin_4 < 0) {
-                    logger_log(raop->logger, LOGGER_ERR, "Failed to generate random pin");
-                    pin_4 = 1234;
-                }
-                if ((raop->random_pw =  (char *) calloc(pin_len + 1 + 18, sizeof(char)))) {
-                    char *pin = raop->random_pw;
-                    snprintf(pin, pin_len + 1, "%04u", pin_4 % 10000);
-                    pin[pin_len] = '\0';
-                    snprintf(pin + pin_len + 1, 18, "%s", deviceID);
-                } else {
-                    logger_log(raop->logger, LOGGER_ERR, "Failed to allocate raop->random_pw");
-                }
-                raop->auth_fail_count = 0;
-            }
-            if (len == -1 && !authorization && raop->random_pw) {
-                if (raop->callbacks.display_pin) {
-                    raop->callbacks.display_pin(raop->callbacks.cls, raop->random_pw);
-                }
-                logger_log(raop->logger, LOGGER_INFO, "*** CLIENT MUST NOW ENTER PIN = \"%s\" AS AIRPLAY PASSWORD", raop->random_pw);
-                raop->auth_fail_count++;
-            }
-            if (len && !conn->authenticated) {
- 	        if (len == -1) {
-                    password = (const char *) raop->random_pw;
-                }
-                char nonce_string[33] = { '\0' };
-                //bool stale = false;  //not implemented
-                if (len && authorization) {
-                    const char *nonce = strstr(authorization, "nonce=\"");
-                    nonce = nonce ? nonce + strlen("nonce=\"") : NULL;
-                    if (nonce) {
-                        const char *end = strchr(nonce, '\"');
-                        if (end && end == nonce + 32) {
-                            strncpy(nonce_string, nonce, 32);
-                        }
-                    }
-                    const char *method = http_request_get_method(request);
-                    conn->authenticated = pairing_digest_verify(method, authorization, password);
-                    if (!conn->authenticated) {
-                        // if random_pw is used, the auth_fail_count will be the number of times it is displayed after creation
-                        if (len != -1) {
-                            raop->auth_fail_count++;
-                        }
-                        logger_log(raop->logger, LOGGER_INFO, "*** authentication failure: count = %u", raop->auth_fail_count);
-                    }
-                    if (conn->authenticated) {
-                        //printf("initial authenticatication OK\n");
-                        conn->authenticated = conn->authenticated && !strcmp(nonce_string, raop->nonce);
-                        if (!conn->authenticated) {
-                            logger_log(raop->logger, LOGGER_INFO, "authentication rejected (nonce mismatch) %s %s",
-                                       nonce_string, raop->nonce);
-                        }			
-                    }
-                    if (conn->authenticated && raop->random_pw) {
-                        free (raop->random_pw);
-                        raop->random_pw = NULL;
-                    }
-                    if (raop->nonce) {
-                        free(raop->nonce);
-                        raop->nonce = NULL;
-                    }
-                    logger_log(raop->logger, LOGGER_INFO, "Client authentication %s", (conn->authenticated ? "success" : "failure"));
-                }
-                if (!conn->authenticated) {
-                    /* create a nonce */
-                    const char *url = http_request_get_url(request);
-                    unsigned char nonce[16] = { '\0' };
-                    int len = 16;
-                    uint64_t now = raop_ntp_get_local_time();
-                    pairing_session_make_nonce(conn->session, &now, url, nonce, len);
-                    if (raop->nonce) {
-                        free(raop->nonce);
-                    }
-                    raop->nonce = utils_hex_to_string(nonce, len);
-                    char response_text[80] = "Digest realm=\"raop\", nonce=\"";
-                    strncat(response_text, raop->nonce, 80 - strlen(response_text) - 1);
-                    strncat(response_text, "\"", 80 - strlen(response_text) - 1);
-                    http_response_init(response, "RTSP/1.0", 401, "Unauthorized");
-                    http_response_add_header(response, "WWW-Authenticate", response_text);
-                    if (req_root_node) {
-                        plist_free(req_root_node);
-                    }
-                    if (res_root_node) {
-                        plist_free(res_root_node);
-                    }
-                    if (deviceID) {
-                        plist_mem_free(deviceID);
-                    }
-                    return;
-                }
-            }
+        if (!raop_handler_authorize(conn, request, response, deviceID)) {
+            plist_free(req_root_node);
+            plist_free(res_root_node);
+            plist_mem_free(deviceID);
+            return;
         }
-	
         char *model = NULL;
         char *name = NULL;
         bool admit_client = true;
