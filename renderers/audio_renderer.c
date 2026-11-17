@@ -129,7 +129,10 @@ bool gstreamer_init(){
 void audio_renderer_init(logger_t *render_logger, const char* audiosink, const bool* audio_sync, const bool* video_sync, const char *artp_pipeline) {
     GError *error = NULL;
     GstCaps *caps = NULL;
-    GstClock *clock = gst_system_clock_obtain();
+    /* a private realtime clock: gst_system_clock_obtain() returns the clock shared by all pipelines
+       (e.g. the HLS playbin), whose clock-type must stay monotonic */
+    GstClock *clock = g_object_new(GST_TYPE_SYSTEM_CLOCK, NULL);
+    gst_object_ref_sink(clock);
     g_object_set(clock, "clock-type", GST_CLOCK_TYPE_REALTIME, NULL);
 
     audio_rtp = (bool) strlen(artp_pipeline);
