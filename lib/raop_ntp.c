@@ -958,17 +958,15 @@ void raop_ntp_get_sync_params(raop_ntp_t *raop_ntp, int64_t *offset_ns, double *
     MUTEX_UNLOCK(raop_ntp->sync_params_mutex);
 }
 
-/**
- * Converts from a little endian ntp timestamp to nano seconds since the Unix epoch.
- * Does the same thing as byteutils_get_ntp_timestamp, except its input is an uint64_t
- * and expected to already be in little endian.
- * Please note this just converts to a different representation, the clock remains the
- * same.
- */
+/* Convert an adjusted NTP Q32.32 timestamp to nanoseconds since the Unix epoch. */
 
 uint64_t raop_ntp_timestamp_to_nano_seconds(raop_ntp_t *raop_ntp, uint64_t timestamp) {
+    (void) raop_ntp;
     uint64_t seconds = (timestamp >> 32);
-    if (raop_ntp->time_protocol == NTP) seconds -= SECONDS_FROM_1900_TO_1970;
+    if (seconds < SECONDS_FROM_1900_TO_1970) {
+        return 0;
+    }
+    seconds -= SECONDS_FROM_1900_TO_1970;
     uint64_t fraction = (timestamp & 0xffffffff);
     return (seconds * SECOND_IN_NSECS) + ((fraction * SECOND_IN_NSECS) >> 32);
 }

@@ -135,6 +135,12 @@ fairplay_decrypt(fairplay_t *fp, const unsigned char input[72], unsigned char ou
     return 0;
 }
 
+unsigned int
+fairplay_get_version(const fairplay_t *fp)
+{
+    return fp ? fp->version : 0;
+}
+
 void
 fairplay_destroy(fairplay_t *fp)
 {

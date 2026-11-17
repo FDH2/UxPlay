@@ -869,6 +869,7 @@ raop_handler_setup_audio(raop_conn_t *conn, http_request_t *request,
         raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf,
                                          &using_screen, &is_media, &audio_format);
     }
+    raop_rtp_set_audio_sync(conn->raop_rtp, fairplay_get_version(conn->fairplay) == 2);
     raop_rtp_start_audio(conn->raop_rtp, &remote_cport, &cport, &dport, &ct, &sr);
     if (!raop_rtp_is_running(conn->raop_rtp)) {
         goto setup_audio_failed;
@@ -1261,6 +1262,7 @@ raop_handler_setup(raop_conn_t *conn,
                 }
 
                 if (conn->raop_rtp) {
+                    raop_rtp_set_audio_sync(conn->raop_rtp, fairplay_get_version(conn->fairplay) == 2);
                     raop_rtp_start_audio(conn->raop_rtp, &remote_cport, &cport, &dport, &ct, &sr);
                     logger_log(raop->logger, LOGGER_DEBUG, "RAOP initialized success");
                 } else {

@@ -150,8 +150,10 @@ status](https://repology.org/badge/vertical-allrepos/uxplay.svg)](https://repolo
     **GStreamer plugin packages** you should also install.
 
 -   For Audio-only mode (Apple Music, etc.) best quality is obtained
-    with the option "uxplay -async", but there is then a 2 second
-    latency imposed by iOS.  Use option "uxplay -ca" to display any "Cover Art" that
+    with timestamp synchronization, but there is then a 2 second
+    latency imposed by the client. This is enabled automatically for
+    FairPlay v2 streams, or with the option "uxplay -async" for other
+    streams. Use option "uxplay -ca" to display any "Cover Art" that
     accompanies the audio.
 
 -   If you are using UxPlay just to mirror the client's screen (without
@@ -1364,10 +1366,11 @@ which means that audio changes such as a pause or a track-change will
 not take effect immediately. *This might in principle be mitigated by
 using the `-al` audio latency setting to change the latency (default
 0.25 secs) that the server reports to the client, but at present
-changing this does not seem to have any effect*.
+changing this does not seem to have any effect*. Timestamp synchronization
+is enabled automatically for FairPlay v2 streams.
 
-**-async no**. This is the still the default behavior in Audio-only
-mode, but this option may be useful as a command-line option to switch
+**-async no**. Disable timestamp synchronization in Audio-only mode,
+including the FairPlay v2 default. This option may also be used to switch
 off a `-async` option set in a "uxplayrc" configuration file.
 
 **-db *low*\[:*high*\]** Rescales the AirPlay volume-control attenuation

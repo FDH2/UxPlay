@@ -107,6 +107,7 @@ static dnssd_t *dnssd = NULL;
 static raop_t *raop = NULL;
 static logger_t *render_logger = NULL;
 static bool audio_sync = false;
+static bool audio_sync_disabled = false;
 static bool video_sync = true;
 static int64_t audio_delay_alac = 0;
 static int64_t audio_delay_aac = 0;
@@ -1134,7 +1135,7 @@ static void print_info (char *name) {
     printf("-vsync [x]Mirror mode: sync audio to video using timestamps (default)\n");
     printf("          x is optional audio delay: millisecs, decimal, can be neg.\n");
     printf("-vsync no Switch off audio/(server)video timestamp synchronization \n");
-    printf("-async [x]Audio-Only mode: sync audio to client video (default: no)\n");
+    printf("-async [x]Audio-Only mode: sync audio to client video (default for FairPlay v2)\n");
     printf("-async no Switch off audio/(client)video timestamp synchronization\n");
     printf("-db l[:h] Set minimum volume attenuation to l dB (decibels, negative);\n");
     printf("          optional: set maximum to h dB (+ or -) default: -30.0:0.0 dB\n");
@@ -1695,9 +1696,11 @@ static void parse_arguments (int argc, char *argv[]) {
             }
         } else if (arg == "-async") {
             audio_sync = true;
+	    audio_sync_disabled = false;
 	    if (i <  argc - 1) {
                 if (strlen(argv[i+1]) == 2 && strncmp(argv[i+1], "no", 2) == 0) {
                     audio_sync = false;
+                    audio_sync_disabled = true;
                     i++;
                     continue;
 		}
@@ -2806,6 +2809,7 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
         switch (data->ct) {
         case 2:
             /* for progress monitor (ALAC audio only) */
+            audio_renderer_set_sync(data->sync_status && !audio_sync_disabled);
             rtptime = data->rtp_time;
             if (audio_delay_alac) {
                 data->ntp_time_remote = (uint64_t) ((int64_t) data->ntp_time_remote + audio_delay_alac);

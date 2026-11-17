@@ -35,6 +35,7 @@ raop_rtp_t *raop_rtp_init(logger_t *logger, raop_callbacks_t *callbacks, raop_nt
 void raop_rtp_start_audio(raop_rtp_t *raop_rtp, unsigned short *control_rport, unsigned short *control_lport,
                           unsigned short *data_lport, unsigned char *ct, unsigned int *sr);
 
+void raop_rtp_set_audio_sync(raop_rtp_t *raop_rtp, bool sync_audio);
 void raop_rtp_set_volume(raop_rtp_t *raop_rtp, float volume);
 void raop_rtp_set_metadata(raop_rtp_t *raop_rtp, const char *data, int datalen);
 void raop_rtp_set_coverart(raop_rtp_t *raop_rtp, const char *data, int datalen);

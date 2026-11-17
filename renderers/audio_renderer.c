@@ -4,6 +4,7 @@
  * Modified for:
  * UxPlay - An open-source AirPlay mirroring server
  * Copyright (C) 2021-23 F. Duncanh
+ * Copyright (C) 2026 Omar Roth
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -46,6 +47,7 @@ static gdouble volume_level = 1.0;
 typedef struct audio_renderer_s {
     GstElement *appsrc; 
     GstElement *pipeline;
+    GstElement *sink;
     GstElement *volume;
     GstBus *bus;
     unsigned char ct;
@@ -119,6 +121,20 @@ static gboolean check_plugin_feature (const gchar *needed_feature)
                  "\"rm -rf ~/.cache/gstreamer-1.0\"\n\n");
     }
     return ret;
+}
+
+static GstElement *audio_renderer_get_sink(GstElement *pipeline)
+{
+    GstIterator *iterator = gst_bin_iterate_sinks(GST_BIN(pipeline));
+    GValue value = G_VALUE_INIT;
+    GstElement *sink = NULL;
+
+    if (gst_iterator_next(iterator, &value) == GST_ITERATOR_OK) {
+        sink = GST_ELEMENT(g_value_dup_object(&value));
+        g_value_unset(&value);
+    }
+    gst_iterator_free(iterator);
+    return sink;
 }
 
 bool gstreamer_init(){
@@ -205,7 +221,11 @@ void audio_renderer_init(logger_t *render_logger, const char* audiosink, const b
         gst_pipeline_use_clock(GST_PIPELINE_CAST(renderer_type[i]->pipeline), clock);
         renderer_type[i]->bus = gst_element_get_bus(renderer_type[i]->pipeline);
         renderer_type[i]->appsrc = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "audio_source");
+        renderer_type[i]->sink = audio_rtp ? NULL : audio_renderer_get_sink(renderer_type[i]->pipeline);
         renderer_type[i]->volume = gst_bin_get_by_name (GST_BIN (renderer_type[i]->pipeline), "volume");
+        if (!audio_rtp && !renderer_type[i]->sink) {
+            logger_log(logger, LOGGER_ERR, "failed to find GStreamer audio sink");
+        }
         if (renderer_type[i]->volume) {
             g_object_set(renderer_type[i]->volume, "volume", volume_level, NULL);
         }
@@ -288,24 +308,48 @@ static void get_renderer_type(unsigned char *ct, int *id) {
 
 void  audio_renderer_start(unsigned char *ct) {
     int id = -1;
+    gboolean start_renderer = FALSE;
     get_renderer_type(ct, &id);
-    if (id >= 0 && renderer) {
-        if(*ct != renderer->ct) {
-            gst_app_src_end_of_stream(GST_APP_SRC(renderer->appsrc));
-            gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
-            logger_log(logger, LOGGER_INFO, "changed audio connection, format %s", format[id]);
-            renderer = renderer_type[id];
-            gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
-            gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
-        }
-    } else if (id >= 0) {
+    if (id < 0) {
+        logger_log(logger, LOGGER_ERR, "unknown audio compression type ct = %d", *ct);
+        return;
+    }
+
+    if (renderer && *ct != renderer->ct) {
+        gst_app_src_end_of_stream(GST_APP_SRC(renderer->appsrc));
+        gst_element_set_state (renderer->pipeline, GST_STATE_NULL);
+        logger_log(logger, LOGGER_INFO, "changed audio connection, format %s", format[id]);
+        renderer = renderer_type[id];
+        start_renderer = TRUE;
+    } else if (!renderer) {
         logger_log(logger, LOGGER_INFO, "start audio connection, format %s", format[id]);
         renderer = renderer_type[id];
+        start_renderer = TRUE;
+    }
+
+    if (renderer->sink) {
+        g_object_set(renderer->sink, "sync", sync, NULL);
+    }
+    if (renderer->ct == 2) {
+        logger_log(logger, LOGGER_DEBUG, "ALAC timestamp synchronization %s", sync ? "enabled" : "disabled");
+    }
+    if (start_renderer) {
         gst_element_set_state (renderer->pipeline, GST_STATE_PLAYING);
         gst_audio_pipeline_base_time = gst_element_get_base_time(renderer->appsrc);
-    } else {
-        logger_log(logger, LOGGER_ERR, "unknown audio compression type ct = %d", *ct);
     }
+}
+
+void audio_renderer_set_sync(bool sync_audio) {
+    gboolean enable = async || sync_audio;
+
+    if (audio_rtp || !renderer || renderer->ct != 2 || sync == enable) {
+        return;
+    }
+    sync = enable;
+    if (renderer->sink) {
+        g_object_set(renderer->sink, "sync", sync, NULL);
+    }
+    logger_log(logger, LOGGER_DEBUG, "ALAC timestamp synchronization %s", sync ? "enabled" : "disabled");
 }
 
 void audio_renderer_render_buffer(unsigned char* data, int *data_len, unsigned short *seqnum, uint64_t *ntp_time) {
@@ -399,6 +443,10 @@ void audio_renderer_destroy() {
         renderer_type[i]->bus = NULL;
         gst_object_unref (renderer_type[i]->volume);
         renderer_type[i]->volume = NULL;
+        if (renderer_type[i]->sink) {
+            gst_object_unref (renderer_type[i]->sink);
+            renderer_type[i]->sink = NULL;
+        }
         gst_object_unref (renderer_type[i]->appsrc);
         renderer_type[i]->appsrc = NULL;
         gst_object_unref (renderer_type[i]->pipeline);

@@ -1,5 +1,6 @@
 /**
  *  Copyright (C) 2018  Juho Vähä-Herttua
+ *  Copyright (C) 2026  Omar Roth
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -23,6 +24,7 @@ fairplay_t *fairplay_init(logger_t *logger);
 int fairplay_setup(fairplay_t *fp, const unsigned char req[16], unsigned char res[142]);
 int fairplay_handshake(fairplay_t *fp, const unsigned char req[164], unsigned char res[32]);
 int fairplay_decrypt(fairplay_t *fp, const unsigned char input[72], unsigned char output[16]);
+unsigned int fairplay_get_version(const fairplay_t *fp);
 void fairplay_destroy(fairplay_t *fp);
 
 #endif

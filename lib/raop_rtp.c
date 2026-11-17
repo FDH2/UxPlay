@@ -112,6 +112,7 @@ struct raop_rtp_s {
 
     /* audio compression type: ct = 2 (ALAC), ct = 8 (AAC_ELD) (ct = 4 would be AAC-MAIN) */
     unsigned char ct;
+    bool sync_audio;
 };
 
 static int
@@ -657,6 +658,7 @@ raop_rtp_thread_udp(void *arg)
                     audio_data.data_len = payload_size;
                     audio_data.data = payload;
                     audio_data.ct = raop_rtp->ct;
+                    audio_data.sync_status = raop_rtp->sync_audio;
                     audio_data.ntp_time_remote = rtp_time_to_client_ntp(raop_rtp, rtp_timestamp);
                     audio_data.ntp_time_local  = raop_ntp_convert_remote_time(raop_rtp->ntp, audio_data.ntp_time_remote);
 
@@ -731,6 +733,13 @@ raop_rtp_start_audio(raop_rtp_t *raop_rtp,  unsigned short *control_rport, unsig
 
     THREAD_CREATE(raop_rtp->thread, raop_rtp_thread_udp, raop_rtp);
     MUTEX_UNLOCK(raop_rtp->run_mutex);
+}
+
+void
+raop_rtp_set_audio_sync(raop_rtp_t *raop_rtp, bool sync_audio)
+{
+    assert(raop_rtp);
+    raop_rtp->sync_audio = sync_audio;
 }
 
 void
