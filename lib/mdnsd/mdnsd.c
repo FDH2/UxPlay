@@ -1,5 +1,6 @@
 /**
  *  Copyright (C) 2026  kgbook
+ *  Copyright (C) 2026  Omar Roth
  *
  *  This library is free software; you can redistribute it and/or
  *  modify it under the terms of the GNU Lesser General Public
@@ -391,9 +392,12 @@ static uint32_t mdns_get_default_ipv4(void)
     free(pAddresses);
 #else    
     int fd;
+    struct ifaddrs *ifaddr = NULL;
+    struct ifaddrs *ifa;
     struct sockaddr_in remote;
     struct sockaddr_in local;
     socklen_t local_len = sizeof(local);
+    uint32_t routed_addr = 0;
 
     fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
@@ -407,10 +411,42 @@ static uint32_t mdns_get_default_ipv4(void)
 
     if (connect(fd, (struct sockaddr *) &remote, sizeof(remote)) == 0 &&
         getsockname(fd, (struct sockaddr *) &local, &local_len) == 0) {
-        addr = local.sin_addr.s_addr;
+        routed_addr = local.sin_addr.s_addr;
     }
 
     CLOSESOCKET(fd);
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return 0;
+    }
+
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        struct sockaddr_in *sin;
+
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET ||
+            !(ifa->ifa_flags & IFF_UP) ||
+            !(ifa->ifa_flags & IFF_RUNNING) ||
+            !(ifa->ifa_flags & IFF_MULTICAST) ||
+            (ifa->ifa_flags & IFF_LOOPBACK)) {
+            continue;
+        }
+
+        sin = (struct sockaddr_in *) ifa->ifa_addr;
+        if (sin->sin_addr.s_addr == htonl(INADDR_ANY) ||
+            (ntohl(sin->sin_addr.s_addr) >> 24) == IN_LOOPBACKNET) {
+            continue;
+        }
+
+        if (!addr) {
+            addr = sin->sin_addr.s_addr;
+        }
+        if (sin->sin_addr.s_addr == routed_addr) {
+            addr = routed_addr;
+            break;
+        }
+    }
+
+    freeifaddrs(ifaddr);
 #endif
     //printf("local ipv4 address %d.%d.%d.%d\n",  (addr & 0xff), ((addr >> 8) & 0xff),
     //       ((addr >> 16) & 0xff),((addr >> 24) & 0xff));
