@@ -2691,13 +2691,16 @@ extern "C" void display_pin(void *cls, char *pin) {
 }
 
 extern "C" const char *passwd(void *cls, int *len){
+    g_assert(len);
     if (pin_pw == 2) {
         *len = password.size();
         return password.c_str();
     } else if  (pin_pw == 3) {
         *len = -1;
+    } else if  (pin_pw == 1) {
+        *len = -2;  /* no password used because pin in used instead*/
     } else {
-        *len = 0;   /* no password used */
+        *len = 0; /* no authentication used */
     }
     return NULL;
 }
