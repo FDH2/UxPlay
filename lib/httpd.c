@@ -22,6 +22,10 @@
 #include <stdbool.h>
 #include <errno.h>
 
+#ifdef __linux__
+#include <sys/eventfd.h>
+#endif
+
 #include "httpd.h"
 #include "netutils.h"
 #include "http_request.h"
@@ -65,6 +69,9 @@ struct httpd_s {
     /* Server fds for accepting connections */
     int server_fd4;
     int server_fd6;
+#ifdef __linux__
+    int stop_fd;
+#endif
 };
 
 const char *
@@ -166,6 +173,9 @@ httpd_init(logger_t *logger, httpd_callbacks_t *callbacks, int nohold)
         return NULL;
     }
 
+#ifdef __linux__
+    httpd->stop_fd = -1;
+#endif
     httpd->nohold = (nohold ? 1 : 0);
     httpd->max_connections = MAX_CONNECTIONS;  
     httpd->connections = calloc(httpd->max_connections, sizeof(http_connection_t));
@@ -201,6 +211,9 @@ httpd_destroy(httpd_t *httpd)
 {
     if (httpd) {
         httpd_stop(httpd);
+#ifdef __linux__
+        if (httpd->stop_fd >= 0) CLOSESOCKET(httpd->stop_fd);
+#endif
 	MUTEX_DESTROY(httpd->run_mutex);
         free(httpd->connections);
         free(httpd);
@@ -428,7 +441,18 @@ httpd_thread(void *arg)
             }
         }
 
+#ifdef __linux__
+        if (httpd->stop_fd >= 0) {
+            FD_SET(httpd->stop_fd, &rfds);
+            if (nfds <= httpd->stop_fd) nfds = httpd->stop_fd + 1;
+        }
+#endif
         nfds_set = select(nfds, &rfds, NULL, NULL, &tv);
+#ifdef __linux__
+        if (nfds_set > 0 && httpd->stop_fd >= 0 && FD_ISSET(httpd->stop_fd, &rfds)) {
+            break;
+        }
+#endif
         if (nfds_set == 0) {
             /* Timeout happened */
             continue;
@@ -703,6 +727,15 @@ httpd_start(httpd_t *httpd, unsigned short *port)
     }
     logger_log(httpd->logger, LOGGER_INFO, "Initialized server socket(s)");
 
+#ifdef __linux__
+    /* Keep select()'s original timeout as a fallback if a wakeup fd is unavailable. */
+    httpd->stop_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+    if (httpd->stop_fd >= FD_SETSIZE) {
+        CLOSESOCKET(httpd->stop_fd);
+        httpd->stop_fd = -1;
+    }
+#endif
+
     /* Set values correctly and create new thread */
     httpd->running = 1;
     httpd->joined = 0;
@@ -737,11 +770,25 @@ httpd_stop(httpd_t *httpd)
         return;
     }
     httpd->running = 0;
+#ifdef __linux__
+    if (httpd->stop_fd >= 0) {
+        int result;
+        do {
+            result = eventfd_write(httpd->stop_fd, 1);
+        } while (result < 0 && errno == EINTR);
+    }
+#endif
     MUTEX_UNLOCK(httpd->run_mutex);
 
     THREAD_JOIN(httpd->thread);
 
     MUTEX_LOCK(httpd->run_mutex);
+#ifdef __linux__
+    if (httpd->stop_fd >= 0) {
+        CLOSESOCKET(httpd->stop_fd);
+        httpd->stop_fd = -1;
+    }
+#endif
     httpd->joined = 1;
     MUTEX_UNLOCK(httpd->run_mutex);
 }
