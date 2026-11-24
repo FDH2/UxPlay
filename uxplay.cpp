@@ -2766,9 +2766,9 @@ extern "C" void conn_reset (void *cls, int reason) {
     reset_loop = true;
 }
 
-extern "C" void report_client_request(void *cls, char *deviceid, char * model, char *name, bool * admit) {
-    LOGI("connection request from %s (%s) with deviceID = %s\n", name, model, deviceid);
-    if (restrict_clients) {
+extern "C" void report_client_request(void *cls, char *deviceid, char * model, char *name, bool *admit) {
+    LOGI("connection request from %s (%s) with deviceID = %s\n", name, model, deviceid ? deviceid : "(no DeviceI)D");
+    if (restrict_clients && deviceid) {
         *admit = check_client(deviceid);
         if (*admit == false) {
             LOGI("client connections have been restricted to those with listed deviceID,\nuse \"-allow %s\" to allow this client to connect.\n",
@@ -2776,6 +2776,9 @@ extern "C" void report_client_request(void *cls, char *deviceid, char * model, c
         }
     } else {
         *admit = true;
+    }
+    if (!deviceid) {
+        return;
     }
     if (check_blocked_client(deviceid)) {
         *admit = false;
@@ -3056,6 +3059,9 @@ extern "C" void register_client(void *cls, const char *device_id, const char *cl
     }
     LOGI("registered new client: %s DeviceID = %s PK = \n%s", client_name, device_id, client_pk);
     registered_keys.push_back(client_pk);
+    std::string name = client_name;
+    // sanitise name: remove any line breaks 
+    name.erase(std::remove_if (name.begin(), name.end(), [] (unsigned char c) { return c == '\r' || c == '\n'; }),name.end());
     if (strlen(pairing_register.c_str())) {
         FILE *fp = fopen600(pairing_register.c_str(), "a");
         if (fp) {
@@ -3063,7 +3069,7 @@ extern "C" void register_client(void *cls, const char *device_id, const char *cl
             struct tm *tm_info = localtime(&raw_time);
             char time_str[20];
             strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", tm_info);
-            fprintf(fp, "%s,%s,%s,%s\n", client_pk, time_str, device_id, client_name);
+            fprintf(fp, "%s,%s,%s,%s\n", client_pk, time_str, device_id, name.c_str());
             fclose(fp);
         }
     }
