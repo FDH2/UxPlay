@@ -550,7 +550,7 @@ srp_new_user(pairing_session_t *session, pairing_t *pairing, const char *device_
         memset(session->srp->verifier, 0, v_offset);
     }
 
-    *salt = (char *) session->srp->salt;
+    *salt = (char *) session->srp->salt + s_offset;
     *len_salt = len_s;
 
     srp_create_server_ephemeral_key(SRP_SHA, SRP_NG,
