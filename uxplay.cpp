@@ -150,7 +150,9 @@ static std::string coverart_filename = "";
 static std::string metadata_filename = "";
 static bool do_append_hostname = true;
 static bool use_random_hw_addr = false;
-static unsigned short display[5] = {0}, tcp[3] = {0}, udp[3] = {0};
+static unsigned short display[5] = {0};
+static unsigned short tcp[3] = {0};
+static unsigned short udp[3] = {0};
 static bool debug_log = DEFAULT_DEBUG_LOG;
 static bool suppress_packet_debug_data = false;
 static int log_level = LOGGER_INFO;
@@ -1258,35 +1260,63 @@ static bool get_value (const char *str, unsigned int *n) {
     return true;
 }
 
-static bool get_ports (int nports, std::string option, const char * value, unsigned short * const port) {
-    /*valid entries are comma-separated values port_1,port_2,...,port_r, 0 < r <= nports */
-    /*where ports are distinct, and are in the allowed range.                            */
-    /*missed values are consecutive to last given value (at least one value needed).    */
-    char *end;
-    unsigned long l;
-    std::size_t pos;
-    std::string val(value), str;
-    for (int i = 0; i <= nports ; i++)  {
-        if(i == nports) break;
-        pos = val.find_first_of(',');
-        str = val.substr(0,pos);
-        if(str.length() == 0 || str.length() > 5 || str[0] == '-') break;
-        l = strtoul(str.c_str(), &end, 10);
-        if (*end || l < LOWEST_ALLOWED_PORT || l > HIGHEST_PORT) break;
-         *(port + i) = (unsigned short) l;
-        for  (int j = 0; j < i ; j++) {
-            if( *(port + j) == *(port + i)) break;
+
+static bool get_ports(int nports, const std::string &option, const char *value, unsigned short *const port) {
+    /* Valid entries are comma-separated values port_1,port_2,...,port_r, 0 < r <= nports
+     * where all resulting ports are distinct and in [LOWEST_ALLOWED_PORT, HIGHEST_PORT].
+     * Missing trailing values are consecutive to the last given value (at least one value needed). */
+    if (value == nullptr || nports <= 0) {
+        return false;
+    }
+
+    g_assert(HIGHEST_PORT <= 65535);
+    g_assert(LOWEST_ALLOWED_PORT > 0);
+    std::string val(value);
+    int i = 0;
+
+    while (true) {
+        if (i >= nports) {
+            goto invalid;
         }
-        if(pos == std::string::npos) {
-            if (nports + *(port + i) > i + 1 + HIGHEST_PORT) break;
+        std::size_t pos = val.find(',');
+        std::string str = val.substr(0, pos);
+        if (str.empty() || str.length() > 5 || !std::isdigit(static_cast<unsigned char>(str[0]))) {
+            goto invalid;
+        }
+        char *end = nullptr;
+        unsigned long l = std::strtoul(str.c_str(), &end, 10);
+        if (*end != '\0' || l < LOWEST_ALLOWED_PORT || l > HIGHEST_PORT) {
+            goto invalid;
+        }
+        port[i] = (unsigned short)(l);
+        for (int j = 0; j < i; j++) {
+            if (port[j] == port[i]) {
+                goto invalid;
+            }
+        }
+        if (pos == std::string::npos) {
+            int remaining = nports - 1 - i;
+            if (remaining + ((int) port[i]) > HIGHEST_PORT) {
+                goto invalid;
+            }
+
             for (int j = i + 1; j < nports; j++) {
-                *(port + j) = *(port + j - 1) + 1;
+                port[j] = port[j - 1] + 1;
+                for (int k = 0; k < j; k++) {
+                    if (port[k] == port[j]) {
+                        goto invalid;
+                    }
+                }
             }
             return true;
         }
-        val.erase(0, pos+1);
+
+        val.erase(0, pos + 1);
+        i++;
     }
-    LOGE("invalid \"%s %s\", all %d ports must be in range [%d,%d]",
+
+invalid:
+    LOGE("invalid \"%s %s\", all %d distinct ports must be in range [%d,%d]",
          option.c_str(), value, nports, LOWEST_ALLOWED_PORT, HIGHEST_PORT);
     return false;
 }
@@ -2767,7 +2797,7 @@ extern "C" void conn_reset (void *cls, int reason) {
 }
 
 extern "C" void report_client_request(void *cls, char *deviceid, char * model, char *name, bool *admit) {
-    LOGI("connection request from %s (%s) with deviceID = %s\n", name, model, deviceid ? deviceid : "(no DeviceI)D");
+    LOGI("connection request from %s (%s) with deviceID = %s\n", name, model, deviceid ? deviceid : "(no DeviceID)");
     if (restrict_clients && deviceid) {
         *admit = check_client(deviceid);
         if (*admit == false) {
