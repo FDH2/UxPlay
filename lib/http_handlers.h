@@ -377,17 +377,18 @@ http_handler_reverse(raop_conn_t *conn, http_request_t *request, http_response_t
     logger_log(raop->logger, LOGGER_INFO, "client requested reverse connection: %s; purpose: %s  \"%s\"",
                connection, upgrade, purpose);
 
+    /* a client may open a second AirPlay session (with its own POST /reverse) before the first one
+       has closed: the newest reverse channel replaces the previous one.  (Refusing the upgrade left
+       this connection typed EVENT without event buffers, and the next data on it crashed httpd) */
+    if (httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_EVENT)) {
+        logger_log(raop->logger, LOGGER_INFO, "new reverse connection replaces the previous one");
+        httpd_remove_connections_by_type(raop->httpd, CONNECTION_TYPE_EVENT);
+    }
     httpd_set_connection_type(raop->httpd, (void *) conn, CONNECTION_TYPE_EVENT);
-    int type_PTTH = httpd_count_connection_type(raop->httpd, CONNECTION_TYPE_EVENT);
-
-    if (type_PTTH == 1) {
-        logger_log(raop->logger, LOGGER_DEBUG, "will use socket %d for %s connections", socket_fd, purpose);
-        http_response_init(response, "HTTP/1.1", 101, "Switching Protocols");
-        http_response_add_header(response, "Connection", "Upgrade");
-        http_response_add_header(response, "Upgrade", "PTTH/1.0");
-    } else {
-        logger_log(raop->logger, LOGGER_ERR, "multiple EVENT (PTTH) connections (%d) are forbidden", type_PTTH );
-    }    
+    logger_log(raop->logger, LOGGER_DEBUG, "will use socket %d for %s connections", socket_fd, purpose);
+    http_response_init(response, "HTTP/1.1", 101, "Switching Protocols");
+    http_response_add_header(response, "Connection", "Upgrade");
+    http_response_add_header(response, "Upgrade", "PTTH/1.0");
 }
 
 /* the POST /action request from Client to Server on the AirPlay http channel follows a POST /event "FCUP Request"
