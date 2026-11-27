@@ -3514,7 +3514,13 @@ int main (int argc, char *argv[]) {
                 std::replace(lang_system.begin(), lang_system.end(), '_', '-');
             }
         }
-        g_assert(!lang_system.empty());
+        if (lang_system.empty()) {
+            /* No locale in this environment (cron, launchd agent, "env -i",
+             * containers): use a default instead of aborting. A "-lang" list,
+             * if given, still takes precedence over this preference. */
+            lang_system = "en";
+            printf("no locale environment variable found: using \"en\" as the system language preference\n");
+        }
     }
 
 #ifdef _WIN32    /*  use utf-8 terminal output; don't buffer stdout in WIN32 when debug_log = false */
