@@ -117,7 +117,10 @@ void md5_final(md5_ctx_t *ctx, uint8_t *out, unsigned int *len);
 void md5_reset(md5_ctx_t *ctx);
 void md5_destroy(md5_ctx_t *ctx);
 char *get_md5(char *string);
-  
+
+//base_64
+int airplay_b64_decode(const char *b64_in, unsigned char *out, size_t out_cap); 
+
 #ifdef __cplusplus
 }
 #endif

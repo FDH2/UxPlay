@@ -600,6 +600,51 @@ char *get_md5(char *string) {
 int get_random_bytes(unsigned char *buf, int num) {
     return RAND_bytes(buf, num);
 }
+
+#define AIRPLAY_B64_MAX_PADDED 256U
+#define AIRPLAY_B64_MAX_DECODED ((AIRPLAY_B64_MAX_PADDED / 4U) * 3U)
+
+int airplay_b64_decode(const char *b64_in, unsigned char *out, size_t out_cap) {
+    if (!b64_in || !out) return -1;
+
+    /* Strip trailing whitespace/newlines */
+    size_t len = strcspn(b64_in, "\r\n \t");
+    if (len == 0) return -1;
+
+    /* Calculate required '=' padding (0, 1, or 2 bytes) */
+    size_t pad = (4 - (len % 4)) % 4;
+    if (pad == 3) return -1; /* Invalid Base64 length */
+
+    size_t padded_len = len + pad;
+    if (padded_len >= AIRPLAY_B64_MAX_PADDED) return -1;
+     
+    size_t max_decoded = (padded_len / 4) * 3;
+    if (max_decoded > AIRPLAY_B64_MAX_DECODED) return -1;
+
+    char padded[AIRPLAY_B64_MAX_PADDED] ;
+    uint8_t scratch[AIRPLAY_B64_MAX_DECODED];
+
+    memcpy(padded, b64_in, len);
+    memset(padded + len, '=', pad);
+    padded[padded_len] = '\0';
+
+    int decoded_len = EVP_DecodeBlock(scratch, (const unsigned char *)padded, (int)padded_len);
+    if (decoded_len < (int)pad) {
+        OPENSSL_cleanse(scratch, sizeof(scratch));
+        return -1 ;
+    }
+
+    int actual_len = decoded_len - (int)pad;
+    if ((size_t)actual_len > out_cap) {
+        OPENSSL_cleanse(scratch, sizeof(scratch));
+        return -1;
+    }
+
+    memcpy(out, scratch, (size_t)actual_len);
+    OPENSSL_cleanse(scratch, sizeof(scratch));
+    return actual_len;
+}
+
 #include <stdio.h>
 void pk_to_base64(const unsigned char *pk, int pk_len, char *pk_base64, int len) {
     memset(pk_base64, 0, len);

@@ -31,7 +31,7 @@
 #include "compat.h"
 #include "raop_rtp_mirror.h"
 #include "raop_ntp.h"
-
+#include "sdp.h"
 
 /* libplist-2.3.0  API change */
 #ifndef PLIST_230
@@ -121,6 +121,7 @@ struct raop_conn_s {
     char *client_session_id;
     bool authenticated;
     bool have_active_remote;
+    sdp_t *sdp;
 };
 typedef struct raop_conn_s raop_conn_t;
 
@@ -142,6 +143,7 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->raop_rtp = NULL;
     conn->raop_rtp_mirror = NULL;
     conn->raop_ntp = NULL;
+    conn->sdp = NULL;
     conn->fairplay = fairplay_init(raop->logger);
 
     if (!conn->fairplay) {
@@ -426,6 +428,8 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             }
         } else if (!strcmp(method, "OPTIONS")) {
             handler = &raop_handler_options;
+        //} else if (!strcmp(method, "ANNOUNCE")) {
+        //      handler = &raop_handler_announce;
         } else if (!strcmp(method, "SETUP")) {
             raop->hls_pending = false;
             handler = &raop_handler_setup;
@@ -577,6 +581,9 @@ conn_destroy(void *ptr) {
     fairplay_destroy(conn->fairplay);
     if (conn->client_session_id) {
         free(conn->client_session_id);
+    }
+    if (conn->sdp) {
+        sdp_destroy(conn->sdp);
     }
 
     free(conn);
