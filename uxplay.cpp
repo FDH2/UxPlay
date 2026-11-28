@@ -73,6 +73,9 @@
 #include "renderers/video_renderer.h"
 #include "renderers/audio_renderer.h"
 #include "renderers/mux_renderer.h"
+#ifdef UXPLAY_MPRIS
+#include "mpris/mpris.h"
+#endif
 #ifdef DBUS
 #include <dbus/dbus.h>
 #endif
@@ -210,6 +213,10 @@ static std::string artist;
 static std::string track_title;
 static std::string track_album;
 static std::string coverart_artist;
+#ifdef UXPLAY_MPRIS
+static bool use_mpris = true;
+static std::string mpris_title, mpris_artist, mpris_album, mpris_genre;
+#endif
 static std::string ble_filename = "";
 static std::string rtp_pipeline = "";
 static std::string audio_rtp_pipeline = "";
@@ -1119,6 +1126,9 @@ static void print_info (char *name) {
     printf("-rpi n    Set pre-selected HLS \"profile strings\" on R PI by model code n\n");
     printf("-rpi      Shows possible Raspberry Pi model codes n for \"-rpi n\"\n");
     printf("-scrsv n  Screensaver override n: 0=off 1=on while displaying video 2=always on\n");
+#ifdef UXPLAY_MPRIS
+    printf("-nompris  Do not show AirPlay audio in desktop media controls (MPRIS)\n");
+#endif
     printf("-pin[xxxx]Use a 4-digit pin code to control client access (default: no)\n");
     printf("          default pin is random: optionally use fixed pin xxxx\n");
     printf("-p2p      Advertise and accept AirPlay over Apple peer-to-peer (macOS only)\n");
@@ -1738,6 +1748,12 @@ static void parse_arguments (int argc, char *argv[]) {
                     }
                 }
             }
+        } else if (arg == "-nompris") {
+#ifdef UXPLAY_MPRIS
+            use_mpris = false;
+#else
+            fprintf(stderr, "option -nompris ignored: this UxPlay was built without MPRIS support\n");
+#endif
         } else if (arg == "-scrsv") {
             if (!option_has_value(i, argc, argv[i], argv[i+1])) exit(1);
             unsigned int n = 0;
@@ -2287,6 +2303,9 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
                 break;
             case 'l':
                 metadata_text->append("Album: ");  /*asal*/
+#ifdef UXPLAY_MPRIS
+                mpris_album.assign(metadata, metadata + datalen);
+#endif
                 if (render_coverart) {
                     track_album.erase();
                     track_album.append(metadata, metadata + datalen);
@@ -2294,6 +2313,9 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
                 break;
             case 'r':
                 metadata_text->append("Artist: ");  /*asar*/
+#ifdef UXPLAY_MPRIS
+                mpris_artist.assign(metadata, metadata + datalen);
+#endif
                 if (render_coverart) {
                     artist.erase();
                     artist.append(metadata, metadata + datalen);
@@ -2362,6 +2384,9 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
                 metadata_text->append("Format: ");
             } else if (strcmp (dmap_tag, "asgn") == 0) {
                 metadata_text->append("Genre: ");
+#ifdef UXPLAY_MPRIS
+                mpris_genre.assign(metadata, metadata + datalen);
+#endif
             } else if (strcmp (dmap_tag, "asky") == 0) {
                 metadata_text->append("Keywords: ");
             } else if (strcmp (dmap_tag, "aslc") == 0) {
@@ -2374,6 +2399,9 @@ static void process_metadata(int count, const char *dmap_tag, const unsigned cha
     } else if (strcmp (dmap_tag, "minm") == 0) {
         dmap_type = 9;
         metadata_text->append("Title: ");
+#ifdef UXPLAY_MPRIS
+        mpris_title.assign(metadata, metadata + datalen);
+#endif
         if (render_coverart) {
             track_title.erase();
             track_title.append(metadata, metadata + datalen);
@@ -2736,6 +2764,11 @@ extern "C" const char *passwd(void *cls, int *len){
 }
 
 extern "C" void export_dacp(void *cls, const char *active_remote, const char *dacp_id) {
+#ifdef UXPLAY_MPRIS
+    if (use_mpris) {
+        mpris_set_remote(dacp_id, active_remote);
+    }
+#endif
       if (dacpfile.length()) {
         FILE *fp = fopen(dacpfile.c_str(), "w");
         if (fp) {
@@ -2765,6 +2798,11 @@ extern "C" void conn_destroy (void *cls) {
         if (dacpfile.length()) {
             remove (dacpfile.c_str());
         }
+#ifdef UXPLAY_MPRIS
+        if (use_mpris) {
+            mpris_clear();
+        }
+#endif
         if (mux_to_file) {
             mux_renderer_stop();
         }
@@ -2837,6 +2875,11 @@ extern "C" void audio_process (void *cls, raop_ntp_t *ntp, audio_decode_struct *
         case 2:
             /* for progress monitor (ALAC audio only) */
             rtptime = data->rtp_time;
+#ifdef UXPLAY_MPRIS
+            if (use_mpris) {
+                mpris_set_playing(true);
+            }
+#endif
             if (audio_delay_alac) {
                 data->ntp_time_remote = (uint64_t) ((int64_t) data->ntp_time_remote + audio_delay_alac);
             }
@@ -2904,6 +2947,11 @@ extern "C" void video_resume (void *cls) {
 
 
 extern "C" void audio_flush (void *cls) {
+#ifdef UXPLAY_MPRIS
+    if (use_mpris) {
+        mpris_set_playing(false);   /* the client flushes when the user pauses or skips */
+    }
+#endif
     if (use_audio) {
         audio_renderer_flush();
     }
@@ -3006,6 +3054,11 @@ extern "C" void audio_get_format (void *cls, unsigned char *ct, unsigned short *
 }
 
 extern "C" void audio_set_coverart(void *cls, const void *buffer, int buflen) {
+#ifdef UXPLAY_MPRIS
+    if (use_mpris) {
+        mpris_set_coverart(buffer, buflen);
+    }
+#endif
     if (buffer && coverart_filename.length()) {
         write_coverart(coverart_filename.c_str(), buffer, buflen);
         LOGI("coverart size %d written to %s", buflen,  coverart_filename.c_str());
@@ -3028,6 +3081,11 @@ extern "C" void audio_set_progress(void *cls, uint32_t *start, uint32_t *curr, u
     rtptime = *curr;
     rtptime_end = *end;
     display_progress(rtptime_start, rtptime, rtptime_end);
+#ifdef UXPLAY_MPRIS
+    if (use_mpris) {
+        mpris_set_progress(*start, *curr, *end);
+    }
+#endif
 }
 
 extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
@@ -3054,6 +3112,12 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
         return;
     }
     std::string metadata_text = "";
+#ifdef UXPLAY_MPRIS
+    mpris_title.clear();
+    mpris_artist.clear();
+    mpris_album.clear();
+    mpris_genre.clear();
+#endif
     while (buflen >= 8) {
         count++;
         if (parse_dmap_header(metadata, dmap_tag, &datalen)) {
@@ -3073,6 +3137,11 @@ extern "C" void audio_set_metadata(void *cls, const void *buffer, int buflen) {
     if (buflen != 0) {
         LOGE("%d bytes of metadata were not processed", buflen);
     }
+#ifdef UXPLAY_MPRIS
+    if (use_mpris) {
+        mpris_set_metadata(mpris_title.c_str(), mpris_artist.c_str(), mpris_album.c_str(), mpris_genre.c_str());
+    }
+#endif
     // Update video renderer with track metadata for cover art display
     if (render_coverart) {
         video_renderer_set_track_metadata(
@@ -3704,6 +3773,14 @@ int main (int argc, char *argv[]) {
         exit (1);
     }
 
+#ifdef UXPLAY_MPRIS
+    if (use_mpris && use_audio) {
+        if (mpris_init(server_name.c_str())) {
+            LOGI("AirPlay audio will be shown in desktop media controls (MPRIS); disable with \"-nompris\"");
+        }
+    }
+#endif
+
     render_logger = logger_init();
     logger_set_callback(render_logger, log_callback, NULL);
     logger_set_level(render_logger, log_level);
@@ -3847,6 +3924,9 @@ int main (int argc, char *argv[]) {
 }
  
 static void cleanup() {
+#ifdef UXPLAY_MPRIS
+    mpris_shutdown();
+#endif
     if (use_audio) {
         audio_renderer_destroy();
     }
