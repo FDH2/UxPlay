@@ -390,6 +390,13 @@ void audio_renderer_set_volume(double volume) {
 }
 
 void audio_renderer_flush() {
+    /* client sent FLUSH (pause/skip): drop queued audio so the old track doesn't play out.
+     * reset_time=FALSE keeps the running time, so timestamped (-async) buffers stay in sync */
+    if (!renderer) {
+        return;
+    }
+    gst_element_send_event(renderer->pipeline, gst_event_new_flush_start());
+    gst_element_send_event(renderer->pipeline, gst_event_new_flush_stop(FALSE));
 }
 
 void audio_renderer_destroy() {
