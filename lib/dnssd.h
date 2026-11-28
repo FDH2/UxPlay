@@ -56,7 +56,9 @@ typedef struct dnssd_s {
 
 void *dnssd_private_init(dnssd_t *dnssd_public, int *error);
 void dnssd_private_destroy(void *dnssd_private);
+void dnssd_private_unregister(void *dnssd_private);
 void dnssd_error_text(int *error, const char *appname);
+void dnssd_unregister(dnssd_t *dnssd);
 
 DNSSD_API dnssd_t *dnssd_init(const char *name, int name_len, const char *hw_addr, int hw_addr_len, unsigned char pin_pw, int *error);
 

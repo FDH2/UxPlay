@@ -39,6 +39,14 @@ void dnssd_set_peer_to_peer(dnssd_t *dnssd, int enabled) {
 }
 #endif
 
+void
+dnssd_unregister(dnssd_t *dnssd)
+{
+    if (dnssd && dnssd->dnssd_private) {
+        dnssd_private_unregister(dnssd->dnssd_private);
+    }
+}
+
 dnssd_t *
 dnssd_init(const char* name, int name_len, const char* hw_addr, int hw_addr_len, unsigned char pin_pw, int *error)
 {

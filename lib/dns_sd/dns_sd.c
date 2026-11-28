@@ -217,19 +217,47 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
 }
 
 void
-dnssd_private_destroy(void *private)
+dnssd_private_unregister(void *dnssd_private)
 {
-    if (private) {
-        dnssd_private_t *dnssd = (dnssd_private_t *) private;
-#ifdef WIN32
-        FreeLibrary(dnssd->module);
-#elif USE_LIBDL
-        dlclose(dnssd->module);
-#endif
-        free(dnssd);
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_private;
+    if (!dnssd) {
+        return;
+    }
+
+    if (dnssd->airplay_service) {
+        dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
+        dnssd->airplay_service = NULL;
+        dnssd->TXTRecordDeallocate(&dnssd->airplay_record);
+    }
+
+    if (dnssd->raop_service) {
+        dnssd->DNSServiceRefDeallocate(dnssd->raop_service);
+        dnssd->raop_service = NULL;
+        dnssd->TXTRecordDeallocate(&dnssd->raop_record);
     }
 }
 
+void
+dnssd_private_destroy(void *dnssd_private)
+{
+    dnssd_private_t *dnssd = (dnssd_private_t *) dnssd_private;
+    if (!dnssd) {
+        return;
+    }
+
+    dnssd_private_unregister(dnssd);
+
+#ifdef WIN32
+    if (dnssd->module) {
+        FreeLibrary(dnssd->module);
+    }
+#elif USE_LIBDL
+    if (dnssd->module) {
+        dlclose(dnssd->module);
+    }
+#endif
+    free(dnssd);
+}
 int
 dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
 {
@@ -243,6 +271,12 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
     DNSServiceFlags flags = 0;
     uint32_t interface_index = 0;
 
+    if (dnssd->raop_service) {
+        dnssd->DNSServiceRefDeallocate(dnssd->raop_service);
+        dnssd->raop_service = NULL;
+        dnssd->TXTRecordDeallocate(&dnssd->raop_record);
+    }
+    
 #if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
     /* p2p support (macOS only) 
      * Keep the normal registrations and opt into both Apple P2P families.
@@ -255,6 +289,21 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
 
     snprintf(features, sizeof(features), "0x%X,0x%X", dnssd_public->features1, dnssd_public->features2);
 
+    /* Convert hardware address to string */
+    if (utils_hwaddr_raop(servname, sizeof(servname), dnssd_public->hw_addr, dnssd_public->hw_addr_len) < 0) {
+        /* FIXME: handle better */
+        return -1;
+    }
+
+    /* Check that we have bytes for 'hw@name' format */
+    if (sizeof(servname) < strlen(servname) + 1 + dnssd_public->name_len + 1) {
+        /* FIXME: handle better */
+        return -2;
+    }
+
+    strncat(servname, "@", sizeof(servname)-strlen(servname)-1);
+    strncat(servname, dnssd_public->name, sizeof(servname)-strlen(servname)-1);
+    
     dnssd->TXTRecordCreate(&dnssd->raop_record, 0, NULL);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "ch", strlen(RAOP_CH), RAOP_CH);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "cn", strlen(RAOP_CN), RAOP_CN);
@@ -291,21 +340,6 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "vn", strlen(RAOP_VN), RAOP_VN);
     dnssd->TXTRecordSetValue(&dnssd->raop_record, "pk", strlen(dnssd_public->pk), dnssd_public->pk);
 
-    /* Convert hardware address to string */
-    if (utils_hwaddr_raop(servname, sizeof(servname), dnssd_public->hw_addr, dnssd_public->hw_addr_len) < 0) {
-        /* FIXME: handle better */
-        return -1;
-    }
-
-    /* Check that we have bytes for 'hw@name' format */
-    if (sizeof(servname) < strlen(servname) + 1 + dnssd_public->name_len + 1) {
-        /* FIXME: handle better */
-        return -2;
-    }
-
-    strncat(servname, "@", sizeof(servname)-strlen(servname)-1);
-    strncat(servname, dnssd_public->name, sizeof(servname)-strlen(servname)-1);
-
     /* Register the service */
     DNSServiceErrorType retval = dnssd->DNSServiceRegister(&dnssd->raop_service, flags, interface_index,
                                                           servname, "_raop._tcp",
@@ -316,6 +350,11 @@ dnssd_register_raop(dnssd_t *dnssd_public, unsigned short port)
                                                           dnssd_register_dummy_callback,
                                                           NULL);
 
+    if (retval != kDNSServiceErr_NoError) {
+        dnssd->TXTRecordDeallocate(&dnssd->raop_record);
+        dnssd->raop_service = NULL;
+    }
+    
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }
 
@@ -331,6 +370,12 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
     DNSServiceFlags flags = 0;
     uint32_t interface_index = 0;
 
+    if (dnssd->airplay_service) {
+        dnssd->DNSServiceRefDeallocate(dnssd->airplay_service);
+        dnssd->airplay_service = NULL;
+        dnssd->TXTRecordDeallocate(&dnssd->airplay_record);
+    }
+    
 #if defined(__APPLE__) && defined(UXPLAY_HAVE_APPLE_P2P)
     /* p2p support (macOS only) 
      * Keep the normal registrations and opt into both Apple P2P families.
@@ -383,6 +428,11 @@ dnssd_register_airplay(dnssd_t *dnssd_public, unsigned short port)
                                                            dnssd->TXTRecordGetBytesPtr(&dnssd->airplay_record),
                                                            dnssd_register_dummy_callback,
                                                            NULL);
+
+    if (retval != kDNSServiceErr_NoError) {
+        dnssd->TXTRecordDeallocate(&dnssd->airplay_record);
+        dnssd->airplay_service = NULL;
+    }
 
     return (int) retval;   /* error codes are listed in Apple's dns_sd.h */
 }

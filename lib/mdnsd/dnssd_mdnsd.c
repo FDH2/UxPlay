@@ -227,10 +227,36 @@ dnssd_private_init(dnssd_t *dnssd_public, int *error)
 }
 
 void
+dnssd_private_unregister(void *private)
+{
+    dnssd_private_t *dnssd = (dnssd_private_t *) private;
+    if (!dnssd || !dnssd->mdnsd) {
+        return;
+    }
+
+    if (dnssd->airplay_registered) {
+        mdnsd_service_t airplay;
+        dnssd_fill_airplay_service(dnssd, &airplay);
+        mdnsd_goodbye(dnssd->mdnsd, &airplay);
+        dnssd->airplay_registered = 0;
+    }
+
+    if (dnssd->raop_registered) {
+        mdnsd_service_t raop;
+        dnssd_fill_raop_service(dnssd, &raop);
+        mdnsd_goodbye(dnssd->mdnsd, &raop);
+        dnssd->raop_registered = 0;
+    }
+
+    dnssd_update_mdnsd(dnssd);
+}
+
+void
 dnssd_private_destroy(void *private)
 {
     if (private) {
         dnssd_private_t *dnssd = (dnssd_private_t *) private;
+        dnssd_private_unregister(dnssd);
         mdnsd_destroy(dnssd->mdnsd);
         free(dnssd);
     }
